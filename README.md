@@ -6,6 +6,14 @@ a bad-ass debugging experience. (Windows Only)
 We don't just want to debug the machine, we want to see it breathe,
 to hear it's heart beat, to feel its tender pulses ... ... .. .
 
+### In motion
+
+![Orbiter program introspection](gifs/orbiter_capture_001.gif)
+
+![Orbiter live program activity](gifs/orbiter_capture_003.gif)
+
+![Orbiter rewind and CRT presentation](gifs/orbiter_capture_004.gif)
+
 ### Supported Mappers:
 
 - Mapper 0: NROM
@@ -26,7 +34,7 @@ of the views I want, but those will be added soon.
 The emulator and debugger grew together, and so ease of introspection
 and simplicity _are_ the main priorities.
 
-See the ```gifs\```.
+Additional captures are available in [`gifs/`](gifs/).
 
 ### Road map
 - Continue improving the architecture and performance
