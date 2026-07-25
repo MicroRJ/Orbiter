@@ -1,0 +1,20 @@
+#ifndef NES_INTERNAL_PPU_H
+#define NES_INTERNAL_PPU_H
+
+#include "nes/emulator.h"
+#include "../bus/bus.h"
+
+enum { ppu_max_nsprs_per_scanline = NES_PPU_MAX_SPRITES_PER_SCANLINE };
+
+enum
+{
+	NES_PPU_EVENT_NONE  = 0,
+	NES_PPU_EVENT_NMI   = 1 << 0,
+	NES_PPU_EVENT_FRAME = 1 << 1,
+};
+
+void nes_ppu_reset(NES_PPUState *ppu);
+NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access);
+u32 nes_ppu_step(NES_Emulator *core);
+
+#endif

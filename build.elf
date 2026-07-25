@@ -1,0 +1,265 @@
+
+common_compile_options := {
+	"/nologo",
+	"/MD",
+	"/D_DEBUG",
+	"-Zi",
+	"-Wfloat-conversion",
+	"-Wint-conversion",
+	"-Wuninitialized",
+	"-Wshift-overflow",
+	"-Wshift-count-overflow",
+	"-Wshift-negative-value",
+}
+
+optimized_object_names := {
+	"nes",
+	"nes_state_meta",
+	"nes_bus",
+	"nes_cpu",
+	"nes_ppu",
+	"nes_apu",
+	"nes_nrom",
+	"nes_mmc1",
+	"nes_mmc2",
+	"nes_uxrom",
+	"nes_cartridge",
+	"nes_runtime",
+	"serialize",
+}
+
+include_directories := {
+	"src",
+	"src/os",
+	"src/graphics",
+	"build/generated",
+	"src/vendor",
+	"src/fonts/ttf",
+	"src/nes/include",
+	"src/nes/src",
+	"src/frontend",
+	"src/debugger",
+	"src/serialize",
+	"src/ui",
+	"src/base",
+	"src/audio",
+	"src/lz4",
+	"src/text",
+	"platform/include",
+	"src/fonts/ttf/freetype/include",
+}
+
+shaders := {
+	{ name = "VS_Rect",           entry = "VS_Rect",            output = "vs_rect_sdf.h",          model = "vs_5_0" },
+	{ name = "PS_RectSDF",        entry = "PS_RectSDF",         output = "ps_rect_sdf.h",          model = "ps_5_0" },
+	{ name = "text_mask_ps",      entry = "PS_TextMask",        output = "text_mask_ps.h",          model = "ps_5_0" },
+	{ name = "PS_Blit",            entry = "PS_Blit",              output = "ps_blit.h",                model = "ps_5_0" },
+	{ name = "PS_Barrel",          entry = "PS_Barrel",            output = "ps_barrel.h",              model = "ps_5_0" },
+	{ name = "PS_Gaussian",       entry = "PS_Gaussian",        output = "ps_gaussian.h",            model = "ps_5_0" },
+	{ name = "PS_Copy",           entry = "PS_Copy",            output = "ps_copy.h",                model = "ps_5_0" },
+	{ name = "PS_BlurMaterial",   entry = "PS_BlurMaterial",    output = "ps_blur_material.h",       model = "ps_5_0" },
+	{ name = "PS_Glass",          entry = "PS_Glass",           output = "ps_glass.h",               model = "ps_5_0" },
+	{ name = "PS_CRTScanlines",   entry = "PS_CRTScanlines",      output = "ps_crt_scanlines.h",      model = "ps_5_0" },
+	{ name = "PS_Luminance",      entry = "PS_Luminance",         output = "ps_luminance.h",          model = "ps_5_0" },
+	{ name = "PS_Rewind",         entry = "PS_Rewind",            output = "ps_rewind.h",             model = "ps_5_0" },
+}
+
+objects := {
+	{ name = "platform",          input = "platform/src/platform_win32.c" },
+	{ name = "audio_stream",      input = "src/audio/audio_stream.c" },
+	{ name = "text",              input = "src/text/text.c" },
+	{ name = "text_cache",        input = "src/text/text_cache.c" },
+	{ name = "ttf",               input = "src/fonts/ttf/ttf.c" },
+	{ name = "renderer",          input = "src/graphics/d3d11.c" },
+	{ name = "base",              input = "src/base/base.c" },
+	{ name = "draw",              input = "src/graphics/draw.c" },
+	{ name = "ui",                input = "src/ui/ui.c" },
+	{ name = "text_gfx",          input = "src/frontend/text_gfx.c" },
+	{ name = "os_core",           input = "src/os/os_core_win32.c" },
+	{ name = "os_graphical",      input = "src/os/os_graphical.c" },
+	{ name = "os_window",         input = "src/os/os_window_win32.c" },
+	{ name = "os_audio",          input = "src/os/os_audio_win32.c" },
+	{ name = "os_controller",     input = "src/os/os_controller_win32.c" },
+	{ name = "os_dialog",         input = "src/os/os_dialog_win32.c" },
+	{ name = "nes",              input = "src/nes/src/emulator.c" },
+	{ name = "nes_state_meta",   input = "src/nes/src/state_meta.c" },
+	{ name = "nes_bus",          input = "src/nes/src/bus/bus.c" },
+	{ name = "nes_cpu",          input = "src/nes/src/cpu/cpu.c" },
+	{ name = "nes_ppu",          input = "src/nes/src/ppu/ppu.c" },
+	{ name = "nes_apu",          input = "src/nes/src/apu/apu.c" },
+	{ name = "nes_nrom",         input = "src/nes/src/mappers/mapper_nrom.c" },
+	{ name = "nes_mmc1",         input = "src/nes/src/mappers/mapper_mmc1.c" },
+	{ name = "nes_mmc2",         input = "src/nes/src/mappers/mapper_mmc2.c" },
+	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
+	{ name = "nes_cartridge",    input = "src/nes/src/cartridge.c" },
+	{ name = "nes_runtime",      input = "src/nes/src/runtime/scheduler.c" },
+	{ name = "serialize",         input = "src/serialize/serialize.c" },
+	{ name = "debugger",          input = "src/debugger/debugger.c" },
+	{ name = "program",           input = "src/debugger/program.c" },
+	{ name = "activity_tracker",  input = "src/frontend/activity_tracker.c" },
+	{ name = "gif_recorder",      input = "src/frontend/gif_recorder.c" },
+	{ name = "views",             input = "src/frontend/views.c" },
+	{ name = "view_cpu",          input = "src/frontend/view_cpu.c" },
+	{ name = "view_program",      input = "src/frontend/view_program.c" },
+	{ name = "view_profiler",     input = "src/frontend/view_profiler.c" },
+	{ name = "view_cpu_mapping",  input = "src/frontend/view_cpu_mapping.c" },
+	{ name = "view_prg_activity", input = "src/frontend/view_prg_activity.c" },
+	{ name = "view_video",        input = "src/frontend/view_video.c" },
+	{ name = "view_chr_map",      input = "src/frontend/view_chr_map.c" },
+	{ name = "panels",            input = "src/frontend/panels.c" },
+}
+
+executables := {
+	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
+	{ name = "nes_cpu_test",    input = "src/tests/nes_cpu_test.c" },
+	{ name = "nes_ppu_test",    input = "src/tests/nes_ppu_test.c" },
+	{ name = "nes_mapper_test", input = "src/tests/nes_mapper_test.c" },
+	{ name = "nes_apu_test",    input = "src/tests/nes_apu_test.c" },
+	{ name = "nes_audio_test",  input = "src/tests/nes_audio_test.c" },
+	{ name = "activity_tracker_test", input = "src/tests/activity_tracker_test.c" },
+	{ name = "nes_test_runner", input = "src/tests/nes_test_runner.c" },
+	{ name = "nes_headless",    input = "tools/headless/main.c" },
+	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
+	{ name = "main",              input = "src/main.c" },
+}
+
+shader_tasks := {}
+object_tasks := {}
+object_outputs := {}
+executable_tasks := {}
+object_files := ""
+
+add_task := fun(name, command_line, inputs, outputs, dependencies) {
+	task := {
+		name = name,
+		command_line = command_line,
+		inputs = inputs,
+		outputs = outputs,
+		dependencies = dependencies,
+	}
+	ret task
+}
+
+join_prefixed := fun(values, prefix) {
+	result := ""
+	for value := values[0 ... values:length()] ? {
+		result += " " + prefix + value
+	}
+	ret result
+}
+
+common_options := join_prefixed(common_compile_options, "")
+/* Select one optimization mode per translation unit; combining /Od and /O2
+	makes the effective mode depend on argument order. */
+debug_options := common_options + " /Od"
+optimized_options := common_options + " /O2"
+includes := join_prefixed(include_directories, "/I")
+
+prepare_build := add_task(
+	"prepare build directory",
+	"cmd /c if not exist build\\generated mkdir build\\generated",
+	{},
+	{ "build/generated" },
+	{}
+)
+
+for shader := shaders[...] ? {
+	output := "build/generated/" + shader.output
+	listing := "build/generated/" + shader.name + ".cod"
+	task := add_task(
+		shader.name,
+		"fxc /nologo /Od /Zi /Fc" + listing +
+		" /T" + shader.model +
+		" src/graphics/shaders.hlsl" +
+		" /Fh" + output +
+		" /E" + shader.entry,
+		{ "build.elf", "src/graphics/shaders.hlsl" },
+		{ output, listing },
+		{ prepare_build }
+	)
+	shader_tasks:add(task)
+}
+
+for object := objects[...] ? {
+	output := "build/" + object.name + ".obj"
+	compiler_pdb := "build/" + object.name + ".compiler.pdb"
+	object_options := debug_options
+	for optimized_object_name := optimized_object_names[0 ... optimized_object_names:length()] ? {
+		if object.name == optimized_object_name ? {
+			object_options = optimized_options
+		}
+	}
+	inputs := { "build.elf", object.input }
+	dependencies := { prepare_build }
+	if object.name == "renderer" ? {
+		for shader_task := shader_tasks[...] ? {
+			dependencies:add(shader_task)
+		}
+	}
+	task := add_task(
+		object.name,
+		"clang-cl -c " + object.input +
+		" /Fo" + output +
+		" /Fd" + compiler_pdb +
+		object_options + includes,
+		inputs,
+		{ output },
+		dependencies
+	)
+	object_tasks:add(task)
+	object_outputs:add(output)
+	object_files += " " + output
+}
+
+for executable := executables[...] ? {
+	output := "build/" + executable.name
+	entry_object := output + ".entry.obj"
+	compiler_pdb := output + ".compiler.pdb"
+	linker_pdb := output + ".pdb"
+	incremental_link := output + ".ilk"
+	entry_inputs := { "build.elf", executable.input }
+	entry_task := add_task(
+		executable.name + " entry",
+		"clang-cl -c " + executable.input +
+		" /Fo" + entry_object +
+		" /Fd" + compiler_pdb +
+		debug_options + includes,
+		entry_inputs,
+		{ entry_object },
+		{ prepare_build }
+	)
+
+	link_inputs := { "build.elf", "src/fonts/ttf/freetype/freetype.lib", entry_object }
+	for object_output := object_outputs[...] ? {
+		link_inputs:add(object_output)
+	}
+	link_dependencies := { entry_task }
+	for object_task := object_tasks[...] ? {
+		link_dependencies:add(object_task)
+	}
+	link_task := add_task(
+		executable.name,
+		"clang-cl /nologo" +
+		" /Fe" + output + ".exe" +
+		" " + entry_object + object_files +
+		" src/fonts/ttf/freetype/freetype.lib" +
+		" /link /DEBUG /PDB:" + linker_pdb +
+		" /ILK:" + incremental_link,
+		link_inputs,
+		{ output + ".exe", linker_pdb, incremental_link },
+		link_dependencies
+	)
+	executable_tasks:add(link_task)
+}
+
+entries := {}
+entries.build = fun() {
+	success := bob.build({targets=executable_tasks,workers=8})
+	ret success
+}
+
+entries.pet = fun() {
+	elf.printl("*prrr*")
+}
+
+ret entries

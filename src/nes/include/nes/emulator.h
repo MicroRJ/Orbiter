@@ -1,0 +1,355 @@
+#ifndef NES_EMULATOR_H
+#define NES_EMULATOR_H
+
+#include "base.h"
+#include "nes/cartridge.h"
+
+enum
+{
+	NES_PPU_MAX_SPRITES_PER_SCANLINE = 8,
+	NES_APU_MAX_PULSE_TIMER_VALUE    = 1 << 11,
+	NES_MAX_CHR_ROM_SIZE             = MB(1)  ,
+	NES_MAX_PRG_ROM_SIZE             = MB(1)  ,
+	NES_MAX_CHR_RAM_SIZE             = MB(1)  ,
+	NES_MAX_PRG_RAM_SIZE             = MB(1)  ,
+	NES_VRAM_SIZE                    = 0x2000 ,
+	NES_WRAM_SIZE                    = 0x2000 ,
+	NES_CPU_ADDRESS_SPACE            = 0x10000,
+	NES_PPU_ADDRESS_SPACE            = 0x4000 ,
+	NES_CPU_HZ                       = 1789773,
+	NES_VIDEO_WIDTH                  = 256,
+	NES_VIDEO_HEIGHT                 = 240,
+	NES_PPU_FRAME_CYCLES             = 262 * 341,
+	NES_INSTRUCTION_TRACE_CAPACITY   = 32768,
+	NES_INSTRUCTION_BOUNDARY_CAPACITY = 1 << 16,
+	NES_EXECUTION_HISTORY_CAPACITY   = KiB(8),
+};
+
+typedef u8 NES_Input;
+enum
+{
+	NES_INPUT_A      = 1,
+	NES_INPUT_B      = 2,
+	NES_INPUT_SELECT = 4,
+	NES_INPUT_START  = 8,
+	NES_INPUT_UP     = 16,
+	NES_INPUT_DOWN   = 32,
+	NES_INPUT_LEFT   = 64,
+	NES_INPUT_RIGHT  = 128,
+};
+
+typedef struct
+{
+	u8  A;
+	u8  X;
+	u8  Y;
+	u8  S;
+	u8  P;
+	u16 PC;
+}
+NES_CPUState;
+
+// NOTE(RJ) this actually has to match OAM layout
+typedef struct
+{
+	u8 ypos;
+	u8 index;
+	u8 attrs;
+	u8 xpos;
+}
+NES_PPUSprite;
+
+typedef struct
+{
+	u16           xtick;
+	u16           ytick;
+	u16           t;
+	u16           v;
+	u8            x;
+	u8            w;
+	u8            tile_id;
+	u8            tile_hi;
+	u8            tile_lo;
+	u8            atr_b;
+	u8            atr_l0;
+	u8            atr_l1;
+	u16           chr_r0;
+	u16           chr_r1;
+	u8            atr_r0;
+	u8            atr_r1;
+	u8            spr0_enable;
+	u8            spr0_2cycle_delay;
+	u8            PPUCTRL;
+	u8            PPUMASK;
+	u8            PPUSTATUS;
+	u8            OAMADDR;
+	u8            data_read_buf;
+	u8            nsprs;
+	NES_PPUSprite sprs[NES_PPU_MAX_SPRITES_PER_SCANLINE];
+	union
+	{
+		NES_PPUSprite OAM[64];
+		u8           _oam[256];
+	};
+	u8 _pram[32];
+}
+NES_PPUState;
+
+typedef struct
+{
+	u8 counter;
+	u8 period;
+}
+NES_APUDivider;
+
+typedef struct
+{
+	NES_APUDivider divider;
+	u8 reload_divider;
+	u8 shift;
+	u8 enable;
+	u8 negate;
+}
+NES_APUSweep;
+
+typedef struct
+{
+	NES_APUDivider divider;
+	u8             counter;
+	u8             reload_divider;
+}
+NES_APUEnvelope;
+
+typedef struct
+{
+	u8               enable;
+	u8               infinite_play;
+	u8               length_counter;
+	u8               volume;
+	u8               use_constant_volume;
+	NES_APUSweep     sweep;
+	NES_APUEnvelope  env;
+	u8               duty_mask;
+	u8               phase;
+	u16              timer;
+	u16              timer_period;
+}
+NES_APU_Pulse;
+
+typedef struct
+{
+	u8  enable;
+
+	u8  length_counter;
+	u8  length_counter_halt;
+
+	u8  linear_counter;
+	u8  linear_counter_reload;
+	u8  linear_counter_reload_value;
+
+	u8  wave_phase;
+	u16 wave_period;
+	u16 wave_timer;
+}
+NES_APU_Triangle;
+
+typedef struct
+{
+	u8              irq_pending;
+	u8              irq_inhibit;
+	u8              reset_delay;
+	u8              reset_mode;
+	u8              mode;
+	u8              step_index;
+	u16             cpu_cycle_counter;
+	NES_APU_Pulse    pulse[2];
+	NES_APU_Triangle triangle;
+}
+NES_APUState;
+
+typedef struct { u32 number; } NES_MapperId;
+typedef struct { u8 inputs[2]; } NES_InputState;
+
+typedef struct NES_State
+{
+	// IDK PROB REMOVE FROM HERE!?
+	NES_MapperId       mapper_number;
+	u32 num_chr_banks, num_prg_banks;
+	u32 prg_rom_size,  chr_rom_size;
+	u32 prg_bank_size, chr_bank_size;
+	b32                vmirror;
+	// LIVE STATE
+	u8             values[32];
+	NES_InputState input_state;
+	u32            cpu_stall_cycles;
+	u64            audio_sample_phase;
+	NES_CPUState   cpu;
+	NES_PPUState   ppu;
+	NES_APUState   apu;
+	u8             controllers[2];
+	u8             _wram[NES_WRAM_SIZE];
+	u8             _vram[NES_VRAM_SIZE];
+	u8             chr_ram[NES_MAX_CHR_RAM_SIZE];
+	u8             prg_ram[NES_MAX_PRG_RAM_SIZE];
+	u8             chr_rom[NES_MAX_CHR_ROM_SIZE];
+	u8             prg_rom[NES_MAX_PRG_ROM_SIZE];
+}
+NES_State;
+
+typedef struct NES_Emulator NES_Emulator;
+
+typedef struct
+{
+	const u8 *pixels;
+	u32       width;
+	u32       height;
+	u32       stride;
+}
+NES_VideoFrame;
+
+typedef enum
+{
+	NES_DEVICE_NONE = 0,
+	NES_DEVICE_CPU,
+	NES_DEVICE_PPU,
+	NES_DEVICE_OAM,
+	NES_DEVICE_PRAM,
+	NES_DEVICE_VRAM,
+	NES_DEVICE_WRAM,
+	NES_DEVICE_CHR_ROM,
+	NES_DEVICE_CHR_RAM,
+	NES_DEVICE_PRG_ROM,
+	NES_DEVICE_PRG_RAM,
+	NES_DEVICE_COUNT,
+	NES_DEVICE_ENUM_FORCE_U32 = MAX_VALUE_U32,
+}
+NES_DeviceId;
+
+typedef struct
+{
+	NES_DeviceId device;
+	union
+	{
+		// TODO(RJ) REMOVE ALIASES
+		u32 offset;
+		u32 address;
+		u32 addr;
+	};
+}
+NES_MapAddr;
+
+static inline NES_MapAddr nes_map_addr(NES_DeviceId device, u32 address)
+{
+	return (NES_MapAddr) { device, address };
+}
+
+typedef struct { u8 pixels[8][8]; } NES_PatternTile;
+
+enum
+{
+	NES_PATTERN_TILE_SIZE = 8,
+	NES_PATTERN_TABLE_TILE_COUNT = 256,
+	NES_PATTERN_TILE_COUNT = NES_PATTERN_TABLE_TILE_COUNT * 2,
+	NES_PALETTE_RAM_SIZE = 32,
+};
+
+typedef struct
+{
+	NES_PatternTile tiles[NES_PATTERN_TILE_COUNT];
+	NES_MapAddr mappings[NES_PATTERN_TILE_COUNT];
+	u8 palette[NES_PALETTE_RAM_SIZE];
+}
+NES_CHRMap;
+
+typedef struct
+{
+	u16 cpu_address;
+	u8  size;
+	u8  bytes[3];
+	NES_MapAddr mappings[3];
+}
+NES_InstructionTrace;
+
+typedef struct
+{
+	// Borrowed storage: consume this span before the next core run.
+	const NES_InstructionTrace *events;
+	u32 count;
+	u32 dropped;
+}
+NES_InstructionTraceSpan;
+
+typedef struct
+{
+	NES_MapAddr program_address;
+	u64 scheduler_clock;
+	u16 cpu_address;
+}
+NES_InstructionBoundary;
+
+typedef struct
+{
+	const NES_InstructionBoundary *items;
+	u32 count;
+	u32 dropped;
+}
+NES_InstructionBoundarySpan;
+
+typedef struct
+{
+	u16 cpu_address;
+	NES_MapAddr destination;
+}
+NES_ExecutionMapping;
+
+typedef struct
+{
+	const NES_ExecutionMapping *entries;
+	u32 capacity;
+	u32 count;
+	u32 write_index;
+	u64 total_count;
+}
+NES_ExecutionHistory;
+
+typedef struct
+{
+	u32 audio_sample_rate;
+	b32 enable_instruction_trace;
+}
+NES_EmulatorDesc;
+
+NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc);
+
+b32 nes_emulator_has_cartridge(const NES_Emulator *core);
+u32 nes_emulator_prg_rom_size(const NES_Emulator *core);
+// Copies the descriptor's borrowed PRG and CHR data into emulator-owned storage.
+b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge);
+void nes_emulator_reset(NES_Emulator *core);
+u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
+u32 nes_emulator_step(NES_Emulator *core);
+void nes_emulator_run(NES_Emulator *core, u64 ppu_cycles);
+// Runs whole instructions until at least minimum_samples have been captured.
+// The returned count may be larger, so capacity must include overshoot space.
+u64 nes_emulator_run_samples(NES_Emulator *core, u64 minimum_samples, f32 *samples, u64 capacity);
+void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
+
+// These return owned copies. Callers never receive aliases to mutable device state.
+NES_CPUState nes_emulator_cpu_state(const NES_Emulator *core);
+NES_PPUState nes_emulator_ppu_state(const NES_Emulator *core);
+NES_APUState nes_emulator_apu_state(const NES_Emulator *core);
+NES_VideoFrame nes_emulator_video_frame(const NES_Emulator *core);
+
+u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
+u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
+NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
+void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value);
+NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index);
+void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map);
+NES_InstructionTraceSpan nes_emulator_instruction_trace(const NES_Emulator *core);
+NES_InstructionBoundarySpan nes_emulator_instruction_boundaries(const NES_Emulator *core);
+ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
+b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
+
+
+#endif

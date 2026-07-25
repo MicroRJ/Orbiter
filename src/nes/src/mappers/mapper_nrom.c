@@ -1,0 +1,50 @@
+#include "mapper.h"
+#include "../emulator_internal.h"
+
+/* NROM: where the term NROM refers to either of Nintendo's
+NES-NROM-128 and NROM-256 cartridge board ROMs.
+The number (128 or 256) refers to the size of the PRG-ROM in
+kilobits (not kilobytes).
+
+Whether the ROM is NROM-128 or NROM-256 is determined by
+checking the number of PRG-ROM banks in the iNES header.
+Each bank is 16 KiB:
+- 1 bank (16 KiB) corresponds to NROM-128.
+- 2 banks (32 KiB) correspond to NROM-256. */
+NES_MAPPER_INIT_FUNC(nrom_init) {
+	Assert(data->num_prg_banks <= 2);
+	if (data->num_prg_banks == 1) {
+		data->prg_bank_size = 0x4000;
+	}
+	else {
+		data->prg_bank_size = 0x8000;
+	}
+	return true;
+}
+NES_MAPPER_RSET_FUNC(nrom_reset) {
+	return true;
+}
+NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
+	switch (access.address >> 12) {
+		case 0: case 1: {
+			access = chr_rom_mem(nes, access);
+		} break;
+		case 2: {
+			b32 v = nes->core.vmirror;
+			access.address = access.address & 0x3FF |
+				(access.address >> !v & 0x400);
+			access = vram_mem(nes, access);
+		} break;
+	}
+	return access;
+}
+NES_BusAccess nrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
+	// prg rom, 0x8000
+	if ((access.address >> 15) == 1) {
+		if (nes->core.num_prg_banks == 1) access.address &= 0x3FFF;
+		else                              access.address &= 0x7FFF;
+		access = prg_rom_mem(nes, access);
+	}
+	return access;
+}
+// NES NROM mapper.
