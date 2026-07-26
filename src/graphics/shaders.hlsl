@@ -203,7 +203,7 @@ float4 PS_Rewind(RectPixelInput input) : SV_TARGET
 	color.r = SampleTexture(saturate(shifted_uv + float2(chromatic_lag, 0.f))).r;
 	color.b = SampleTexture(saturate(shifted_uv - float2(chromatic_lag, 0.f))).b;
 	float luminance = dot(color.rgb, float3(0.2126f, 0.7152f, 0.0722f));
-	color.rgb = lerp(color.rgb, luminance.xxx, 0.42f * strength);
+	color.rgb = lerp(color.rgb, luminance.xxx, 0.12f * strength);
 
 	float rolling_position = frac(uv.y - time * 1.7f);
 	float rolling_streak = exp(-rolling_position * rolling_position * 1800.f);

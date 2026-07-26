@@ -27,6 +27,31 @@ static f32 activity_edge_intensity(f32 pulse, f32 frequency)
 	return CLAMP(pulse + frequency * 0.15f, 0.f, 1.f);
 }
 
+static b32 activity_storage_offset(const Program *program, NES_MapAddr mapped, b32 include_prg_ram, u32 *offset)
+{
+	if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < program->prg_rom_byte_count)
+	{
+		*offset = mapped.offset;
+		return true;
+	}
+	if (include_prg_ram && mapped.device == NES_DEVICE_PRG_RAM && mapped.offset < program->prg_ram_byte_count)
+	{
+		*offset = program->prg_rom_byte_count + mapped.offset;
+		return true;
+	}
+	return false;
+}
+
+static b32 activity_has_mapped_ram(const Debugger *debugger)
+{
+	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk) {
+		if (debugger_cpu_mapping_chunk(debugger, chunk).device == NES_DEVICE_PRG_RAM) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void activity_tracker_reset(ActivityTracker *tracker, u64 consumed_history_count)
 {
 	memory_zero(tracker, sizeof(*tracker));
@@ -88,6 +113,33 @@ void activity_tracker_update(ActivityTracker *tracker, f64 now_seconds)
 		entry->pending_sequence_gap = 0;
 	}
 	tracker->last_update_seconds = now_seconds;
+}
+
+void activity_tracker_observe_execution(ActivityTracker *tracker, const Debugger *debugger, NES_ExecutionHistory history)
+{
+	Assert(tracker);
+	Assert(debugger);
+	const Program *program = debugger_program(debugger);
+	b32 include_prg_ram = activity_has_mapped_ram(debugger);
+	if (history.total_count < tracker->consumed_history_count) {
+		activity_tracker_reset(tracker, 0);
+	}
+	u64 oldest_sequence = history.total_count - history.count;
+	u64 first_destination = Max(tracker->consumed_history_count, oldest_sequence + 1);
+	for (u64 sequence = first_destination; sequence < history.total_count; ++sequence)
+	{
+		const NES_ExecutionMapping *source = &history.entries[(sequence - 1) % history.capacity];
+		const NES_ExecutionMapping *destination = &history.entries[sequence % history.capacity];
+		u32 source_offset = 0;
+		u32 destination_offset = 0;
+		if (activity_storage_offset(program, source->destination, include_prg_ram, &source_offset) &&
+			activity_storage_offset(program, destination->destination, include_prg_ram, &destination_offset) &&
+			source_offset != destination_offset) {
+			activity_tracker_record(tracker, source_offset, destination_offset, sequence);
+		}
+	}
+	tracker->consumed_history_count = history.total_count;
+	activity_tracker_update(tracker, seconds_now().seconds);
 }
 
 u32 activity_tracker_sample(const ActivityTracker *tracker, u32 cell_size, ActivityEdge *edges, u32 capacity)

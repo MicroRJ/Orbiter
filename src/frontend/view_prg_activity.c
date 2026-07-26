@@ -130,32 +130,6 @@ static b32 prg_activity_has_mapped_ram(const Debugger *debugger)
 	return false;
 }
 
-static void prg_activity_update_residual(PRGActivityViewState *state, NES_ExecutionHistory history, const Program *program, b32 include_prg_ram)
-{
-	ActivityTracker *tracker = &state->tracker;
-	if (history.total_count < tracker->consumed_history_count) {
-		activity_tracker_reset(tracker, 0);
-	}
-	u64 oldest_sequence = history.total_count - history.count;
-	u64 first_destination = Max(tracker->consumed_history_count, oldest_sequence + 1);
-	for (u64 sequence = first_destination; sequence < history.total_count; ++sequence)
-	{
-		const NES_ExecutionMapping *source = &history.entries[(sequence - 1) % history.capacity];
-		const NES_ExecutionMapping *destination = &history.entries[sequence % history.capacity];
-		u32 source_offset = 0;
-		u32 destination_offset = 0;
-		if (prg_activity_storage_offset(program, source->destination, include_prg_ram, &source_offset) &&
-			prg_activity_storage_offset(program, destination->destination, include_prg_ram, &destination_offset))
-		{
-			if (source_offset != destination_offset) {
-				activity_tracker_record(tracker, source_offset, destination_offset, sequence);
-			}
-		}
-	}
-	tracker->consumed_history_count = history.total_count;
-	activity_tracker_update(tracker, seconds_now().seconds);
-}
-
 static void prg_activity_draw_edge(UI_Context *ui, const PRGActivityGrid *grid, u32 source_cell, u32 destination_cell, f32 thickness, Color_SRGBA color)
 {
 	vec2 source = prg_activity_cell_center(grid, source_cell);
@@ -311,6 +285,8 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	Debugger *debugger = frame->debugger;
 	UI_Context *ui = frame->ui;
 	PRGActivityViewState *state = &frame->view->prg_activity;
+	ActivityTracker *tracker = frame->activity_tracker;
+	Assert(tracker);
 	if (!state->cell_size) {
 		state->cell_size = PRG_ACTIVITY_DEFAULT_CELL_SIZE;
 	}
@@ -340,7 +316,6 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	}
 	u32 cell_size = state->cell_size;
 	NES_ExecutionHistory history = frame->publication->execution_history;
-	prg_activity_update_residual(state, history, program, include_prg_ram);
 	const NES_ExecutionMapping *head = history.count ? &history.entries[(history.write_index + history.capacity - 1) % history.capacity] : 0;
 	u32 active_offset = 0;
 	b32 has_active_cell = head && prg_activity_storage_offset(program, head->destination, include_prg_ram, &active_offset);
@@ -421,7 +396,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	if (grid.cell_extent >= 1.f)
 	{
 		ActivityEdge *edges = arena_push(frame->scratch, sizeof(*edges) * ACTIVITY_TRACKER_SAMPLE_CAPACITY);
-		u32 sampled_edge_count = activity_tracker_sample(&state->tracker, cell_size, edges, ACTIVITY_TRACKER_SAMPLE_CAPACITY);
+		u32 sampled_edge_count = activity_tracker_sample(tracker, cell_size, edges, ACTIVITY_TRACKER_SAMPLE_CAPACITY);
 		for (u32 index = 0; index < sampled_edge_count; ++index)
 		{
 			ActivityEdge *edge = &edges[index];

@@ -8,6 +8,7 @@
 
 typedef struct Panels Panels;
 typedef struct Panel Panel;
+typedef struct PanelViewAllocation PanelViewAllocation;
 
 typedef enum
 {
@@ -26,15 +27,19 @@ struct Panel
 	PanelType kind;
 	AXIS axis;
 	f32 ratio;
-	PanelViewData view;
+	PanelViewData *view;
+	Panel *next_free;
 };
 
 struct Panels
 {
 	Arena *arena;
 	u64 next_panel_id;
+	u64 next_view_id;
 	Panel *root;
 	Panel *focused;
+	Panel *free_panels;
+	PanelViewAllocation *free_views;
 	f32 split_drag_offset;
 };
 

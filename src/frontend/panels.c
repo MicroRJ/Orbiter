@@ -7,6 +7,12 @@ typedef struct
 }
 LayoutParser;
 
+struct PanelViewAllocation
+{
+	PanelViewAllocation *next_free;
+	PanelViewData view;
+};
+
 static const char *view_type_names[VIEW_COUNT] = {
 	[VIEW_NONE] = "none",
 	[VIEW_VIDEO] = "video",
@@ -30,11 +36,61 @@ static void layout_push_formatted(Arena *arena, const char *format, ...)
 static
 Panel *panel_new(Panels *panels, Panel *parent, PanelType kind)
 {
-	Panel *panel = arena_push_zero(panels->arena, sizeof(*panel));
+	Panel *panel = panels->free_panels;
+	if (panel) {
+		panels->free_panels = panel->next_free;
+	} else {
+		panel = arena_push(panels->arena, sizeof(*panel));
+	}
+	memory_zero(panel, sizeof(*panel));
 	panel->parent = parent;
 	panel->id = ++panels->next_panel_id;
 	panel->kind = kind;
 	return panel;
+}
+
+static PanelViewData *panel_view_new(Panels *panels, ViewType kind)
+{
+	PanelViewAllocation *allocation = panels->free_views;
+	if (allocation) {
+		panels->free_views = allocation->next_free;
+	} else {
+		allocation = arena_push(panels->arena, sizeof(*allocation));
+	}
+	memory_zero(allocation, sizeof(*allocation));
+	allocation->view.id = ++panels->next_view_id;
+	allocation->view.kind = kind;
+	return &allocation->view;
+}
+
+static void panel_view_free(Panels *panels, PanelViewData *view)
+{
+	if (!view) return;
+	PanelViewAllocation *allocation = (PanelViewAllocation *)((u8 *)view - offsetof(PanelViewAllocation, view));
+	memory_zero(&allocation->view, sizeof(allocation->view));
+	allocation->next_free = panels->free_views;
+	panels->free_views = allocation;
+}
+
+static void panel_free(Panels *panels, Panel *panel)
+{
+	Assert(panel);
+	Assert(!panel->view);
+	panel->next_free = panels->free_panels;
+	panels->free_panels = panel;
+}
+
+static void panel_free_tree(Panels *panels, Panel *panel)
+{
+	if (!panel) return;
+	if (panel->kind == PANEL_SPLIT)
+	{
+		panel_free_tree(panels, panel->left);
+		panel_free_tree(panels, panel->right);
+	}
+	panel_view_free(panels, panel->view);
+	panel->view = 0;
+	panel_free(panels, panel);
 }
 
 static
@@ -54,11 +110,10 @@ void panel_open_view(Panels *panels, Panel *panel, ViewType kind)
 	Assert(panel->kind != PANEL_SPLIT);
 	Assert(kind > VIEW_NONE && kind < VIEW_COUNT);
 
-	(void)panels;
+	panel_view_free(panels, panel->view);
 	panel->left = 0;
 	panel->right = 0;
-	memory_zero(&panel->view, sizeof(panel->view));
-	panel->view.kind = kind;
+	panel->view = panel_view_new(panels, kind);
 	panel->kind = PANEL_VIEW;
 }
 
@@ -69,7 +124,7 @@ void panel_split(Panels *panels, Panel *panel, AXIS axis, f32 ratio)
 	Assert(panel->kind != PANEL_SPLIT);
 
 	PanelType previous_kind = panel->kind;
-	PanelViewData previous_view = previous_kind == PANEL_VIEW ? panel->view : (PanelViewData) {};
+	PanelViewData *previous_view = panel->view;
 
 	// The old implementation copied the complete panel node here. That duplicated
 	// its identity and intrusive-list links and left the child pointing at the old
@@ -85,7 +140,7 @@ void panel_split(Panels *panels, Panel *panel, AXIS axis, f32 ratio)
 	panel->right = second;
 	panel->axis = axis;
 	panel->ratio = ratio;
-	memory_zero(&panel->view, sizeof(panel->view));
+	panel->view = 0;
 	panels->focused = second;
 }
 
@@ -96,13 +151,15 @@ void panel_close(Panels *panels, Panel *panel)
 	Panel *parent = panel->parent;
 	if (!parent)
 	{
+		panel_view_free(panels, panel->view);
 		panel->kind = PANEL_EMPTY;
 		panel->left = 0;
 		panel->right = 0;
-		memory_zero(&panel->view, sizeof(panel->view));
+		panel->view = 0;
 		return;
 	}
 
+	Assert(panel->kind != PANEL_SPLIT);
 	Assert(parent->kind == PANEL_SPLIT);
 	Panel *sibling = panel == parent->left ? parent->right : parent->left;
 	Panel *grandparent = parent->parent;
@@ -118,12 +175,17 @@ void panel_close(Panels *panels, Panel *panel)
 	parent->axis = sibling->axis;
 	parent->ratio = sibling->ratio;
 	parent->view = sibling->view;
+	sibling->view = 0;
 	if (sibling->kind == PANEL_SPLIT)
 	{
 		parent->left->parent = parent;
 		parent->right->parent = parent;
 	}
 
+	panel_view_free(panels, panel->view);
+	panel->view = 0;
+	panel_free(panels, panel);
+	panel_free(panels, sibling);
 	panels->focused = panel_first_leaf(parent);
 }
 
@@ -142,7 +204,7 @@ static void panel_save_layout(Panel *panel, Arena *arena)
 	switch (panel->kind)
 	{
 		case PANEL_EMPTY: layout_push_formatted(arena, "empty\n"); break;
-		case PANEL_VIEW: layout_push_formatted(arena, "view %s\n", view_type_names[panel->view.kind]); break;
+		case PANEL_VIEW: layout_push_formatted(arena, "view %s\n", view_type_names[panel->view->kind]); break;
 		case PANEL_SPLIT:
 		{
 			layout_push_formatted(arena, "split %c %.6f\n", panel->axis == AXIS_X ? 'x' : 'y', panel->ratio);
@@ -224,7 +286,13 @@ static Panel *panel_restore_layout(Panels *panels, Panel *parent, LayoutParser *
 		panel->ratio = ratio;
 		panel->left = panel_restore_layout(panels, panel, parser);
 		panel->right = panel_restore_layout(panels, panel, parser);
-		if (!panel->left || !panel->right) {
+		if (!panel->left || !panel->right)
+		{
+			panel_free_tree(panels, panel->left);
+			panel_free_tree(panels, panel->right);
+			panel->left = 0;
+			panel->right = 0;
+			panel_free(panels, panel);
 			return 0;
 		}
 		return panel;
@@ -239,9 +307,12 @@ b32 panels_restore_layout(Panels *panels, String text)
 	while (parser.at < parser.end && (*parser.at == '\r' || *parser.at == '\n' || *parser.at == ' ' || *parser.at == '\t')) {
 		++parser.at;
 	}
-	if (!root || parser.at != parser.end) {
+	if (!root || parser.at != parser.end)
+	{
+		panel_free_tree(panels, root);
 		return false;
 	}
+	panel_free_tree(panels, panels->root);
 	panels->root = root;
 	panels->focused = panel_first_leaf(root);
 	return true;
@@ -328,7 +399,7 @@ static void panel_update_interaction(Panels *panels, OS_Window *window, UI_Conte
 	rect_f32 second;
 	rect_f32 handle;
 	panel_split_rects(panel, rect, &first, &second, &handle);
-	UI_Id resize_id = ui_id_child(ui_id_from_ptr(panel), 1);
+	UI_Id resize_id = ui_id_child(ui_id_child(UI_ID_NONE, panel->id), 1);
 	UI_Response response = ui_interact(ui, resize_id, handle);
 	if (response.hovered || response.held)
 	{
@@ -368,7 +439,7 @@ static void panel_draw(Panels *panels, Panel *panel, ViewFrameData *source, rect
 			rect_f32 content = rect_f32_inset(rect, 3.f);
 			ui_push_clip(ui, content);
 			ViewFrameData frame = *source;
-			frame.view = &panel->view;
+			frame.view = panel->view;
 			frame.rect = content;
 			view_frame(&frame);
 			ui_pop_clip(ui);
@@ -385,7 +456,7 @@ static void panel_draw(Panels *panels, Panel *panel, ViewFrameData *source, rect
 
 			rect_f32 line = rect_f32_from_slice(second, panel->axis, 2.f);
 			line = rect_f32_translate_axis(line, panel->axis, -1.f);
-			ui_draw_splitter(ui, line, ui_id_child(ui_id_from_ptr(panel), 1));
+			ui_draw_splitter(ui, line, ui_id_child(ui_id_child(UI_ID_NONE, panel->id), 1));
 		}
 		break;
 	}

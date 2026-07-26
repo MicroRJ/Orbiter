@@ -49,7 +49,6 @@ enum
 typedef struct
 {
 	u32 cell_size;
-	ActivityTracker tracker;
 }
 PRGActivityViewState;
 
@@ -95,8 +94,10 @@ typedef struct
 }
 FrontendPalette;
 
-typedef struct
+typedef struct PanelViewData PanelViewData;
+struct PanelViewData
 {
+	u64 id;
 	ViewType kind;
 	union
 	{
@@ -105,8 +106,7 @@ typedef struct
 		PRGActivityViewState prg_activity;
 		ProfilerViewState profiler;
 	};
-}
-PanelViewData;
+};
 
 typedef struct
 {
@@ -133,6 +133,7 @@ typedef struct
 	rect_f32       rect;
 	f32            header_height;
 	void         (*draw_box_tree)(UI_Box *box);
+	ActivityTracker *activity_tracker;
 
 	// The application prepares shared publication resources once per frame.
 	const FrontendPublication *publication;

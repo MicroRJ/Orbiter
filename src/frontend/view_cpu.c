@@ -91,7 +91,7 @@ static void cpu_view_content(ViewFrameData *frame)
 	root_desc.vert_padd[0] = root_desc.vert_padd[1] = 12.f;
 	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_SCROLL;
-	UI_Box *root = ui_box_builder_begin(&b, frame->scratch, frame->ui, ui_id_from_ptr(frame->view).value, LIT("CPU view"), root_desc);
+	UI_Box *root = ui_box_builder_begin(&b, frame->scratch, frame->ui, frame->view->id, LIT("CPU view"), root_desc);
 
 	cpu_view_register_row_begin(&b, 1);
 	cpu_view_field(&b, 1, label_style, value_style, LIT("$FF"), "A", "$%02X", cpu->A);

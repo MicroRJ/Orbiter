@@ -42,6 +42,11 @@ global const Color_RGBA8 nes_palette[64] = { NES_PALETTE_COLORS(NES_PALETTE_COLO
 typedef enum
 {
 	APP_ACTION_NONE,
+
+	APP_ACTION_BEGIN_REWINDING_BACKWARDS,
+	APP_ACTION_BEGIN_REWINDING_FORWARD,
+	APP_ACTION_STOP_REWINDING,
+
 	APP_ACTION_SUPPRESS_EMULATOR_INPUT,
 	APP_ACTION_TOGGLE_FULLSCREEN,
 	APP_ACTION_TOGGLE_PPU_FULLSCREEN,
@@ -55,9 +60,6 @@ typedef enum
 	APP_ACTION_STEP,
 	APP_ACTION_TOGGLE_PPU_CAPTURE,
 	APP_ACTION_TOGGLE_APP_CAPTURE,
-	APP_ACTION_UNDO_FRAME,
-	APP_ACTION_REDO_FRAME,
-	APP_ACTION_END_SCRUB,
 	APP_ACTION_MUTE,
 }
 AppAction;
@@ -68,12 +70,25 @@ typedef struct
 }
 AppInput;
 
+typedef enum
+{
+	APP_MODE_EMULATOR = 0,
+	APP_MODE_REWINDING,
+}
+AppMode;
+
 typedef struct
 {
+	AppMode                    mode;
+	b32            emulator_running;
+	b32     resume_emulator_running;
+	i32            rewind_direction;
+
 	Arena arena;
 	Arena frame_arena;
 	Debugger *debugger;
 	FrontendPublication published;
+	ActivityTracker activity_tracker;
 	GFX_Texture *video_texture;
 	GFX_Texture *crt_scanline_texture;
 	GFX_Texture *crt_bloom_ping_texture;
@@ -101,9 +116,7 @@ typedef struct
 	Seconds audio_stats_begin;
 	b32 audio_backend_was_empty;
 	String last_rom_path;
-	b32 running;
-	b32 scrubbing;
-	b32 resume_after_scrub;
+
 	b32 exclusive_ppu_mode;
 	b32 fullscreen_mode;
 	b32 crt_enabled;
@@ -116,7 +129,7 @@ typedef struct
 }
 App;
 
-global App app;
+global App app = { APP_MODE_EMULATOR };
 global FILE *debugger_log_file;
 
 static String app_read_file(Arena *arena, const char *path)
@@ -337,11 +350,69 @@ static void app_save_config(void)
 	}
 }
 
-static AppInput app_translate_input(void)
+typedef struct {
+	OS_Key key;
+	OS_ModifierFlags modifiers;
+}
+KeyChord;
+
+typedef struct {
+	AppAction action;
+	KeyChord key_chord;
+}
+KeyBind;
+
+static const KeyBind app_emulator_mode_key_binds[] = {
+	{APP_ACTION_OPEN_ROM      , {OS_Key_O, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_RESET         , {OS_Key_R, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_SAVE_STATE    , {OS_Key_S, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_RESTORE_STATE , {OS_Key_L, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_DUMP_PROGRAM  , {OS_Key_K, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_MUTE                  , {OS_Key_M  }},
+	{APP_ACTION_TOGGLE_PPU_FULLSCREEN , {OS_Key_F  }},
+	{APP_ACTION_EXIT_PPU_FULLSCREEN   , {OS_Key_Esc}},
+	{APP_ACTION_TOGGLE_FULLSCREEN     , {OS_Key_F11}},
+	{APP_ACTION_TOGGLE_RUNNING        , {OS_Key_F5 }},
+	{APP_ACTION_TOGGLE_PPU_CAPTURE    , {OS_Key_F8 }},
+	{APP_ACTION_TOGGLE_APP_CAPTURE    , {OS_Key_F9 }},
+	{APP_ACTION_STEP                  , {OS_Key_F10}},
+};
+
+static AppAction app_find_action_for_keychord(KeyChord chord, KeyBind *binds, u32 nbinds) {
+	for (u32 i = 0; i < nbinds; ++ i)
+	{
+		if (binds[i].key_chord.key == chord.key && binds[i].key_chord.modifiers == chord.modifiers) {
+			return binds[i].action;
+		}
+	}
+	return APP_ACTION_NONE;
+}
+
+
+
+
+
+static AppInput app_translate_input_events_based_on_mode(void)
 {
 	AppInput input = { 0 };
 
 	OS_KeyState *keys = app.os_window->keys;
+
+	if (app.mode == APP_MODE_REWINDING)
+	{
+		input.action = APP_ACTION_SUPPRESS_EMULATOR_INPUT;
+
+		if (keys[OS_Key_LeftControl] & OS_KEY_DOWN) {
+			i32 rewind_direction = 0;
+			if (keys[OS_Key_Left] & OS_KEY_DOWN) rewind_direction -= 1;
+			if (keys[OS_Key_Right] & OS_KEY_DOWN) rewind_direction += 1;
+			app.rewind_direction = rewind_direction;
+		}
+		else {
+			input.action = APP_ACTION_STOP_REWINDING;
+		}
+		return input;
+	}
 
 	if ((keys[OS_Key_LeftControl] | keys[OS_Key_RightControl]) & OS_KEY_DOWN) {
 		input.action = APP_ACTION_SUPPRESS_EMULATOR_INPUT;
@@ -350,32 +421,14 @@ static AppInput app_translate_input(void)
 	for (u32 index = 0; index < os_window_event_count(app.os_window); ++index)
 	{
 		const OS_Event *event = os_window_event(app.os_window, index);
-		if (event->type == OS_EVENT_KEY_PRESS && event->modifiers & OS_MODIFIER_CONTROL)
+		if ((event->type == OS_EVENT_KEY_PRESS) && (event->modifiers & OS_MODIFIER_CONTROL))
 		{
-			if (event->key == OS_Key_Left) input.action = APP_ACTION_UNDO_FRAME;
-			else if (event->key == OS_Key_Right) input.action = APP_ACTION_REDO_FRAME;
-			continue;
+			if (event->key == OS_Key_Left) input.action = APP_ACTION_BEGIN_REWINDING_FORWARD;
+			else if (event->key == OS_Key_Right) input.action = APP_ACTION_BEGIN_REWINDING_BACKWARDS;
+			break;
 		}
 		if (event->type != OS_EVENT_KEY_RELEASE) continue;
-		if (event->modifiers & OS_MODIFIER_CONTROL)
-		{
-			if (event->key == OS_Key_O) input.action = APP_ACTION_OPEN_ROM;
-			else if (event->key == OS_Key_R) input.action = APP_ACTION_RESET;
-			else if (event->key == OS_Key_S) input.action = APP_ACTION_SAVE_STATE;
-			else if (event->key == OS_Key_L) input.action = APP_ACTION_RESTORE_STATE;
-			else if (event->key == OS_Key_K) input.action = APP_ACTION_DUMP_PROGRAM;
-		}
-		else if (event->key == OS_Key_M) input.action = APP_ACTION_MUTE;
-		else if (event->key == OS_Key_F) input.action = APP_ACTION_TOGGLE_PPU_FULLSCREEN;
-		else if (event->key == OS_Key_Esc) input.action = APP_ACTION_EXIT_PPU_FULLSCREEN;
-		else if (event->key == OS_Key_F11) input.action = APP_ACTION_TOGGLE_FULLSCREEN;
-		else if (event->key == OS_Key_F5) input.action = APP_ACTION_TOGGLE_RUNNING;
-		else if (event->key == OS_Key_F8) input.action = APP_ACTION_TOGGLE_PPU_CAPTURE;
-		else if (event->key == OS_Key_F9) input.action = APP_ACTION_TOGGLE_APP_CAPTURE;
-		else if (event->key == OS_Key_F10) input.action = APP_ACTION_STEP;
-	}
-	if (app.scrubbing && !((keys[OS_Key_LeftControl] | keys[OS_Key_RightControl]) & OS_KEY_DOWN)) {
-		input.action = APP_ACTION_END_SCRUB;
+		input.action = app_find_action_for_keychord((KeyChord){event->key,event->modifiers}, app_emulator_mode_key_binds, ArrayCount(app_emulator_mode_key_binds));
 	}
 	return input;
 }
@@ -389,7 +442,7 @@ static u64 app_handle_input(AppInput input)
 		case APP_ACTION_NONE: app_update_debugger_input(); break;
 		case APP_ACTION_SUPPRESS_EMULATOR_INPUT:
 		{
-			clear_input = app.running;
+			clear_input = app.emulator_running;
 		} break;
 		case APP_ACTION_OPEN_ROM: app_open_rom(); break;
 		case APP_ACTION_RESET:
@@ -408,12 +461,12 @@ static u64 app_handle_input(AppInput input)
 		} break;
 		case APP_ACTION_TOGGLE_RUNNING:
 		{
-			app.running = !app.running;
-			LOG_INFO(app.running ? "running realtime" : "paused");
+			app.emulator_running = !app.emulator_running;
+			LOG_INFO(app.emulator_running ? "running realtime" : "paused");
 		} break;
 		case APP_ACTION_STEP:
 		{
-			app.running = false;
+			app.emulator_running = false;
 			step_cycles = 3;
 		} break;
 		case APP_ACTION_TOGGLE_PPU_CAPTURE:
@@ -426,34 +479,32 @@ static u64 app_handle_input(AppInput input)
 			if (app.app_gif.recording) gif_recorder_end(&app.app_gif);
 			else if (!gif_recorder_begin(&app.app_gif, app.os_window->size, "orbiter_capture")) LOG_ERROR("failed to begin application GIF capture");
 		} break;
-		case APP_ACTION_UNDO_FRAME:
+
+		case APP_ACTION_BEGIN_REWINDING_BACKWARDS:
 		{
-			if (!app.scrubbing)
-			{
-				app.scrubbing = true;
-				app.resume_after_scrub = app.running;
-			}
-			app.running = false;
+			Assert(app.mode != APP_MODE_REWINDING);
+			app.mode = APP_MODE_REWINDING;
+			app.rewind_direction = -1;
+			app.resume_emulator_running = app.emulator_running;
+			app.emulator_running = false;
 			clear_input = false;
-			if (debugger_undo_frame(app.debugger)) audio_stream_discard(app.audio);
 		} break;
-		case APP_ACTION_REDO_FRAME:
+		case APP_ACTION_BEGIN_REWINDING_FORWARD:
 		{
-			if (!app.scrubbing)
-			{
-				app.scrubbing = true;
-				app.resume_after_scrub = app.running;
-			}
-			app.running = false;
+			Assert(app.mode != APP_MODE_REWINDING);
+			app.mode = APP_MODE_REWINDING;
+			app.rewind_direction = +1;
+			app.resume_emulator_running = app.emulator_running;
+			app.emulator_running = false;
 			clear_input = false;
-			if (debugger_redo_frame(app.debugger)) audio_stream_discard(app.audio);
 		} break;
-		case APP_ACTION_END_SCRUB:
+		case APP_ACTION_STOP_REWINDING:
 		{
-			app.scrubbing = false;
-			app.running = app.resume_after_scrub;
-			clear_input = app.running;
+			app.mode = APP_MODE_EMULATOR;
+			app.emulator_running = app.resume_emulator_running;
+			clear_input = app.emulator_running;
 		} break;
+
 		case APP_ACTION_MUTE:
 		{
 			app.apu_muted = !app.apu_muted;
@@ -487,28 +538,30 @@ static u64 app_handle_input(AppInput input)
 
 static void app_fill_audio(void)
 {
-	if (!app.running) return;
+	// Todo, we need to run at least one freaking frame!
 	u32 queued = audio_stream_available_frames(app.audio);
 	u32 target = Min(app.audio_backend_capacity * 2, audio_stream_capacity_frames(app.audio));
 	if (queued >= target) return;
 
 	u32 minimum = target - queued;
 	u32 capacity = audio_stream_capacity_frames(app.audio);
+
 	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * capacity);
-	u64 count;
-	PROF_BLOCK("emulation") {
-		count = debugger_run_samples(app.debugger, minimum, samples, capacity);
-		// Todo ... dude?
-		if (app.apu_muted) memory_zero(samples, sizeof(* samples) * count);
-	}
+	u64 nsamples = debugger_run_samples(app.debugger, minimum, samples, capacity);
+
+	// Todo ... dude?
+	if (app.apu_muted) memory_zero(samples, sizeof(* samples) * nsamples);
+
 	if (debugger_breakpoint_hit(app.debugger))
 	{
-		app.running = false;
+		app.emulator_running = false;
 		audio_stream_discard(app.audio);
 		return;
 	}
-	prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, count);
-	PROF_BLOCK("audio buffering") audio_stream_write(app.audio, samples, (u32)count);
+
+	prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, nsamples);
+
+	PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)nsamples);
 }
 
 static void app_drain_audio(void)
@@ -516,7 +569,7 @@ static void app_drain_audio(void)
 	u32 writable = os_audio_writable_frames();
 	u32 queued = audio_stream_available_frames(app.audio);
 	app.audio_min_queued_frames = Min(app.audio_min_queued_frames, queued);
-	if (app.running && writable == app.audio_backend_capacity)
+	if (app.emulator_running && writable == app.audio_backend_capacity)
 	{
 		if (!app.audio_backend_was_empty) app.audio_backend_empty_events += 1;
 		app.audio_backend_was_empty = true;
@@ -525,7 +578,7 @@ static void app_drain_audio(void)
 	{
 		app.audio_backend_was_empty = false;
 	}
-	if (app.running && writable > queued) app.audio_starved_frames += writable - queued;
+	if (app.emulator_running && writable > queued) app.audio_starved_frames += writable - queued;
 
 	while (writable)
 	{
@@ -705,6 +758,7 @@ static void app_publish(void)
 	PROF_BLOCK("capture video") debugger_capture_video(app.debugger, &app.published.video[0][0], NES_VIDEO_WIDTH);
 	PROF_BLOCK("capture chr map") debugger_capture_chr_map(app.debugger, &app.published.chr_map);
 	PROF_BLOCK("capture exec history") debugger_capture_execution_history(app.debugger, app.published.execution_entries, ArrayCount(app.published.execution_entries), &app.published.execution_history);
+	PROF_BLOCK("update activity tracker") activity_tracker_observe_execution(&app.activity_tracker, app.debugger, app.published.execution_history);
 	app.published.prg_rom_size = debugger_prg_rom_size(app.debugger);
 	memory_copy(app.published.palette, nes_palette, sizeof(nes_palette));
 	PROF_BLOCK("publish sprites") app_publish_sprites();
@@ -741,6 +795,7 @@ static void app_update_fps(void)
 	app.previous_draw_time = now;
 }
 
+// Todo, remove this entirely!
 static void app_handle_window_commands(void)
 {
 	for (u32 index = 0; index < os_window_event_count(app.os_window); ++index)
@@ -836,16 +891,36 @@ static AppShell app_build_shell(rect_f32 window_rect)
 	app_status_text(&b, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
 	ui_pop(&b);
 
-	if (app.running)
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1)
+	{
+		style.color = app.ui->theme.palette.error;
+		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
+		app_status_text(&b, 3, LIT("<< REWINDING"), style, app.ui->theme.palette.emission_high * pulse);
+	}
+	else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1)
 	{
 		style.color = app.ui->theme.palette.amber;
-		app_status_text(&b, 3, LIT("RUNNING"), style, app.ui->theme.palette.emission_medium);
+		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
+		app_status_text(&b, 3, LIT("REPLAYING >>"), style, app.ui->theme.palette.emission_high * pulse);
 	}
-	else
+	else if (app.mode == APP_MODE_REWINDING)
 	{
-		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f);
 		style.color = app.ui->theme.palette.error;
-		app_status_text(&b, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
+		app_status_text(&b, 3, LIT("<< REWINDING >>"), style, app.ui->theme.palette.emission_high);
+	}
+	else if (app.mode == APP_MODE_EMULATOR)
+	{
+		if (app.emulator_running)
+		{
+			style.color = app.ui->theme.palette.amber;
+			app_status_text(&b, 3, LIT("RUNNING"), style, app.ui->theme.palette.emission_medium);
+		}
+		else
+		{
+			f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f);
+			style.color = app.ui->theme.palette.error;
+			app_status_text(&b, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
+		}
 	}
 
 	style.color = app.ui->theme.text_subtle;
@@ -1352,6 +1427,7 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 		.ui = app.ui,
 		.scratch = &app.ui->frame_arena,
 		.draw_box_tree = app_draw_box_tree,
+		.activity_tracker = &app.activity_tracker,
 	};
 
 	gfx_begin_pass(app.draw, (GFX_PassDesc) {
@@ -1377,6 +1453,10 @@ static void app_draw(void)
 	ui_begin_frame(app.ui);
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
 	app_handle_window_commands();
+
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) if(debugger_undo_frame(app.debugger)) audio_stream_discard(app.audio);
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) if(debugger_redo_frame(app.debugger)) audio_stream_discard(app.audio);
+
 	app_resize_graphics_outputs(app.os_window->size);
 	gfx_begin_frame(app.draw);
 	app_acquire_graphics_outputs(app.os_window->size);
@@ -1391,18 +1471,12 @@ static void app_draw(void)
 
 	GFX_Texture *present_texture = frame_texture;
 	GFX_Texture *effect_output = app.effect_texture;
-	if (app.scrubbing) {
-		gfx_begin_pass(app.draw, (GFX_PassDesc) {
-			.output = effect_output,
-			.clear = true,
-			.clear_color = COLOR_BLACK,
-		});
-		draw_rewind(app.draw, (Draw_RewindParams) {
-			.texture = present_texture,
-			.time = (f32)fmod(seconds_now().seconds, 1024.0),
-			.strength = 1.f,
-		});
+	if (app.mode == APP_MODE_REWINDING) {
+
+		gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = effect_output, .clear = true, .clear_color = COLOR_BLACK });
+		draw_rewind(app.draw, (Draw_RewindParams) { .texture = present_texture, .time = (f32)fmod(seconds_now().seconds, 1024.0), .strength = 1.f });
 		gfx_end_pass(app.draw);
+
 		present_texture = effect_output;
 		effect_output = frame_texture;
 	}
@@ -1445,14 +1519,17 @@ static void app_frame(void)
 		PROF_BLOCK("main frame incl wait")
 		{
 			debugger_update_cpu_mapping(app.debugger);
-			AppInput input = app_translate_input();
+			AppInput input = app_translate_input_events_based_on_mode();
 			u64 ppu_cycles = app_handle_input(input);
 
 			const Program *program = debugger_program(app.debugger);
 			u32 refinement_budget = program->refinement_pass_count < 2 ? 2048 : 128;
 
 			PROF_BLOCK("debug stepping")         debugger_run(app.debugger, ppu_cycles);
-			PROF_BLOCK("audio fill")             app_fill_audio();
+
+			if (app.mode == APP_MODE_EMULATOR && app.emulator_running) {
+				PROF_BLOCK("emulation") app_fill_audio();
+			}
 			PROF_BLOCK("snapshot")               debugger_capture_frame(app.debugger);
 			PROF_BLOCK("program refinement")     debugger_refine(app.debugger, refinement_budget);
 			PROF_BLOCK("drain audio")            app_drain_audio();

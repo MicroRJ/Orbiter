@@ -2,6 +2,7 @@
 #define FRONTEND_ACTIVITY_TRACKER_H
 
 #include "base.h"
+#include "debugger.h"
 
 enum
 {
@@ -42,6 +43,7 @@ ActivityTracker;
 void activity_tracker_reset(ActivityTracker *tracker, u64 consumed_history_count);
 void activity_tracker_record(ActivityTracker *tracker, u32 source_offset, u32 destination_offset, u64 sequence);
 void activity_tracker_update(ActivityTracker *tracker, f64 now_seconds);
+void activity_tracker_observe_execution(ActivityTracker *tracker, const Debugger *debugger, NES_ExecutionHistory history);
 u32 activity_tracker_sample(const ActivityTracker *tracker, u32 cell_size, ActivityEdge *edges, u32 capacity);
 
 #endif
