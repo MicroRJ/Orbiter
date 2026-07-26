@@ -1,6 +1,8 @@
 #ifndef UI_H
 #define UI_H
 
+#include "graphics.h"
+#include "os_graphical.h"
 #include "ui_id.h"
 #include "text.h"
 
@@ -17,8 +19,10 @@ UI_Response;
 typedef struct
 {
 	Font_Handle font;
-	i32         size; // Ascender-to-descender line height in pixels.
+	// Ascender-to-descender line height in pixels.
+	i32         size;
 	Color_SRGBA color;
+	vec2        align;
 }
 UI_TextStyle;
 

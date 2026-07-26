@@ -5,6 +5,8 @@
 #include "panels.h"
 #include "ttf_api.h"
 #include "text_gfx.h"
+#include "ui_box.h"
+#include "ui_widgets.h"
 #include "views.h"
 #include "gif_recorder.h"
 #include "os.h"
@@ -761,81 +763,138 @@ static void app_handle_window_commands(void)
 	}
 }
 
-static rect_f32 app_status_layout(rect_f32 window_rect, rect_f32 *top, rect_f32 *bottom)
+typedef struct
 {
-	f32 height = app.ui->theme.code.size + 8.f;
-	*top = rect_f32_from_slice(window_rect, AXIS_Y, height);
-	*bottom = rect_f32_from_slice(window_rect, AXIS_Y, -height);
-	window_rect.y += height;
-	window_rect.h = Max(0.f, window_rect.h - height * 2.f);
-	return window_rect;
+	f32 emission;
+}
+AppBoxPaintData;
+
+typedef struct
+{
+	UI_Box *root;
+	UI_Box *top;
+	UI_Box *panel_host;
+	UI_Box *bottom;
+}
+AppShell;
+
+static UI_Box *app_status_text(UI_BoxBuilder *builder, u64 key, String text, UI_BoxDesc desc, UI_TextStyle style, f32 emission)
+{
+	UI_Box *box = ui_text_box(builder, key, text, desc, style);
+	if (emission > 0.f)
+	{
+		AppBoxPaintData *paint = arena_push_zero(builder->arena, sizeof(*paint));
+		paint->emission = emission;
+		box->user = paint;
+	}
+	return box;
 }
 
-static void app_draw_status_bar(rect_f32 rect, String left, String right)
+static void app_draw_box_tree(UI_Box *box)
 {
-	ui_draw_rect(app.ui, rect, app.ui->theme.slider_track);
+	AppBoxPaintData *paint = box->user;
+	if (paint) ui_push_emission(app.ui, paint->emission);
+	if (box->ops && box->ops->paint) {
+		box->ops->paint(box);
+	}
+	if (paint) ui_pop_emission(app.ui);
+	for (u32 child_index = 0; child_index < box->child_count; child_index ++) {
+		app_draw_box_tree(box->children[child_index]);
+	}
+}
+
+static AppShell app_build_shell(rect_f32 window_rect)
+{
+	AppShell shell = {};
+	UI_BoxBuilder builder;
+	UI_BoxDesc root_desc = ui_box_desc();
+	root_desc.axis = AXIS_Y;
+	root_desc.size[AXIS_X] = ui_box_fill(1.f);
+	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
+	shell.root = ui_box_builder_begin(&builder, &app.ui->frame_arena, app.ui, 1, LIT("application shell"), root_desc);
+
+	f32 status_height = app.ui->theme.code.size + 8.f;
+	UI_BoxDesc bar_desc = ui_box_desc();
+	bar_desc.axis = AXIS_X;
+	bar_desc.size[AXIS_X] = ui_box_fill(1.f);
+	bar_desc.size[AXIS_Y] = ui_box_pixels(status_height);
+	bar_desc.horz_padd[0] = bar_desc.horz_padd[1] = 6.f;
+
+	UI_BoxDesc text_desc = ui_box_desc();
+	text_desc.size[AXIS_Y] = ui_box_fill(1.f);
 	UI_TextStyle style = app.ui->theme.code;
-	style.color = app.ui->theme.text_subtle;
-	rect_f32 text = rect_f32_inset(rect, 6.f);
-	ui_draw_text(app.ui, text, style, left);
-	vec2 right_size = ui_measure_text(app.ui, style, right);
-	text.x = rect.x + rect.w - right_size.x - 6.f;
-	ui_draw_text(app.ui, text, style, right);
-}
+	style.align.y = 0.5f;
 
-static vec2 app_draw_emissive_status_text(rect_f32 rect, UI_TextStyle style, String text, f32 emission)
-{
-	ui_push_emission(app.ui, emission);
-	vec2 size = ui_draw_text(app.ui, rect, style, text);
-	ui_pop_emission(app.ui);
-	return size;
-}
-
-static void app_draw_top_status(rect_f32 rect, String right)
-{
-	ui_draw_rect(app.ui, rect, app.ui->theme.slider_track);
-	UI_TextStyle style = app.ui->theme.code;
-	rect_f32 text = rect_f32_inset(rect, 6.f);
-
+	shell.top = ui_box_begin(&builder, 1, LIT("top status"), bar_desc);
 	style.color = app.ui->theme.palette.cyan;
-	text.x += app_draw_emissive_status_text(text, style, LIT("ORBITER"), app.ui->theme.palette.emission_medium).x;
+	app_status_text(&builder, 1, LIT("ORBITER"), text_desc, style, app.ui->theme.palette.emission_medium);
 
+	UI_BoxDesc shrinking_text = text_desc;
+	shrinking_text.size[AXIS_X] = ui_box_flex(0.f, 1.f);
 	style.color = app.ui->theme.text_subtle;
-	text.x += ui_draw_text(app.ui, text, style, LIT("  |  github.com/MicroRJ  |  ")).x;
+	app_status_text(&builder, 2, LIT("  |  github.com/MicroRJ  |  "), shrinking_text, style, 0.f);
 
 	if (app.running)
 	{
 		style.color = app.ui->theme.palette.amber;
-		text.x += app_draw_emissive_status_text(text, style, LIT("RUNNING"), app.ui->theme.palette.emission_medium).x;
+		app_status_text(&builder, 3, LIT("RUNNING"), text_desc, style, app.ui->theme.palette.emission_medium);
 	}
 	else
 	{
 		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f);
-		f32 emission = 0.06f + pulse * 0.16f;
 		style.color = app.ui->theme.palette.error;
-		text.x += app_draw_emissive_status_text(text, style, LIT("PAUSED"), emission).x;
+		app_status_text(&builder, 3, LIT("PAUSED"), text_desc, style, 0.06f + pulse * 0.16f);
 	}
 
 	style.color = app.ui->theme.text_subtle;
-	if (app.app_gif.recording) text.x += ui_draw_text(app.ui, text, style, LIT("   REC APP")).x;
-	else if (app.ppu_gif.recording) text.x += ui_draw_text(app.ui, text, style, LIT("   REC PPU")).x;
-	if (app.apu_muted) ui_draw_text(app.ui, text, style, LIT("   MUTED"));
+	if (app.app_gif.recording) app_status_text(&builder, 4, LIT("   REC APP"), text_desc, style, 0.f);
+	else if (app.ppu_gif.recording) app_status_text(&builder, 4, LIT("   REC PPU"), text_desc, style, 0.f);
+	if (app.apu_muted) app_status_text(&builder, 5, LIT("   MUTED"), text_desc, style, 0.f);
 
-	vec2 right_size = ui_measure_text(app.ui, style, right);
-	text.x = rect.x + rect.w - right_size.x - 6.f;
-	ui_draw_text(app.ui, text, style, right);
-}
+	UI_BoxDesc spacer = ui_box_desc();
+	spacer.size[AXIS_X] = ui_box_fill(1.f);
+	spacer.size[AXIS_Y] = ui_box_fill(1.f);
+	ui_box_make(&builder, 6, LIT("top spacer"), spacer);
 
-static void app_draw_status(rect_f32 top, rect_f32 bottom)
-{
 	String top_right = push_formatted(&app.ui->frame_arena, "%.1f FPS   FRAME %llu", app.frames_per_second, app.published.generation);
+	UI_BoxDesc top_right_desc = text_desc;
+	top_right_desc.size[AXIS_X] = ui_box_flex(0.f, 1.f);
+	style.align.x = 1.f;
+	ui_text_box_sized(&builder, 7, top_right, LIT("999.9 FPS   FRAME 9999999999"), top_right_desc, style);
+	ui_box_end(&builder);
+
+	UI_BoxDesc panel_desc = ui_box_desc();
+	panel_desc.size[AXIS_X] = ui_box_fill(1.f);
+	panel_desc.size[AXIS_Y] = ui_box_fill(1.f);
+	shell.panel_host = ui_box_make(&builder, 2, LIT("panel host"), panel_desc);
+
+	shell.bottom = ui_box_begin(&builder, 3, LIT("bottom status"), bar_desc);
 	String rom_name = app_rom_name(app.last_rom_path);
 	String bottom_left = rom_name.size ? push_formatted(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
-	String bottom_right = LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN");
-	app_draw_top_status(top, top_right);
-	app_draw_status_bar(bottom, bottom_left, bottom_right);
-	ui_draw_rect(app.ui, rect_f32_from_slice(top, AXIS_Y, -1.f), app.ui->theme.panel_outline);
-	ui_draw_rect(app.ui, rect_f32_from_slice(bottom, AXIS_Y, 1.f), app.ui->theme.panel_outline);
+	UI_BoxDesc bottom_left_desc = text_desc;
+	bottom_left_desc.size[AXIS_X] = ui_box_flex(0.f, 1.f);
+	style.align.x = 0.f;
+	app_status_text(&builder, 1, bottom_left, bottom_left_desc, style, 0.f);
+	ui_box_make(&builder, 2, LIT("bottom spacer"), spacer);
+	UI_BoxDesc bottom_right_desc = text_desc;
+	bottom_right_desc.size[AXIS_X] = ui_box_flex(0.f, 3.f);
+	style.align.x = 1.f;
+	app_status_text(&builder, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), bottom_right_desc, style, 0.f);
+	ui_box_end(&builder);
+
+	ui_box_builder_end(&builder);
+	ui_box_measure(shell.root, (UI_BoxConstraints) { .min = window_rect.size, .max = window_rect.size });
+	ui_box_layout(shell.root, window_rect);
+	return shell;
+}
+
+static void app_draw_shell(AppShell shell)
+{
+	ui_draw_rect(app.ui, shell.top->rect, app.ui->theme.slider_track);
+	ui_draw_rect(app.ui, shell.bottom->rect, app.ui->theme.slider_track);
+	ui_draw_rect(app.ui, rect_f32_from_slice(shell.top->rect, AXIS_Y, -1.f), app.ui->theme.panel_outline);
+	ui_draw_rect(app.ui, rect_f32_from_slice(shell.bottom->rect, AXIS_Y, 1.f), app.ui->theme.panel_outline);
+	app_draw_box_tree(shell.root);
 }
 
 static u8 app_linear_to_srgb_u8(f32 value)
@@ -1262,9 +1321,7 @@ static void app_compose_ui_layers(GFX_Texture *frame_texture, rect_f32 window_re
 
 static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 {
-	rect_f32 top = {};
-	rect_f32 bottom = {};
-	rect_f32 panel_rect = app_status_layout(window_rect, &top, &bottom);
+	AppShell shell = app_build_shell(window_rect);
 	ViewFrameData frame = {
 		.debugger = app.debugger,
 		.publication = &app.published,
@@ -1283,8 +1340,8 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 		.rect = window_rect,
 		.color = app.ui->theme.background,
 	});
-	panels_update_and_draw(app.panels, app.os_window, &frame, panel_rect);
-	app_draw_status(top, bottom);
+	panels_update_and_draw(app.panels, app.os_window, &frame, shell.panel_host->viewport);
+	app_draw_shell(shell);
 	gfx_end_pass(app.draw);
 
 	app_compose_ui_layers(frame_texture, window_rect);
