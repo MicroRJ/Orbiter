@@ -350,38 +350,51 @@ static void app_save_config(void)
 	}
 }
 
+typedef enum
+{
+	KEY_CHORD_ON_RELEASE = OS_EVENT_KEY_RELEASE,
+	KEY_CHORD_ON_PRESSED = OS_EVENT_KEY_PRESS,
+}
+KeyChordActivation;
+
 typedef struct {
-	OS_Key key;
-	OS_ModifierFlags modifiers;
+	KeyChordActivation activation;
+	OS_Key             key;
+	OS_ModifierFlags   modifiers;
 }
 KeyChord;
 
+
 typedef struct {
 	AppAction action;
-	KeyChord key_chord;
+	KeyChord  key_chord;
 }
 KeyBind;
 
-static const KeyBind app_emulator_mode_key_binds[] = {
-	{APP_ACTION_OPEN_ROM      , {OS_Key_O, OS_MODIFIER_CONTROL}},
-	{APP_ACTION_RESET         , {OS_Key_R, OS_MODIFIER_CONTROL}},
-	{APP_ACTION_SAVE_STATE    , {OS_Key_S, OS_MODIFIER_CONTROL}},
-	{APP_ACTION_RESTORE_STATE , {OS_Key_L, OS_MODIFIER_CONTROL}},
-	{APP_ACTION_DUMP_PROGRAM  , {OS_Key_K, OS_MODIFIER_CONTROL}},
-	{APP_ACTION_MUTE                  , {OS_Key_M  }},
-	{APP_ACTION_TOGGLE_PPU_FULLSCREEN , {OS_Key_F  }},
-	{APP_ACTION_EXIT_PPU_FULLSCREEN   , {OS_Key_Esc}},
-	{APP_ACTION_TOGGLE_FULLSCREEN     , {OS_Key_F11}},
-	{APP_ACTION_TOGGLE_RUNNING        , {OS_Key_F5 }},
-	{APP_ACTION_TOGGLE_PPU_CAPTURE    , {OS_Key_F8 }},
-	{APP_ACTION_TOGGLE_APP_CAPTURE    , {OS_Key_F9 }},
-	{APP_ACTION_STEP                  , {OS_Key_F10}},
+static const KeyBind app_emulator_mode_key_binds[] =
+{
+	{APP_ACTION_BEGIN_REWINDING_FORWARD   , {KEY_CHORD_ON_PRESSED, OS_Key_Left , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_BEGIN_REWINDING_BACKWARDS , {KEY_CHORD_ON_PRESSED, OS_Key_Right, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_OPEN_ROM                  , {KEY_CHORD_ON_RELEASE, OS_Key_O    , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_RESET                     , {KEY_CHORD_ON_RELEASE, OS_Key_R    , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_SAVE_STATE                , {KEY_CHORD_ON_RELEASE, OS_Key_S    , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_RESTORE_STATE             , {KEY_CHORD_ON_RELEASE, OS_Key_L    , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_DUMP_PROGRAM              , {KEY_CHORD_ON_RELEASE, OS_Key_K    , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_MUTE                      , {KEY_CHORD_ON_RELEASE, OS_Key_M    , }},
+	{APP_ACTION_TOGGLE_PPU_FULLSCREEN     , {KEY_CHORD_ON_RELEASE, OS_Key_F    , }},
+	{APP_ACTION_EXIT_PPU_FULLSCREEN       , {KEY_CHORD_ON_RELEASE, OS_Key_Esc  , }},
+	{APP_ACTION_TOGGLE_FULLSCREEN         , {KEY_CHORD_ON_RELEASE, OS_Key_F11  , }},
+	{APP_ACTION_TOGGLE_FULLSCREEN         , {KEY_CHORD_ON_RELEASE, OS_Key_Enter, OS_MODIFIER_ALT }},
+	{APP_ACTION_TOGGLE_RUNNING            , {KEY_CHORD_ON_RELEASE, OS_Key_F5   , }},
+	{APP_ACTION_TOGGLE_PPU_CAPTURE        , {KEY_CHORD_ON_RELEASE, OS_Key_F8   , }},
+	{APP_ACTION_TOGGLE_APP_CAPTURE        , {KEY_CHORD_ON_RELEASE, OS_Key_F9   , }},
+	{APP_ACTION_STEP                      , {KEY_CHORD_ON_RELEASE, OS_Key_F10  , }},
 };
 
 static AppAction app_find_action_for_keychord(KeyChord chord, KeyBind *binds, u32 nbinds) {
 	for (u32 i = 0; i < nbinds; ++ i)
 	{
-		if (binds[i].key_chord.key == chord.key && binds[i].key_chord.modifiers == chord.modifiers) {
+		if (binds[i].key_chord.key == chord.key && binds[i].key_chord.modifiers == chord.modifiers && binds[i].key_chord.activation == chord.activation) {
 			return binds[i].action;
 		}
 	}
@@ -421,14 +434,7 @@ static AppInput app_translate_input_events_based_on_mode(void)
 	for (u32 index = 0; index < os_window_event_count(app.os_window); ++index)
 	{
 		const OS_Event *event = os_window_event(app.os_window, index);
-		if ((event->type == OS_EVENT_KEY_PRESS) && (event->modifiers & OS_MODIFIER_CONTROL))
-		{
-			if (event->key == OS_Key_Left) input.action = APP_ACTION_BEGIN_REWINDING_FORWARD;
-			else if (event->key == OS_Key_Right) input.action = APP_ACTION_BEGIN_REWINDING_BACKWARDS;
-			break;
-		}
-		if (event->type != OS_EVENT_KEY_RELEASE) continue;
-		input.action = app_find_action_for_keychord((KeyChord){event->key,event->modifiers}, app_emulator_mode_key_binds, ArrayCount(app_emulator_mode_key_binds));
+		input.action = app_find_action_for_keychord((KeyChord){event->type,event->key,event->modifiers}, app_emulator_mode_key_binds, ArrayCount(app_emulator_mode_key_binds));
 	}
 	return input;
 }
