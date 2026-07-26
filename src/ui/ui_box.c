@@ -271,10 +271,13 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 
 	vec2 natural = box->intrinsic_size;
 	vec2 content = box->intrinsic_size;
+	vec2 padd = v2(box->desc.horz_padd[0] + box->desc.horz_padd[1], box->desc.vert_padd[0] + box->desc.vert_padd[1]);
+	UI_BoxConstraints content_constraints = {
+		.min = v2(Max(0.f, constraints.min.x - padd.x), Max(0.f, constraints.min.y - padd.y)),
+		.max = v2(Max(0.f, constraints.max.x - padd.x), Max(0.f, constraints.max.y - padd.y)),
+	};
 	if (box->ops && box->ops->measure)
 	{
-		vec2 padd = v2(box->desc.horz_padd[0] + box->desc.horz_padd[1], box->desc.vert_padd[0] + box->desc.vert_padd[1]);
-		UI_BoxConstraints content_constraints = { .max = v2(Max(0.f, constraints.max.x - padd.x), Max(0.f, constraints.max.y - padd.y)) };
 		vec2 measured_content = box->ops->measure(box, content_constraints);
 		natural.x = Max(natural.x, measured_content.x);
 		natural.y = Max(natural.y, measured_content.y);
@@ -298,6 +301,12 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 			content.xy[main_axis] = box->virtual_list.item_extent * box->virtual_list.item_count + box->desc.gap * (box->virtual_list.item_count - 1);
 			content.xy[perp_axis] = item_size.xy[perp_axis];
 		}
+		natural.x = Max(natural.x, content.x);
+		natural.y = Max(natural.y, content.y);
+	}
+	else if (box->ops && box->ops->measure_children)
+	{
+		content = box->ops->measure_children(box, content_constraints);
 		natural.x = Max(natural.x, content.x);
 		natural.y = Max(natural.y, content.y);
 	}
@@ -511,6 +520,9 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		.w = Max(0.f, rect.w - box->desc.horz_padd[0] - box->desc.horz_padd[1]),
 		.h = Max(0.f, rect.h - box->desc.vert_padd[0] - box->desc.vert_padd[1]),
 	};
+	if (box->ops && box->ops->prepare_layout) {
+		box->ops->prepare_layout(box);
+	}
 
 	rect_f32 child_clip = clip;
 	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)

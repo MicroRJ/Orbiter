@@ -79,11 +79,15 @@ typedef struct UI_BoxBuilder UI_BoxBuilder;
 typedef struct UI_Context UI_Context;
 typedef void UI_BoxVirtualBuildItem(UI_BoxBuilder *builder, u32 item_index, void *user);
 typedef vec2 UI_BoxMeasure(UI_Box *box, UI_BoxConstraints constraints);
+typedef vec2 UI_BoxMeasureChildren(UI_Box *box, UI_BoxConstraints constraints);
+typedef void UI_BoxPrepareLayout(UI_Box *box);
 typedef void UI_BoxPaint(UI_Box *box);
 
 typedef struct
 {
 	UI_BoxMeasure *measure;
+	UI_BoxMeasureChildren *measure_children;
+	UI_BoxPrepareLayout *prepare_layout;
 	UI_BoxPaint *paint;
 }
 UI_BoxOps;

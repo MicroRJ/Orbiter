@@ -210,7 +210,7 @@ static void playground_build_profiler_row(UI_BoxBuilder *builder, u32 row, void 
 			push_formatted(builder->arena, "Profiler scope %05u", row + 1);
 	UI_BoxDesc title_box = playground_fill_desc();
 	title_box.size[AXIS_Y] = ui_box_pixels(28.f);
-	ui_text_box_desc(builder, 1, title, title_box, rows->title_style);
+	ui_text_box_string_desc(builder, 1, title_box, rows->title_style, title);
 
 	String subtitle =
 		row == 0 ? LIT("16.67 ms  |  complete frame") :
@@ -221,7 +221,7 @@ static void playground_build_profiler_row(UI_BoxBuilder *builder, u32 row, void 
 			push_formatted(builder->arena, "%.2f ms  |  %u calls", 0.01f * (f32)(row % 300), 1 + row % 97);
 	UI_BoxDesc subtitle_box = playground_fill_desc();
 	subtitle_box.size[AXIS_Y] = ui_box_pixels(28.f);
-	ui_text_box_desc(builder, 2, subtitle, subtitle_box, rows->subtitle_style);
+	ui_text_box_string_desc(builder, 2, subtitle_box, rows->subtitle_style, subtitle);
 
 	ui_box_end(builder);
 	ui_box_end(builder);
@@ -257,13 +257,13 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	UI_TextStyle vibrant = { .font = font, .size = 16, .color = color_srgba(0x18B8A4) };
 	UI_TextStyle subtle = { .font = font, .size = 16, .color = color_srgba(0x8EAAA5) };
 	UI_TextStyle running = { .font = font, .size = 16, .color = amber };
-	ui_text_box_desc(&builder, 1, LIT("ORBITER"), status_text, vibrant);
-	ui_text_box_desc(&builder, 2, LIT("|  UI BOX PLAYGROUND  |"), status_text, subtle);
-	ui_text_box_desc(&builder, 3, LIT("RUNNING"), status_text, running);
+	ui_text_box_string_desc(&builder, 1, status_text, vibrant, LIT("ORBITER"));
+	ui_text_box_string_desc(&builder, 2, status_text, subtle, LIT("|  UI BOX PLAYGROUND  |"));
+	ui_text_box_string_desc(&builder, 3, status_text, running, LIT("RUNNING"));
 	UI_BoxDesc status_spacer = playground_fill_desc();
 	ui_box_make_desc(&builder, 4, LIT(""), status_spacer);
 	subtle.align.x = 1.f;
-	ui_text_box_sized_desc(&builder, 5, LIT("60.0 FPS  |  FRAME 123456"), LIT("999.9 FPS  |  FRAME 9999999999"), status_text, subtle);
+	ui_text_box_sized_string_desc(&builder, 5, status_text, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
 	ui_box_end(&builder);
 
 	UI_BoxDesc laboratory = playground_fill_desc();
@@ -369,15 +369,17 @@ typedef struct
 }
 PlaygroundDummyProfiler;
 
-static UI_BoxDesc playground_dummy_text_cell(b32 fill)
+static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, String sizing_text, String text, f32 align)
 {
-	UI_BoxDesc desc = ui_box_desc();
-	desc.size[AXIS_X] = fill ? ui_box_fill(1.f) : ui_box_content();
-	desc.size[AXIS_Y] = ui_box_fill(1.f);
-	return desc;
+	ui_box_table_cell_begin(table);
+	UI_BoxDesc text_desc = ui_box_desc();
+	text_desc.perp_align = align;
+	if (sizing_text.size) ui_text_box_sized_string_desc(table->builder, 1, text_desc, style, sizing_text, text);
+	else ui_text_box_string_desc(table->builder, 1, text_desc, style, text);
+	ui_box_table_cell_end(table);
 }
 
-static void playground_build_dummy_timing_row(UI_BoxBuilder *builder, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
+static void playground_build_dummy_timing_row(UI_BoxTable *table, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
 {
 	static const String scope_names[] = {
 		LIT("main frame incl wait"),
@@ -392,36 +394,26 @@ static void playground_build_dummy_timing_row(UI_BoxBuilder *builder, Playground
 		LIT("present wait"),
 		LIT("frame pacing"),
 	};
-	UI_BoxDesc row_desc = playground_fill_desc();
-	row_desc.axis = AXIS_X;
-	row_desc.size[AXIS_Y] = ui_box_pixels(32.f);
-	row_desc.horz_padd[0] = row_desc.horz_padd[1] = 8.f;
-	row_desc.gap = 10.f;
 	Color_SRGBA row_color = header ? profiler->teal : color_srgba_mix(profiler->slate, profiler->violet, row & 1 ? 0.12f : 0.20f);
-	playground_begin_box(builder, header ? 2000 : 3000, LIT(""), row_desc, row_color, false);
+	UI_Box *row_box = ui_box_table_row_begin(table, header ? 1 : row + 2);
+	row_box->user = playground_visual(table->builder->arena, row_color, false);
 
 	UI_TextStyle label_style = header ? profiler->header_style : profiler->value_style;
 	UI_TextStyle numeric_style = header ? profiler->header_style : profiler->numeric_style;
-	numeric_style.align.x = 1.f;
 	String scope = header ? LIT("SCOPE") : scope_names[row % ArrayCount(scope_names)];
-	String milliseconds = header ? LIT("MS") : push_formatted(builder->arena, "%.3f", 0.025f + (f32)(row % 400) * 0.013f);
-	String frame_pct = header ? LIT("FRAME %") : push_formatted(builder->arena, "%.1f", 0.2f + (f32)(row % 97));
-	String calls = header ? LIT("CALLS") : push_formatted(builder->arena, "%u", 1 + row % 99999);
-	String per_call = header ? LIT("US/CALL") : push_formatted(builder->arena, "%.2f", 0.1f + (f32)(row % 1200) * 0.07f);
-	ui_text_box_desc(builder, 1, scope, playground_dummy_text_cell(true), label_style);
-	ui_text_box_sized_desc(builder, 2, milliseconds, LIT("999.999"), playground_dummy_text_cell(false), numeric_style);
-	ui_text_box_sized_desc(builder, 3, frame_pct, LIT("100.0 %"), playground_dummy_text_cell(false), numeric_style);
-	ui_text_box_sized_desc(builder, 4, calls, LIT("999999"), playground_dummy_text_cell(false), numeric_style);
-	ui_text_box_sized_desc(builder, 5, per_call, LIT("99999.99"), playground_dummy_text_cell(false), numeric_style);
-	ui_box_end(builder);
+	String milliseconds = header ? LIT("MS") : push_formatted(table->builder->arena, "%.3f", 0.025f + (f32)(row % 400) * 0.013f);
+	String frame_pct = header ? LIT("FRAME %") : push_formatted(table->builder->arena, "%.1f", 0.2f + (f32)(row % 97));
+	String calls = header ? LIT("CALLS") : push_formatted(table->builder->arena, "%u", 1 + row % 99999);
+	String per_call = header ? LIT("US/CALL") : push_formatted(table->builder->arena, "%.2f", 0.1f + (f32)(row % 1200) * 0.07f);
+	playground_dummy_table_cell(table, label_style, (String) {}, scope, 0.f);
+	playground_dummy_table_cell(table, numeric_style, LIT("999.999"), milliseconds, 1.f);
+	playground_dummy_table_cell(table, numeric_style, LIT("100.0 %"), frame_pct, 1.f);
+	playground_dummy_table_cell(table, numeric_style, LIT("999999"), calls, 1.f);
+	playground_dummy_table_cell(table, numeric_style, LIT("99999.99"), per_call, 1.f);
+	ui_box_table_row_end(table);
 }
 
-static void playground_build_dummy_timing_item(UI_BoxBuilder *builder, u32 item_index, void *user)
-{
-	playground_build_dummy_timing_row(builder, user, item_index, false);
-}
-
-static void playground_build_dummy_metric_row(UI_BoxBuilder *builder, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
+static void playground_build_dummy_metric_row(UI_BoxTable *table, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
 {
 	static const String metric_names[] = {
 		LIT("TEXT LAYOUT CALLS"),
@@ -433,27 +425,17 @@ static void playground_build_dummy_metric_row(UI_BoxBuilder *builder, Playground
 		LIT("GLYPH CACHE MISSES"),
 		LIT("TRANSIENT TEXTURES"),
 	};
-	UI_BoxDesc row_desc = playground_fill_desc();
-	row_desc.axis = AXIS_X;
-	row_desc.size[AXIS_Y] = ui_box_pixels(32.f);
-	row_desc.horz_padd[0] = row_desc.horz_padd[1] = 8.f;
-	row_desc.gap = 10.f;
 	Color_SRGBA row_color = header ? profiler->violet : color_srgba_mix(profiler->slate, profiler->teal, row & 1 ? 0.10f : 0.18f);
-	playground_begin_box(builder, header ? 4000 : 5000, LIT(""), row_desc, row_color, false);
+	UI_Box *row_box = ui_box_table_row_begin(table, header ? 1 : row + 2);
+	row_box->user = playground_visual(table->builder->arena, row_color, false);
 
 	UI_TextStyle label_style = header ? profiler->header_style : profiler->value_style;
 	UI_TextStyle numeric_style = header ? profiler->header_style : profiler->numeric_style;
-	numeric_style.align.x = 1.f;
 	String metric = header ? LIT("METRIC") : metric_names[row % ArrayCount(metric_names)];
-	String value = header ? LIT("VALUE") : push_formatted(builder->arena, "%llu", 1000ull + (u64)row * 7919ull);
-	ui_text_box_desc(builder, 1, metric, playground_dummy_text_cell(true), label_style);
-	ui_text_box_sized_desc(builder, 2, value, LIT("9999999999"), playground_dummy_text_cell(false), numeric_style);
-	ui_box_end(builder);
-}
-
-static void playground_build_dummy_metric_item(UI_BoxBuilder *builder, u32 item_index, void *user)
-{
-	playground_build_dummy_metric_row(builder, user, item_index, false);
+	String value = header ? LIT("VALUE") : push_formatted(table->builder->arena, "%llu", 1000ull + (u64)row * 7919ull);
+	playground_dummy_table_cell(table, label_style, (String) {}, metric, 0.f);
+	playground_dummy_table_cell(table, numeric_style, LIT("9999999999"), value, 1.f);
+	ui_box_table_row_end(table);
 }
 
 static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context *ui, Font_Handle font, PlaygroundDensity density)
@@ -492,12 +474,12 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	header_text.perp_align = 0.5f;
 	UI_TextStyle title = { .font = font, .size = 16, .color = teal };
 	UI_TextStyle subtle = { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	ui_text_box_desc(&builder, 1, LIT("ORBITER PROFILER"), header_text, title);
-	ui_text_box_desc(&builder, 2, LIT("|  BOX TABLE PROTOTYPE"), header_text, subtle);
+	ui_text_box_string_desc(&builder, 1, header_text, title, LIT("ORBITER PROFILER"));
+	ui_text_box_string_desc(&builder, 2, header_text, subtle, LIT("|  BOX TABLE PROTOTYPE"));
 	UI_BoxDesc header_spacer = playground_fill_desc();
 	ui_box_make_desc(&builder, 3, LIT(""), header_spacer);
 	subtle.align.x = 1.f;
-	ui_text_box_desc(&builder, 4, LIT("TAB: BASICS  |  SPACE: DENSITY"), header_text, subtle);
+	ui_text_box_string_desc(&builder, 4, header_text, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
 	ui_box_end(&builder);
 
 	UI_BoxDesc graph = playground_fill_desc();
@@ -514,13 +496,13 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	playground_begin_box(&builder, 6002, LIT(""), selection, color_srgba_mix(amber, slate, 0.72f), false);
 	UI_BoxDesc selection_text = ui_box_desc();
 	selection_text.perp_align = 0.5f;
-	ui_text_box_desc(&builder, 1, LIT("SELECTED FRAME 123456  /  16.667 MS"), selection_text, profiler->value_style);
+	ui_text_box_string_desc(&builder, 1, selection_text, profiler->value_style, LIT("SELECTED FRAME 123456  /  16.667 MS"));
 	UI_BoxDesc selection_spacer = playground_fill_desc();
 	ui_box_make_desc(&builder, 2, LIT(""), selection_spacer);
 	UI_TextStyle live = profiler->header_style;
 	live.color = amber;
 	live.align.x = 1.f;
-	ui_text_box_desc(&builder, 3, LIT("LIVE"), selection_text, live);
+	ui_text_box_string_desc(&builder, 3, selection_text, live, LIT("LIVE"));
 	ui_box_end(&builder);
 
 	UI_BoxDesc tables = playground_fill_desc();
@@ -535,16 +517,32 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	timing_panel.vert_padd[0] = timing_panel.vert_padd[1] = density.card_padding;
 	timing_panel.gap = 4.f;
 	playground_begin_box(&builder, 6100, LIT(""), timing_panel, slate, false);
-	playground_build_dummy_timing_row(&builder, profiler, 0, true);
-	UI_BoxDesc timing_list = playground_fill_desc();
-	timing_list.gap = 1.f;
-	timing_list.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	UI_Box *timing_scroll = ui_box_make_virtual_list_desc(&builder, 2, LIT(""), timing_list, (UI_BoxVirtualListDesc) {
-		.item_count = 4096,
-		.user = profiler,
-		.build_item = playground_build_dummy_timing_item,
+	UI_BoxTableColumn timing_columns[] = {
+		ui_box_table_flex(1.f),
+		ui_box_table_content(),
+		ui_box_table_content(),
+		ui_box_table_content(),
+		ui_box_table_content(),
+	};
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
+	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
+	ui_overflow(&builder, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(&builder, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
+	UI_BoxTable timing_table = ui_box_table_begin(&builder, 2, LIT("timing table"), (UI_BoxTableDesc) {
+		.columns = timing_columns,
+		.column_count = ArrayCount(timing_columns),
+		.row_height = 32.f,
+		.column_gap = 10.f,
+		.row_gap = 1.f,
+		.cell_padd = v2(8.f, 5.f),
 	});
-	scene.scroll_boxes[scene.scroll_box_count++] = timing_scroll;
+	ui_pop(&builder);
+	playground_build_dummy_timing_row(&timing_table, profiler, 0, true);
+	for (u32 row = 0; row < 128; row++) {
+		playground_build_dummy_timing_row(&timing_table, profiler, row, false);
+	}
+	scene.scroll_boxes[scene.scroll_box_count++] = ui_box_table_end(&timing_table);
 	ui_box_end(&builder);
 
 	UI_BoxDesc metric_panel = playground_fill_desc();
@@ -554,16 +552,29 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	metric_panel.vert_padd[0] = metric_panel.vert_padd[1] = density.card_padding;
 	metric_panel.gap = 4.f;
 	playground_begin_box(&builder, 6200, LIT(""), metric_panel, slate, false);
-	playground_build_dummy_metric_row(&builder, profiler, 0, true);
-	UI_BoxDesc metric_list = playground_fill_desc();
-	metric_list.gap = 1.f;
-	metric_list.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	UI_Box *metric_scroll = ui_box_make_virtual_list_desc(&builder, 2, LIT(""), metric_list, (UI_BoxVirtualListDesc) {
-		.item_count = 2048,
-		.user = profiler,
-		.build_item = playground_build_dummy_metric_item,
+	UI_BoxTableColumn metric_columns[] = {
+		ui_box_table_flex(1.f),
+		ui_box_table_content(),
+	};
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
+	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
+	ui_overflow(&builder, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(&builder, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
+	UI_BoxTable metric_table = ui_box_table_begin(&builder, 2, LIT("metric table"), (UI_BoxTableDesc) {
+		.columns = metric_columns,
+		.column_count = ArrayCount(metric_columns),
+		.row_height = 32.f,
+		.column_gap = 10.f,
+		.row_gap = 1.f,
+		.cell_padd = v2(8.f, 5.f),
 	});
-	scene.scroll_boxes[scene.scroll_box_count++] = metric_scroll;
+	ui_pop(&builder);
+	playground_build_dummy_metric_row(&metric_table, profiler, 0, true);
+	for (u32 row = 0; row < 64; row++) {
+		playground_build_dummy_metric_row(&metric_table, profiler, row, false);
+	}
+	scene.scroll_boxes[scene.scroll_box_count++] = ui_box_table_end(&metric_table);
 	ui_box_end(&builder);
 
 	ui_box_end(&builder);
@@ -700,6 +711,18 @@ static b32 playground_near(f32 a, f32 b)
 	return fabsf(a - b) < 0.01f;
 }
 
+static vec2 playground_test_measure_counted(UI_Box *box, UI_BoxConstraints constraints)
+{
+	(void)constraints;
+	u32 *measure_count = box->user;
+	(*measure_count)++;
+	return v2(70.f, 10.f);
+}
+
+static const UI_BoxOps playground_test_counted_ops = {
+	.measure = playground_test_measure_counted,
+};
+
 static UI_Box *playground_test_row(Arena *arena, f32 width, UI_BoxSize left_size, f32 left_basis, f32 left_min, f32 left_max, UI_BoxSize right_size, f32 right_basis, f32 right_min, f32 right_max)
 {
 	UI_BoxDesc root_desc = playground_fill_desc();
@@ -828,6 +851,58 @@ static int playground_run_tests(void)
 		CHECK(root->child_count == 5 && first->desc.size[AXIS_X].value == 60.f && second->desc.size[AXIS_X].value == 60.f, "active descriptor values apply to every box in the construction scope");
 		CHECK(nested->desc.size[AXIS_X].value == 10.f && restored->desc.size[AXIS_X].value == 60.f, "pop restores the complete previous descriptor");
 		CHECK(restored->desc.size[AXIS_Y].kind == UI_BOX_SIZE_FILL && defaults->desc.size[AXIS_X].kind == UI_BOX_SIZE_CONTENT, "nested descriptor scopes restore all fields");
+	}
+
+	ARENA_SCOPE(&arena)
+	{
+		UI_BoxBuilder builder;
+		ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), ui_box_desc());
+		UI_BoxTableColumn columns[] = {
+			ui_box_table_content(),
+			ui_box_table_fixed(50.f),
+			ui_box_table_flex(1.f),
+		};
+		UI_BoxTable table = ui_box_table_begin(&builder, 1, LIT("table"), (UI_BoxTableDesc) {
+			.columns = columns,
+			.column_count = ArrayCount(columns),
+			.row_height = 20.f,
+			.column_gap = 5.f,
+			.row_gap = 2.f,
+		});
+		ui_box_table_row_begin(&table, 1);
+		UI_Box *r0c0 = ui_box_table_cell_begin(&table);
+		r0c0->intrinsic_size.x = 30.f;
+		ui_box_table_cell_end(&table);
+		UI_Box *r0c1 = ui_box_table_cell_begin(&table);
+		r0c1->intrinsic_size.x = 10.f;
+		ui_box_table_cell_end(&table);
+		UI_Box *r0c2 = ui_box_table_cell_begin(&table);
+		r0c2->intrinsic_size.x = 20.f;
+		ui_box_table_cell_end(&table);
+		ui_box_table_row_end(&table);
+		ui_box_table_row_begin(&table, 2);
+		UI_Box *r1c0 = ui_box_table_cell_begin(&table);
+		u32 nested_measure_count = 0;
+		UI_Box *nested = ui_box_make_desc(&builder, 1, LIT("nested"), ui_box_desc());
+		nested->ops = &playground_test_counted_ops;
+		nested->user = &nested_measure_count;
+		ui_box_table_cell_end(&table);
+		ui_box_table_cell_begin(&table);
+		ui_box_table_cell_end(&table);
+		ui_box_table_cell_begin(&table);
+		ui_box_table_cell_end(&table);
+		ui_box_table_row_end(&table);
+		UI_Box *table_box = ui_box_table_end(&table);
+		ui_box_builder_end(&builder);
+		ui_box_measure(table_box, (UI_BoxConstraints) { .max = v2(300.f, 100.f) });
+		ui_box_layout(table_box, (rect_f32) { 0.f, 0.f, 300.f, 42.f });
+		UI_Box *r1c1 = table_box->children[1]->children[1];
+		UI_Box *r1c2 = table_box->children[1]->children[2];
+		CHECK(playground_near(r0c0->rect.w, 70.f) && playground_near(r1c0->rect.w, 70.f), "content table tracks use the widest cell subtree across rows");
+		CHECK(playground_near(r0c1->rect.w, 50.f) && playground_near(r1c1->rect.w, 50.f), "fixed table tracks remain aligned across rows");
+		CHECK(playground_near(r0c2->rect.w, 170.f) && playground_near(r1c2->rect.w, 170.f), "flex table tracks receive the remaining width");
+		CHECK(playground_near(r0c1->rect.x, r1c1->rect.x) && playground_near(r0c2->rect.x, r1c2->rect.x), "cell boundaries align across every table row");
+		CHECK(nested_measure_count == 1, "table cells are measured once before shared tracks are resolved");
 	}
 
 	ARENA_SCOPE(&arena)

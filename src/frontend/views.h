@@ -6,6 +6,7 @@
 #include "graphics.h"
 #include "os_graphical.h"
 #include "ui.h"
+#include "ui_box.h"
 
 typedef enum
 {
@@ -30,6 +31,12 @@ typedef struct
 	b32 tracking_failed;
 }
 ViewState;
+
+typedef struct
+{
+	f32 scroll;
+}
+CPUViewState;
 
 enum
 {
@@ -94,6 +101,7 @@ typedef struct
 	union
 	{
 		ViewState program;
+		CPUViewState cpu;
 		PRGActivityViewState prg_activity;
 		ProfilerViewState profiler;
 	};
@@ -116,8 +124,6 @@ typedef struct
 }
 FrontendPublication;
 
-// The frame package is the complete view interface. Views do not know which
-// panel owns their persistent state.
 typedef struct
 {
 	PanelViewData *view;
@@ -126,6 +132,7 @@ typedef struct
 	Arena         *scratch;
 	rect_f32       rect;
 	f32            header_height;
+	void         (*draw_box_tree)(UI_Box *box);
 
 	// The application prepares shared publication resources once per frame.
 	const FrontendPublication *publication;
