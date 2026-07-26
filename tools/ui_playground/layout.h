@@ -2,6 +2,7 @@
 #define ORBITER_UI_PLAYGROUND_LAYOUT_H
 
 #include "base.h"
+#include "ui_id.h"
 
 enum
 {
@@ -97,6 +98,7 @@ UIP_VirtualListDesc;
 
 struct UIP_Box
 {
+	UI_Id id;
 	String name;
 	UIP_BoxDesc desc;
 	UIP_Box **children;
@@ -138,8 +140,12 @@ struct UIP_Builder
 	UIP_Box *root;
 	UIP_Box *parent;
 	UIP_Box *parent_stack[UIP_MAX_DEPTH];
+	UI_Id parent_id_stack[UIP_MAX_DEPTH];
+	UI_Id id;
+	UI_Id id_stack[UIP_MAX_DEPTH];
 	UIP_Box *child_stack[UIP_MAX_PENDING_CHILDREN];
 	u32 parent_count;
+	u32 id_count;
 	u32 child_count;
 };
 
@@ -149,12 +155,14 @@ UIP_Size uip_fill(f32 grow);
 UIP_Size uip_flex(f32 grow, f32 shrink);
 UIP_BoxDesc uip_box_desc(void);
 
-UIP_Box *uip_builder_begin(UIP_Builder *builder, Arena *arena, UIP_Context *ui, String root_name, UIP_BoxDesc root_desc);
-UIP_Box *uip_make_box(UIP_Builder *builder, String name, UIP_BoxDesc desc);
-UIP_Box *uip_begin_box(UIP_Builder *builder, String name, UIP_BoxDesc desc);
-UIP_Box *uip_make_virtual_list(UIP_Builder *builder, String name, UIP_BoxDesc desc, UIP_VirtualListDesc list);
+UIP_Box *uip_builder_begin(UIP_Builder *builder, Arena *arena, UIP_Context *ui, u64 root_key, String root_name, UIP_BoxDesc root_desc);
+UIP_Box *uip_make_box(UIP_Builder *builder, u64 key, String name, UIP_BoxDesc desc);
+UIP_Box *uip_begin_box(UIP_Builder *builder, u64 key, String name, UIP_BoxDesc desc);
+UIP_Box *uip_make_virtual_list(UIP_Builder *builder, u64 key, String name, UIP_BoxDesc desc, UIP_VirtualListDesc list);
 void uip_end_box(UIP_Builder *builder);
 UIP_Box *uip_builder_end(UIP_Builder *builder);
+void uip_push_id(UIP_Builder *builder, u64 key);
+void uip_pop_id(UIP_Builder *builder);
 
 vec2 uip_measure(UIP_Box *box, UIP_Constraints constraints);
 void uip_layout(UIP_Box *box, rect_f32 rect);

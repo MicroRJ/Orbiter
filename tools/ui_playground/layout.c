@@ -48,9 +48,10 @@ UIP_BoxDesc uip_box_desc(void)
 	};
 }
 
-static UIP_Box *uip__allocate_box(UIP_Builder *builder, String name, UIP_BoxDesc desc)
+static UIP_Box *uip__allocate_box(UIP_Builder *builder, UI_Id id, String name, UIP_BoxDesc desc)
 {
 	UIP_Box *box = arena_push_zero(builder->arena, sizeof(*box));
+	box->id = id;
 	box->name = name;
 	box->desc = desc;
 	box->ui = builder->ui;
@@ -68,35 +69,43 @@ static void uip__finish_children(UIP_Builder *builder, UIP_Box *parent)
 	}
 }
 
-UIP_Box *uip_builder_begin(UIP_Builder *builder, Arena *arena, UIP_Context *ui, String root_name, UIP_BoxDesc root_desc)
+UIP_Box *uip_builder_begin(UIP_Builder *builder, Arena *arena, UIP_Context *ui, u64 root_key, String root_name, UIP_BoxDesc root_desc)
 {
 	Assert(builder);
 	Assert(arena);
 	memory_zero(builder, sizeof(*builder));
 	builder->arena = arena;
 	builder->ui = ui;
-	builder->root = uip__allocate_box(builder, root_name, root_desc);
+	builder->id = ui_id_child(UI_ID_NONE, root_key);
+	builder->root = uip__allocate_box(builder, builder->id, root_name, root_desc);
 	builder->parent = builder->root;
 	return builder->root;
 }
 
-UIP_Box *uip_make_box(UIP_Builder *builder, String name, UIP_BoxDesc desc)
+UIP_Box *uip_make_box(UIP_Builder *builder, u64 key, String name, UIP_BoxDesc desc)
 {
 	Assert(builder);
 	Assert(builder->parent);
 	Assert(builder->child_count < ArrayCount(builder->child_stack));
-	UIP_Box *box = uip__allocate_box(builder, name, desc);
+	UI_Id id = ui_id_child(builder->id, key);
+	u32 sibling_begin = builder->child_count - builder->parent->child_count;
+	for (u32 sibling_index = sibling_begin; sibling_index < builder->child_count; sibling_index ++) {
+		Assert(!ui_id_equal(builder->child_stack[sibling_index]->id, id));
+	}
+	UIP_Box *box = uip__allocate_box(builder, id, name, desc);
 	builder->parent->child_count++;
 	builder->child_stack[builder->child_count++] = box;
 	return box;
 }
 
-UIP_Box *uip_begin_box(UIP_Builder *builder, String name, UIP_BoxDesc desc)
+UIP_Box *uip_begin_box(UIP_Builder *builder, u64 key, String name, UIP_BoxDesc desc)
 {
-	UIP_Box *box = uip_make_box(builder, name, desc);
+	UIP_Box *box = uip_make_box(builder, key, name, desc);
 	Assert(builder->parent_count < ArrayCount(builder->parent_stack));
-	builder->parent_stack[builder->parent_count++] = builder->parent;
+	builder->parent_stack[builder->parent_count] = builder->parent;
+	builder->parent_id_stack[builder->parent_count++] = builder->id;
 	builder->parent = box;
+	builder->id = box->id;
 	return box;
 }
 
@@ -105,7 +114,9 @@ void uip_end_box(UIP_Builder *builder)
 	Assert(builder);
 	Assert(builder->parent_count);
 	uip__finish_children(builder, builder->parent);
-	builder->parent = builder->parent_stack[--builder->parent_count];
+	builder->parent_count--;
+	builder->parent = builder->parent_stack[builder->parent_count];
+	builder->id = builder->parent_id_stack[builder->parent_count];
 }
 
 UIP_Box *uip_builder_end(UIP_Builder *builder)
@@ -114,23 +125,43 @@ UIP_Box *uip_builder_end(UIP_Builder *builder)
 	Assert(builder->root);
 	Assert(builder->parent == builder->root);
 	Assert(builder->parent_count == 0);
+	Assert(builder->id_count == 0);
+	Assert(ui_id_equal(builder->id, builder->root->id));
 	uip__finish_children(builder, builder->root);
 	Assert(builder->child_count == 0);
 	return builder->root;
 }
 
-UIP_Box *uip_make_virtual_list(UIP_Builder *builder, String name, UIP_BoxDesc desc, UIP_VirtualListDesc list)
+void uip_push_id(UIP_Builder *builder, u64 key)
+{
+	Assert(builder);
+	Assert(builder->id_count < ArrayCount(builder->id_stack));
+	builder->id_stack[builder->id_count++] = builder->id;
+	builder->id = ui_id_child(builder->id, key);
+}
+
+void uip_pop_id(UIP_Builder *builder)
+{
+	Assert(builder);
+	Assert(builder->id_count);
+	builder->id = builder->id_stack[--builder->id_count];
+}
+
+UIP_Box *uip_make_virtual_list(UIP_Builder *builder, u64 key, String name, UIP_BoxDesc desc, UIP_VirtualListDesc list)
 {
 	Assert(builder);
 	Assert(list.build_item);
 	desc.overflow[desc.axis] = UIP_OVERFLOW_SCROLL;
-	UIP_Box *box = uip_begin_box(builder, name, desc);
+	UIP_Box *box = uip_begin_box(builder, key, name, desc);
 	box->virtual_list.arena = builder->arena;
 	box->virtual_list.build_item = list.build_item;
 	box->virtual_list.user = list.user;
 	box->virtual_list.item_count = list.item_count;
-	if (list.item_count) {
+	if (list.item_count)
+	{
+		uip_push_id(builder, 0);
 		list.build_item(builder, 0, list.user);
+		uip_pop_id(builder);
 		Assert(box->child_count == 1);
 	}
 	uip_end_box(builder);
@@ -289,13 +320,16 @@ static void uip__materialize_virtual_list(UIP_Box *box, u32 first_item, u32 one_
 		.ui = box->ui,
 		.root = box,
 		.parent = box,
+		.id = box->id,
 	};
 	box->children = 0;
 	box->child_count = 0;
 	for (u32 item_index = first_item; item_index < one_past_item; item_index ++)
 	{
 		u32 child_count = box->child_count;
+		uip_push_id(&builder, item_index);
 		box->virtual_list.build_item(&builder, item_index, box->virtual_list.user);
+		uip_pop_id(&builder);
 		Assert(builder.parent == box);
 		Assert(builder.parent_count == 0);
 		Assert(box->child_count == child_count + 1);

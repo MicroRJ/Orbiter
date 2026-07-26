@@ -1,15 +1,8 @@
 #ifndef UI_H
 #define UI_H
 
+#include "ui_id.h"
 #include "text.h"
-
-typedef struct
-{
-	u64 value;
-}
-UI_Id;
-
-#define UI_ID_NONE ((UI_Id) { 0 })
 
 typedef struct
 {
@@ -253,9 +246,6 @@ const UI_Frame *ui_frame(const UI_Context *ui);
 void ui_push_layer(UI_Context *ui, UI_LayerKind layer);
 void ui_pop_layer(UI_Context *ui);
 
-UI_Id ui_id_from_ptr(const void *pointer);
-UI_Id ui_id_child(UI_Id parent, u64 child);
-b32 ui_id_equal(UI_Id a, UI_Id b);
 b32 ui_is_hot(UI_Context *ui, UI_Id id);
 b32 ui_is_active(UI_Context *ui, UI_Id id);
 

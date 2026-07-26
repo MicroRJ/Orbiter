@@ -22,7 +22,7 @@ typedef struct
 }
 UIP_TextStyle;
 
-UIP_Box *uip_text(UIP_Builder *builder, String text, UIP_BoxDesc desc, UIP_TextStyle style);
-UIP_Box *uip_text_sized(UIP_Builder *builder, String text, String sizing_text, UIP_BoxDesc desc, UIP_TextStyle style);
+UIP_Box *uip_text(UIP_Builder *builder, u64 key, String text, UIP_BoxDesc desc, UIP_TextStyle style);
+UIP_Box *uip_text_sized(UIP_Builder *builder, u64 key, String text, String sizing_text, UIP_BoxDesc desc, UIP_TextStyle style);
 
 #endif

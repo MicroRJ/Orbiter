@@ -36,12 +36,12 @@ static const UIP_BoxOps uip__text_ops = {
 	.paint = uip__paint_text,
 };
 
-UIP_Box *uip_text(UIP_Builder *builder, String string, UIP_BoxDesc desc, UIP_TextStyle style)
+UIP_Box *uip_text(UIP_Builder *builder, u64 key, String string, UIP_BoxDesc desc, UIP_TextStyle style)
 {
-	return uip_text_sized(builder, string, (String) {}, desc, style);
+	return uip_text_sized(builder, key, string, (String) {}, desc, style);
 }
 
-UIP_Box *uip_text_sized(UIP_Builder *builder, String string, String sizing_string, UIP_BoxDesc desc, UIP_TextStyle style)
+UIP_Box *uip_text_sized(UIP_Builder *builder, u64 key, String string, String sizing_string, UIP_BoxDesc desc, UIP_TextStyle style)
 {
 	Assert(builder);
 	Assert(builder->ui);
@@ -53,7 +53,7 @@ UIP_Box *uip_text_sized(UIP_Builder *builder, String string, String sizing_strin
 	text->string = string;
 	text->sizing_string = sizing_string;
 	text->style = style;
-	UIP_Box *box = uip_make_box(builder, string, desc);
+	UIP_Box *box = uip_make_box(builder, key, string, desc);
 	box->ops = &uip__text_ops;
 	box->content = text;
 	return box;
