@@ -257,13 +257,17 @@ static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGri
 	};
 	tooltip.x = CLAMP(tooltip.x, frame->rect.x, Max(frame->rect.x, frame->rect.x + frame->rect.w - tooltip.w));
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
-	ui_tooltip_begin(ui, tooltip);
+	ui_push_layer(ui, UI_LAYER_OVERLAY);
+	ui_push_unclipped(ui);
+	ui_draw_backdrop(ui, tooltip);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
 	for (u32 index = 0; index < line_count; ++index)
 	{
-		ui_tooltip_draw_text(ui, text, style, lines[index]);
+		ui_draw_text(ui, text, style, lines[index]);
 		text.y += line_height;
 	}
+	ui_pop_unclipped(ui);
+	ui_pop_layer(ui);
 }
 
 static b32 prg_activity_cell_is_mapped(const Debugger *debugger, const Program *program, b32 include_prg_ram, u32 cell_begin, u32 cell_end)

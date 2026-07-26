@@ -124,6 +124,8 @@ struct UI_DrawCommand
 		{
 			rect_f32 rect;
 			Color_SRGBA color;
+			f32 roundness;
+			f32 edge_softness;
 		}
 		rect;
 		struct
@@ -194,6 +196,7 @@ struct UI_Context
 	u32 layer_stack_count;
 	rect_f32 clip_stack[16];
 	u32 clip_stack_count;
+	u32 unclipped_scope_count;
 	f32 emission;
 	f32 emission_stack[8];
 	u32 emission_stack_count;
@@ -259,15 +262,15 @@ b32 ui_is_active(UI_Context *ui, UI_Id id);
 UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect);
 void ui_push_clip(UI_Context *ui, rect_f32 rect);
 void ui_pop_clip(UI_Context *ui);
+void ui_push_unclipped(UI_Context *ui);
+void ui_pop_unclipped(UI_Context *ui);
 void ui_push_emission(UI_Context *ui, f32 emission);
 void ui_pop_emission(UI_Context *ui);
-void ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color);
+UI_DrawCommand *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color);
 void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SRGBA color);
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength);
 void ui_draw_backdrop(UI_Context *ui, rect_f32 rect);
-void ui_tooltip_begin(UI_Context *ui, rect_f32 rect);
-void ui_tooltip_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color);
-void ui_tooltip_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text);
+
 void ui_draw_panel(UI_Context *ui, rect_f32 rect, b32 focused);
 void ui_draw_splitter(UI_Context *ui, rect_f32 rect, UI_Id id);
 void ui_draw_image(UI_Context *ui, UI_ImageParams params);
@@ -278,12 +281,9 @@ UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_
 UI_TableColumnSpec ui_table_column_content(void);
 UI_TableColumnSpec ui_table_column_fixed(f32 width);
 UI_TableColumnSpec ui_table_column_flex(f32 weight);
-UI_Table ui_table_begin(UI_Context *ui, Arena *arena, rect_f32 rect,
-	u32 row_count, u32 column_count, f32 row_height);
-void ui_table_set_column(UI_Table *table, u32 column,
-	UI_TableColumnSpec spec);
-void ui_table_set_text(UI_Table *table, u32 row, u32 column,
-	UI_TextStyle style, String text);
+UI_Table ui_table_begin(UI_Context *ui, Arena *arena, rect_f32 rect, u32 row_count, u32 column_count, f32 row_height);
+void ui_table_set_column(UI_Table *table, u32 column, UI_TableColumnSpec spec);
+void ui_table_set_text(UI_Table *table, u32 row, u32 column, UI_TextStyle style, String text);
 void ui_table_layout(UI_Table *table);
 rect_f32 ui_table_cell_rect(const UI_Table *table, u32 row, u32 column);
 void ui_table_draw(UI_Table *table);

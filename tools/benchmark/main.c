@@ -113,6 +113,14 @@ static void benchmark_print(const char *name, BenchmarkStats stats)
 		stats.mean * 1000.0, stats.p95 * 1000.0);
 }
 
+static void benchmark_print_bus(const char *name, NES_BusMetrics metrics, u32 iterations, f64 elapsed)
+{
+	f64 accesses = (f64)(metrics.reads + metrics.writes);
+	printf("%-24s %10.0f reads/frame  %8.2f writes/frame  %8.2f M access/s\n",
+		name, (f64)metrics.reads / iterations, (f64)metrics.writes / iterations,
+		accesses / elapsed / 1000000.0);
+}
+
 static b32 benchmark_parse_iterations(const char *text, u32 *result)
 {
 	char *end = 0;
@@ -220,11 +228,15 @@ int main(int argc, char **argv)
 	benchmark_print("runtime snapshot copy", benchmark_stats(samples, iterations));
 	printf("%-24s %.2f KiB copied\n", "", (f64)sizeof(*runtime_snapshot) / KiB(1));
 
+	NES_BusMetrics cpu_bus_begin = core->cpu_bus_metrics;
+	NES_BusMetrics ppu_bus_begin = core->ppu_bus_metrics;
+	f64 frame_elapsed = 0;
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
 	{
 		Seconds begin = seconds_now();
 		nes_emulator_run(core, NES_PPU_FRAME_CYCLES);
 		samples[iteration] = seconds_now().seconds - begin.seconds;
+		frame_elapsed += samples[iteration];
 
 		begin = seconds_now();
 		nes_emulator_run(boundary_core, NES_PPU_FRAME_CYCLES);
@@ -234,6 +246,16 @@ int main(int argc, char **argv)
 	BenchmarkStats boundary_stats = benchmark_stats(boundary_samples, iterations);
 	benchmark_print("frame, boundaries off", frame_stats);
 	benchmark_print("frame, boundaries on", boundary_stats);
+	NES_BusMetrics cpu_bus = {
+		.reads = core->cpu_bus_metrics.reads - cpu_bus_begin.reads,
+		.writes = core->cpu_bus_metrics.writes - cpu_bus_begin.writes,
+	};
+	NES_BusMetrics ppu_bus = {
+		.reads = core->ppu_bus_metrics.reads - ppu_bus_begin.reads,
+		.writes = core->ppu_bus_metrics.writes - ppu_bus_begin.writes,
+	};
+	benchmark_print_bus("CPU bus", cpu_bus, iterations, frame_elapsed);
+	benchmark_print_bus("PPU bus", ppu_bus, iterations, frame_elapsed);
 	printf("%-24s median %+8.3f ms  %+6.2f%%\n", "boundary recording cost",
 		(boundary_stats.median - frame_stats.median) * 1000.0,
 		frame_stats.median ? (boundary_stats.median / frame_stats.median - 1.0) * 100.0 : 0.0);

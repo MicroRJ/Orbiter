@@ -7,6 +7,13 @@
 #include "ppu/ppu.h"
 #include "apu/apu.h"
 
+typedef struct
+{
+	u64 reads;
+	u64 writes;
+}
+NES_BusMetrics;
+
 struct NES_Emulator
 {
 	NES_State        core;
@@ -22,6 +29,8 @@ struct NES_Emulator
 	u32 instruction_boundary_count;
 	u32 instruction_boundary_dropped;
 	NES_InstructionBoundary instruction_boundaries[NES_INSTRUCTION_BOUNDARY_CAPACITY];
+	NES_BusMetrics cpu_bus_metrics;
+	NES_BusMetrics ppu_bus_metrics;
 };
 
 NES_InstructionBoundary *nes_record_instruction_boundary(NES_Emulator *core, u16 cpu_address);

@@ -1118,6 +1118,11 @@ static void app_draw_ui_layer(UI_LayerKind layer_kind, GFX_Texture *backdrop_tex
 				draw_rect(app.draw, (Draw_RectParams) {
 					.rect = command->rect.rect,
 					.color = emission_only ? app_emission_color(command->rect.color, command->emission) : command->rect.color,
+					.corner_radii.top_left = command->rect.roundness,
+					.corner_radii.top_right = command->rect.roundness,
+					.corner_radii.bot_left = command->rect.roundness,
+					.corner_radii.bot_right = command->rect.roundness,
+					.edge_softness = command->rect.edge_softness,
 				});
 			} break;
 			case UI_DRAW_COMMAND_IMAGE:

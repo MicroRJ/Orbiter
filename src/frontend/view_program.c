@@ -100,13 +100,17 @@ static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_
 	};
 	tooltip.x = CLAMP(tooltip.x, frame->rect.x, Max(frame->rect.x, frame->rect.x + frame->rect.w - tooltip.w));
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
-	ui_tooltip_begin(ui, tooltip);
+	ui_push_layer(ui, UI_LAYER_OVERLAY);
+	ui_push_unclipped(ui);
+	ui_draw_backdrop(ui, tooltip);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
 	for (u32 index = 0; index < ArrayCount(lines); ++index)
 	{
-		ui_tooltip_draw_text(ui, text, style, lines[index]);
+		ui_draw_text(ui, text, style, lines[index]);
 		text.y += line_height;
 	}
+	ui_pop_unclipped(ui);
+	ui_pop_layer(ui);
 }
 
 static void program_view_content(ViewFrameData *frame)
@@ -145,11 +149,9 @@ static void program_view_content(ViewFrameData *frame)
 	UI_Response scroll_response = {};
 	if (max_scroll > 0.f)
 	{
-		rect_f32 scrollbar_viewport = frame->rect;
-		rect_f32_slice(&scrollbar_viewport, AXIS_X, 32);
-		rect_f32 track = rect_f32_from_slice(scrollbar_viewport, AXIS_X, -16.f);
+		rect_f32 scrollbar_viewport = rect_f32_inset(frame->rect, 32);
+		rect_f32 track = rect_f32_slice(&scrollbar_viewport, AXIS_X, -24.f);
 		scroll_response = ui_scrollbar(ui, scroll_id, track, scrollbar_viewport.h, &state->scroll_target, instruction_count * row_height);
-		rect_f32_slice(&main_rect, AXIS_X, -16.f);
 	}
 	Seconds now = seconds_now();
 	if (wheel_scroll || scroll_response.pressed || scroll_response.held) {
@@ -235,10 +237,7 @@ static void program_view_content(ViewFrameData *frame)
 		ui_push_emission(ui, address == cpu.PC ? ui->theme.palette.emission_high : has_breakpoint ? ui->theme.palette.emission_medium : 0.f);
 		if (has_breakpoint)
 		{
-			ui_draw_rect(ui,
-				(rect_f32) { row_rect.x - 12.f,
-					row_rect.y + row_height * 0.35f, 4.f, 4.f },
-				ui->theme.program_counter);
+			ui_draw_rect(ui, (rect_f32) { row_rect.x - 12.f, row_rect.y + row_height * 0.35f, 4.f, 4.f }, ui->theme.program_counter);
 		}
 		UI_TextStyle address_style = font;
 		address_style.color = address_color;

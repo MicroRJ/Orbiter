@@ -14,7 +14,7 @@ static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer,
 		sizeof(*command));
 	command->kind = kind;
 	command->emission = ui->emission;
-	if (inherit_clip && ui->clip_stack_count)
+	if (inherit_clip && ui->clip_stack_count && !ui->unclipped_scope_count)
 	{
 		command->has_clip = true;
 		command->clip = ui->clip_stack[ui->clip_stack_count - 1];
@@ -31,16 +31,15 @@ static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer,
 	return command;
 }
 
-void ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
+UI_DrawCommand *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
 {
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer,
-		UI_DRAW_COMMAND_RECT, true);
+	UI_DrawCommand *command = ui__push_command(ui, ui->layer, UI_DRAW_COMMAND_RECT, true);
 	command->rect.rect = rect;
 	command->rect.color = color;
+	return command;
 }
 
-void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect,
-	f32 thickness, Color_SRGBA color)
+void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SRGBA color)
 {
 	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_X, thickness), color);
 	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_X, -thickness), color);
@@ -75,31 +74,6 @@ static void ui__draw_backdrop(UI_Context *ui, UI_LayerKind layer, rect_f32 rect)
 void ui_draw_backdrop(UI_Context *ui, rect_f32 rect)
 {
 	ui__draw_backdrop(ui, ui->layer, rect);
-}
-
-void ui_tooltip_begin(UI_Context *ui, rect_f32 rect)
-{
-	ui__draw_backdrop(ui, UI_LAYER_OVERLAY, rect);
-}
-
-void ui_tooltip_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
-{
-	UI_DrawCommand *command = ui__push_command(ui, UI_LAYER_OVERLAY,
-		UI_DRAW_COMMAND_RECT, false);
-	command->rect.rect = rect;
-	command->rect.color = color;
-}
-
-void ui_tooltip_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text)
-{
-	if (!text.size) return;
-	Text_Layout layout = text_layout(&ui->frame_arena, ui->text, style.font,
-		style.size, text);
-	UI_DrawCommand *command = ui__push_command(ui, UI_LAYER_OVERLAY,
-		UI_DRAW_COMMAND_TEXT, false);
-	command->text.run = text_make_draw_run(&ui->frame_arena, &layout);
-	command->text.position = v2(rect.x, rect.y);
-	command->text.color = style.color;
 }
 
 UI_Palette ui_default_palette(void)
@@ -175,6 +149,7 @@ void ui_begin_frame(UI_Context *ui)
 	ui->layer = UI_LAYER_CONTENT;
 	ui->layer_stack_count = 0;
 	ui->clip_stack_count = 0;
+	ui->unclipped_scope_count = 0;
 	ui->emission = 0.f;
 	ui->emission_stack_count = 0;
 	ui->mouse = v2_from_v2i(ui->window->mouse_position);
@@ -186,6 +161,7 @@ void ui_end_frame(UI_Context *ui)
 	Assert(ui);
 	Assert(ui->layer_stack_count == 0);
 	Assert(ui->clip_stack_count == 0);
+	Assert(ui->unclipped_scope_count == 0);
 	Assert(ui->emission_stack_count == 0);
 	if (!(ui->window->keys[OS_Key_MouseLeft] & OS_KEY_DOWN))
 	{
@@ -295,6 +271,19 @@ void ui_pop_clip(UI_Context *ui)
 	ui->clip_stack_count -= 1;
 }
 
+void ui_push_unclipped(UI_Context *ui)
+{
+	Assert(ui);
+	ui->unclipped_scope_count += 1;
+}
+
+void ui_pop_unclipped(UI_Context *ui)
+{
+	Assert(ui);
+	Assert(ui->unclipped_scope_count > 0);
+	ui->unclipped_scope_count -= 1;
+}
+
 void ui_push_emission(UI_Context *ui, f32 emission)
 {
 	Assert(ui);
@@ -398,8 +387,12 @@ UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_
 		thumb.y = thumb_track.y + travel * position_ratio;
 	}
 
-	ui_draw_rect(ui, track, ui->theme.slider_track);
-	ui_draw_rect(ui, thumb, ui->theme.slider_thumb);
+	UI_DrawCommand *cmd = ui_draw_rect(ui, track, ui->theme.slider_track);
+	cmd->rect.roundness = track.w * 0.10f;
+	cmd->rect.edge_softness = 0.5f;
+	cmd = ui_draw_rect(ui, thumb, ui->theme.slider_thumb);
+	cmd->rect.roundness = thumb.w * 0.10f;
+	cmd->rect.edge_softness = 0.5f;
 	return response;
 }
 
