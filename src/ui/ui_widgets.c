@@ -34,12 +34,12 @@ static const UI_BoxOps ui_box__text_ops = {
 	.paint = ui_box__paint_text,
 };
 
-UI_Box *ui_text_box(UI_BoxBuilder *builder, u64 key, String string, UI_BoxDesc desc, UI_TextStyle style)
+UI_Box *ui_text_box_desc(UI_BoxBuilder *builder, u64 key, String string, UI_BoxDesc desc, UI_TextStyle style)
 {
-	return ui_text_box_sized(builder, key, string, (String) {}, desc, style);
+	return ui_text_box_sized_desc(builder, key, string, (String) {}, desc, style);
 }
 
-UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, String string, String sizing_string, UI_BoxDesc desc, UI_TextStyle style)
+UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, u64 key, String string, String sizing_string, UI_BoxDesc desc, UI_TextStyle style)
 {
 	Assert(builder);
 	Assert(builder->ui);
@@ -50,7 +50,29 @@ UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, String string, String
 	text->string = string;
 	text->sizing_string = sizing_string;
 	text->style = style;
-	UI_Box *box = ui_box_make(builder, key, string, desc);
+	UI_Box *box = ui_box_make_desc(builder, key, string, desc);
+	box->ops = &ui_box__text_ops;
+	box->content = text;
+	return box;
+}
+
+UI_Box *ui_text_box(UI_BoxBuilder *builder, u64 key, String string, UI_TextStyle style)
+{
+	return ui_text_box_sized(builder, key, string, (String) {}, style);
+}
+
+UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, String string, String sizing_string, UI_TextStyle style)
+{
+	Assert(builder);
+	Assert(builder->ui);
+	Assert(builder->ui->text);
+	Assert(style.font);
+	Assert(style.size > 0);
+	UI_TextBoxData *text = arena_push_zero(builder->arena, sizeof(*text));
+	text->string = string;
+	text->sizing_string = sizing_string;
+	text->style = style;
+	UI_Box *box = ui_box_make(builder, key, string);
 	box->ops = &ui_box__text_ops;
 	box->content = text;
 	return box;

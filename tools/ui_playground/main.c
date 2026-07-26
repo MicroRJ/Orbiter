@@ -149,14 +149,14 @@ static PlaygroundVisual *playground_visual(Arena *arena, Color_SRGBA color, b32 
 
 static UI_Box *playground_make_box(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, Color_SRGBA color, b32 show_size)
 {
-	UI_Box *box = ui_box_make(builder, key, name, desc);
+	UI_Box *box = ui_box_make_desc(builder, key, name, desc);
 	box->user = playground_visual(builder->arena, color, show_size);
 	return box;
 }
 
 static UI_Box *playground_begin_box(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, Color_SRGBA color, b32 show_size)
 {
-	UI_Box *box = ui_box_begin(builder, key, name, desc);
+	UI_Box *box = ui_box_begin_desc(builder, key, name, desc);
 	box->user = playground_visual(builder->arena, color, show_size);
 	return box;
 }
@@ -199,7 +199,7 @@ static void playground_build_profiler_row(UI_BoxBuilder *builder, u32 row, void 
 	UI_BoxDesc text_stack = playground_fill_desc();
 	text_stack.axis = AXIS_Y;
 	text_stack.gap = 4.f;
-	ui_box_begin(builder, 2, LIT(""), text_stack);
+	ui_box_begin_desc(builder, 2, LIT(""), text_stack);
 
 	String title =
 		row == 0 ? LIT("Frame time") :
@@ -210,7 +210,7 @@ static void playground_build_profiler_row(UI_BoxBuilder *builder, u32 row, void 
 			push_formatted(builder->arena, "Profiler scope %05u", row + 1);
 	UI_BoxDesc title_box = playground_fill_desc();
 	title_box.size[AXIS_Y] = ui_box_pixels(28.f);
-	ui_text_box(builder, 1, title, title_box, rows->title_style);
+	ui_text_box_desc(builder, 1, title, title_box, rows->title_style);
 
 	String subtitle =
 		row == 0 ? LIT("16.67 ms  |  complete frame") :
@@ -221,7 +221,7 @@ static void playground_build_profiler_row(UI_BoxBuilder *builder, u32 row, void 
 			push_formatted(builder->arena, "%.2f ms  |  %u calls", 0.01f * (f32)(row % 300), 1 + row % 97);
 	UI_BoxDesc subtitle_box = playground_fill_desc();
 	subtitle_box.size[AXIS_Y] = ui_box_pixels(28.f);
-	ui_text_box(builder, 2, subtitle, subtitle_box, rows->subtitle_style);
+	ui_text_box_desc(builder, 2, subtitle, subtitle_box, rows->subtitle_style);
 
 	ui_box_end(builder);
 	ui_box_end(builder);
@@ -257,13 +257,13 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	UI_TextStyle vibrant = { .font = font, .size = 16, .color = color_srgba(0x18B8A4) };
 	UI_TextStyle subtle = { .font = font, .size = 16, .color = color_srgba(0x8EAAA5) };
 	UI_TextStyle running = { .font = font, .size = 16, .color = amber };
-	ui_text_box(&builder, 1, LIT("ORBITER"), status_text, vibrant);
-	ui_text_box(&builder, 2, LIT("|  UI BOX PLAYGROUND  |"), status_text, subtle);
-	ui_text_box(&builder, 3, LIT("RUNNING"), status_text, running);
+	ui_text_box_desc(&builder, 1, LIT("ORBITER"), status_text, vibrant);
+	ui_text_box_desc(&builder, 2, LIT("|  UI BOX PLAYGROUND  |"), status_text, subtle);
+	ui_text_box_desc(&builder, 3, LIT("RUNNING"), status_text, running);
 	UI_BoxDesc status_spacer = playground_fill_desc();
-	ui_box_make(&builder, 4, LIT(""), status_spacer);
+	ui_box_make_desc(&builder, 4, LIT(""), status_spacer);
 	subtle.align.x = 1.f;
-	ui_text_box_sized(&builder, 5, LIT("60.0 FPS  |  FRAME 123456"), LIT("999.9 FPS  |  FRAME 9999999999"), status_text, subtle);
+	ui_text_box_sized_desc(&builder, 5, LIT("60.0 FPS  |  FRAME 123456"), LIT("999.9 FPS  |  FRAME 9999999999"), status_text, subtle);
 	ui_box_end(&builder);
 
 	UI_BoxDesc laboratory = playground_fill_desc();
@@ -335,7 +335,7 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	profiler_rows->slate = slate;
 	profiler_rows->title_style = (UI_TextStyle) { .font = font, .size = 16, .color = color_srgba(0xD6E7E4) };
 	profiler_rows->subtitle_style = (UI_TextStyle) { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	UI_Box *inspector_box = ui_box_make_virtual_list(&builder, 30, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_BoxVirtualListDesc) {
+	UI_Box *inspector_box = ui_box_make_virtual_list_desc(&builder, 30, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_BoxVirtualListDesc) {
 		.item_count = 10000,
 		.user = profiler_rows,
 		.build_item = playground_build_profiler_row,
@@ -408,11 +408,11 @@ static void playground_build_dummy_timing_row(UI_BoxBuilder *builder, Playground
 	String frame_pct = header ? LIT("FRAME %") : push_formatted(builder->arena, "%.1f", 0.2f + (f32)(row % 97));
 	String calls = header ? LIT("CALLS") : push_formatted(builder->arena, "%u", 1 + row % 99999);
 	String per_call = header ? LIT("US/CALL") : push_formatted(builder->arena, "%.2f", 0.1f + (f32)(row % 1200) * 0.07f);
-	ui_text_box(builder, 1, scope, playground_dummy_text_cell(true), label_style);
-	ui_text_box_sized(builder, 2, milliseconds, LIT("999.999"), playground_dummy_text_cell(false), numeric_style);
-	ui_text_box_sized(builder, 3, frame_pct, LIT("100.0 %"), playground_dummy_text_cell(false), numeric_style);
-	ui_text_box_sized(builder, 4, calls, LIT("999999"), playground_dummy_text_cell(false), numeric_style);
-	ui_text_box_sized(builder, 5, per_call, LIT("99999.99"), playground_dummy_text_cell(false), numeric_style);
+	ui_text_box_desc(builder, 1, scope, playground_dummy_text_cell(true), label_style);
+	ui_text_box_sized_desc(builder, 2, milliseconds, LIT("999.999"), playground_dummy_text_cell(false), numeric_style);
+	ui_text_box_sized_desc(builder, 3, frame_pct, LIT("100.0 %"), playground_dummy_text_cell(false), numeric_style);
+	ui_text_box_sized_desc(builder, 4, calls, LIT("999999"), playground_dummy_text_cell(false), numeric_style);
+	ui_text_box_sized_desc(builder, 5, per_call, LIT("99999.99"), playground_dummy_text_cell(false), numeric_style);
 	ui_box_end(builder);
 }
 
@@ -446,8 +446,8 @@ static void playground_build_dummy_metric_row(UI_BoxBuilder *builder, Playground
 	numeric_style.align.x = 1.f;
 	String metric = header ? LIT("METRIC") : metric_names[row % ArrayCount(metric_names)];
 	String value = header ? LIT("VALUE") : push_formatted(builder->arena, "%llu", 1000ull + (u64)row * 7919ull);
-	ui_text_box(builder, 1, metric, playground_dummy_text_cell(true), label_style);
-	ui_text_box_sized(builder, 2, value, LIT("9999999999"), playground_dummy_text_cell(false), numeric_style);
+	ui_text_box_desc(builder, 1, metric, playground_dummy_text_cell(true), label_style);
+	ui_text_box_sized_desc(builder, 2, value, LIT("9999999999"), playground_dummy_text_cell(false), numeric_style);
 	ui_box_end(builder);
 }
 
@@ -492,12 +492,12 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	header_text.perp_align = 0.5f;
 	UI_TextStyle title = { .font = font, .size = 16, .color = teal };
 	UI_TextStyle subtle = { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	ui_text_box(&builder, 1, LIT("ORBITER PROFILER"), header_text, title);
-	ui_text_box(&builder, 2, LIT("|  BOX TABLE PROTOTYPE"), header_text, subtle);
+	ui_text_box_desc(&builder, 1, LIT("ORBITER PROFILER"), header_text, title);
+	ui_text_box_desc(&builder, 2, LIT("|  BOX TABLE PROTOTYPE"), header_text, subtle);
 	UI_BoxDesc header_spacer = playground_fill_desc();
-	ui_box_make(&builder, 3, LIT(""), header_spacer);
+	ui_box_make_desc(&builder, 3, LIT(""), header_spacer);
 	subtle.align.x = 1.f;
-	ui_text_box(&builder, 4, LIT("TAB: BASICS  |  SPACE: DENSITY"), header_text, subtle);
+	ui_text_box_desc(&builder, 4, LIT("TAB: BASICS  |  SPACE: DENSITY"), header_text, subtle);
 	ui_box_end(&builder);
 
 	UI_BoxDesc graph = playground_fill_desc();
@@ -514,19 +514,19 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	playground_begin_box(&builder, 6002, LIT(""), selection, color_srgba_mix(amber, slate, 0.72f), false);
 	UI_BoxDesc selection_text = ui_box_desc();
 	selection_text.perp_align = 0.5f;
-	ui_text_box(&builder, 1, LIT("SELECTED FRAME 123456  /  16.667 MS"), selection_text, profiler->value_style);
+	ui_text_box_desc(&builder, 1, LIT("SELECTED FRAME 123456  /  16.667 MS"), selection_text, profiler->value_style);
 	UI_BoxDesc selection_spacer = playground_fill_desc();
-	ui_box_make(&builder, 2, LIT(""), selection_spacer);
+	ui_box_make_desc(&builder, 2, LIT(""), selection_spacer);
 	UI_TextStyle live = profiler->header_style;
 	live.color = amber;
 	live.align.x = 1.f;
-	ui_text_box(&builder, 3, LIT("LIVE"), selection_text, live);
+	ui_text_box_desc(&builder, 3, LIT("LIVE"), selection_text, live);
 	ui_box_end(&builder);
 
 	UI_BoxDesc tables = playground_fill_desc();
 	tables.axis = AXIS_X;
 	tables.gap = density.gap;
-	ui_box_begin(&builder, 6003, LIT(""), tables);
+	ui_box_begin_desc(&builder, 6003, LIT(""), tables);
 
 	UI_BoxDesc timing_panel = playground_fill_desc();
 	timing_panel.axis = AXIS_Y;
@@ -539,7 +539,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	UI_BoxDesc timing_list = playground_fill_desc();
 	timing_list.gap = 1.f;
 	timing_list.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	UI_Box *timing_scroll = ui_box_make_virtual_list(&builder, 2, LIT(""), timing_list, (UI_BoxVirtualListDesc) {
+	UI_Box *timing_scroll = ui_box_make_virtual_list_desc(&builder, 2, LIT(""), timing_list, (UI_BoxVirtualListDesc) {
 		.item_count = 4096,
 		.user = profiler,
 		.build_item = playground_build_dummy_timing_item,
@@ -558,7 +558,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	UI_BoxDesc metric_list = playground_fill_desc();
 	metric_list.gap = 1.f;
 	metric_list.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	UI_Box *metric_scroll = ui_box_make_virtual_list(&builder, 2, LIT(""), metric_list, (UI_BoxVirtualListDesc) {
+	UI_Box *metric_scroll = ui_box_make_virtual_list_desc(&builder, 2, LIT(""), metric_list, (UI_BoxVirtualListDesc) {
 		.item_count = 2048,
 		.user = profiler,
 		.build_item = playground_build_dummy_metric_item,
@@ -711,14 +711,14 @@ static UI_Box *playground_test_row(Arena *arena, f32 width, UI_BoxSize left_size
 	left.size[AXIS_X] = left_size;
 	left.min_size.x = left_min;
 	left.max_size.x = left_max;
-	UI_Box *left_box = ui_box_make(&builder, 1, LIT("left"), left);
+	UI_Box *left_box = ui_box_make_desc(&builder, 1, LIT("left"), left);
 	left_box->intrinsic_size.x = left_basis;
 
 	UI_BoxDesc right = playground_fill_desc();
 	right.size[AXIS_X] = right_size;
 	right.min_size.x = right_min;
 	right.max_size.x = right_max;
-	UI_Box *right_box = ui_box_make(&builder, 2, LIT("right"), right);
+	UI_Box *right_box = ui_box_make_desc(&builder, 2, LIT("right"), right);
 	right_box->intrinsic_size.x = right_basis;
 
 	ui_box_builder_end(&builder);
@@ -735,11 +735,11 @@ static void playground_build_test_virtual_item(UI_BoxBuilder *builder, u32 item_
 	row.axis = AXIS_X;
 	row.size[AXIS_X] = ui_box_fill(1.f);
 	row.size[AXIS_Y] = ui_box_pixels(42.f);
-	ui_box_begin(builder, 1, LIT("row"), row);
+	ui_box_begin_desc(builder, 1, LIT("row"), row);
 	UI_BoxDesc child = ui_box_desc();
 	child.size[AXIS_X] = ui_box_fill(1.f);
 	child.size[AXIS_Y] = ui_box_fill(1.f);
-	ui_box_make(builder, 1, LIT("nested child"), child);
+	ui_box_make_desc(builder, 1, LIT("nested child"), child);
 	ui_box_end(builder);
 }
 
@@ -781,11 +781,11 @@ static int playground_run_tests(void)
 		UI_BoxDesc desc = ui_box_desc();
 		UI_BoxBuilder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), desc);
-		UI_Box *a = ui_box_begin(&builder, 1, LIT("a"), desc);
-		UI_Box *b = ui_box_make(&builder, 1, LIT("b"), desc);
-		UI_Box *c = ui_box_make(&builder, 2, LIT("c"), desc);
+		UI_Box *a = ui_box_begin_desc(&builder, 1, LIT("a"), desc);
+		UI_Box *b = ui_box_make_desc(&builder, 1, LIT("b"), desc);
+		UI_Box *c = ui_box_make_desc(&builder, 2, LIT("c"), desc);
 		ui_box_end(&builder);
-		UI_Box *d = ui_box_make(&builder, 2, LIT("d"), desc);
+		UI_Box *d = ui_box_make_desc(&builder, 2, LIT("d"), desc);
 		ui_box_builder_end(&builder);
 		CHECK(root->child_count == 2 && root->children[0] == a && root->children[1] == d, "builder stores root children contiguously and in order");
 		CHECK(a->child_count == 2 && a->children[0] == b && a->children[1] == c, "builder stores nested children contiguously and in order");
@@ -799,13 +799,35 @@ static int playground_run_tests(void)
 		UI_BoxBuilder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), desc);
 		ui_box_push_id(&builder, 100);
-		UI_Box *first = ui_box_make(&builder, 1, LIT("first"), desc);
+		UI_Box *first = ui_box_make_desc(&builder, 1, LIT("first"), desc);
 		ui_box_pop_id(&builder);
 		ui_box_push_id(&builder, 200);
-		UI_Box *second = ui_box_make(&builder, 1, LIT("second"), desc);
+		UI_Box *second = ui_box_make_desc(&builder, 1, LIT("second"), desc);
 		ui_box_pop_id(&builder);
 		ui_box_builder_end(&builder);
 		CHECK(root->child_count == 2 && !ui_id_equal(first->id, second->id), "explicit ID scopes disambiguate repeated component-local keys");
+	}
+
+	ARENA_SCOPE(&arena)
+	{
+		UI_BoxBuilder builder;
+		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), ui_box_desc());
+		ui_push(&builder);
+		ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
+		ui_size(&builder, AXIS_X, ui_box_pixels(60.f));
+		UI_Box *first = ui_box_make(&builder, 1, LIT("first"));
+		UI_Box *second = ui_box_make(&builder, 2, LIT("second"));
+		ui_push(&builder);
+		ui_size(&builder, AXIS_X, ui_box_pixels(10.f));
+		UI_Box *nested = ui_box_make(&builder, 3, LIT("nested"));
+		ui_pop(&builder);
+		UI_Box *restored = ui_box_make(&builder, 4, LIT("restored"));
+		ui_pop(&builder);
+		UI_Box *defaults = ui_box_make(&builder, 5, LIT("defaults"));
+		ui_box_builder_end(&builder);
+		CHECK(root->child_count == 5 && first->desc.size[AXIS_X].value == 60.f && second->desc.size[AXIS_X].value == 60.f, "active descriptor values apply to every box in the construction scope");
+		CHECK(nested->desc.size[AXIS_X].value == 10.f && restored->desc.size[AXIS_X].value == 60.f, "pop restores the complete previous descriptor");
+		CHECK(restored->desc.size[AXIS_Y].kind == UI_BOX_SIZE_FILL && defaults->desc.size[AXIS_X].kind == UI_BOX_SIZE_CONTENT, "nested descriptor scopes restore all fields");
 	}
 
 	ARENA_SCOPE(&arena)
@@ -821,7 +843,7 @@ static int playground_run_tests(void)
 		UI_BoxBuilder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), desc);
 		root->intrinsic_size.x = 270.f;
-		UI_Box *child = ui_box_make(&builder, 1, LIT("child"), desc);
+		UI_Box *child = ui_box_make_desc(&builder, 1, LIT("child"), desc);
 		child->intrinsic_size.x = 100.f;
 		ui_box_builder_end(&builder);
 		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, UI_BOX_INFINITY) });
@@ -852,11 +874,11 @@ static int playground_run_tests(void)
 		fixed.size[AXIS_X] = ui_box_pixels(100.f);
 		fixed.horz_margin[0] = 10.f;
 		fixed.horz_margin[1] = 10.f;
-		ui_box_make(&builder, 1, LIT("fixed"), fixed);
+		ui_box_make_desc(&builder, 1, LIT("fixed"), fixed);
 
 		UI_BoxDesc fill = playground_fill_desc();
 		fill.size[AXIS_X] = ui_box_fill(1.f);
-		ui_box_make(&builder, 2, LIT("fill"), fill);
+		ui_box_make_desc(&builder, 2, LIT("fill"), fill);
 
 		ui_box_builder_end(&builder);
 		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(400.f, 100.f) });
@@ -877,7 +899,7 @@ static int playground_run_tests(void)
 		ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
 		UI_BoxDesc list_desc = ui_box_desc();
 		list_desc.gap = 8.f;
-		UI_Box *list = ui_box_make_virtual_list(&builder, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
+		UI_Box *list = ui_box_make_virtual_list_desc(&builder, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
 			.item_count = 1,
 			.build_item = playground_build_test_virtual_item,
 		});
@@ -896,7 +918,7 @@ static int playground_run_tests(void)
 		ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
 		UI_BoxDesc list_desc = ui_box_desc();
 		list_desc.gap = 8.f;
-		UI_Box *list = ui_box_make_virtual_list(&builder, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
+		UI_Box *list = ui_box_make_virtual_list_desc(&builder, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
 			.item_count = 1000,
 			.build_item = playground_build_test_virtual_item,
 		});
@@ -921,7 +943,7 @@ static int playground_run_tests(void)
 
 		UI_BoxDesc content = playground_fill_desc();
 		content.size[AXIS_Y] = ui_box_pixels(200.f);
-		UI_Box *child = ui_box_make(&builder, 1, LIT("content"), content);
+		UI_Box *child = ui_box_make_desc(&builder, 1, LIT("content"), content);
 		ui_box_builder_end(&builder);
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });

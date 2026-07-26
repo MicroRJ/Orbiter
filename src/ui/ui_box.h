@@ -144,9 +144,12 @@ struct UI_BoxBuilder
 	UI_Id id;
 	UI_Id id_stack[UI_BOX_MAX_DEPTH];
 	UI_Box *child_stack[UI_BOX_MAX_PENDING_CHILDREN];
+	UI_BoxDesc desc;
+	UI_BoxDesc desc_stack[UI_BOX_MAX_DEPTH];
 	u32 parent_count;
 	u32 id_count;
 	u32 child_count;
+	u32 desc_count;
 };
 
 UI_BoxSize ui_box_content(void);
@@ -156,13 +159,28 @@ UI_BoxSize ui_box_flex(f32 grow, f32 shrink);
 UI_BoxDesc ui_box_desc(void);
 
 UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, u64 root_key, String root_name, UI_BoxDesc root_desc);
-UI_Box *ui_box_make(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc);
-UI_Box *ui_box_begin(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc);
-UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list);
+UI_Box *ui_box_make(UI_BoxBuilder *builder, u64 key, String name);
+UI_Box *ui_box_begin(UI_BoxBuilder *builder, u64 key, String name);
+UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, u64 key, String name, UI_BoxVirtualListDesc list);
+UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc);
+UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc);
+UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list);
 void ui_box_end(UI_BoxBuilder *builder);
 UI_Box *ui_box_builder_end(UI_BoxBuilder *builder);
 void ui_box_push_id(UI_BoxBuilder *builder, u64 key);
 void ui_box_pop_id(UI_BoxBuilder *builder);
+
+void ui_push(UI_BoxBuilder *builder);
+void ui_pop(UI_BoxBuilder *builder);
+void ui_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size);
+void ui_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size);
+void ui_max_size(UI_BoxBuilder *builder, AXIS axis, f32 size);
+void ui_margin(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after);
+void ui_padd(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after);
+void ui_axis(UI_BoxBuilder *builder, AXIS axis);
+void ui_gap(UI_BoxBuilder *builder, f32 gap);
+void ui_perp_align(UI_BoxBuilder *builder, f32 align);
+void ui_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow);
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints);
 void ui_box_layout(UI_Box *box, rect_f32 rect);

@@ -778,9 +778,9 @@ typedef struct
 }
 AppShell;
 
-static UI_Box *app_status_text(UI_BoxBuilder *builder, u64 key, String text, UI_BoxDesc desc, UI_TextStyle style, f32 emission)
+static UI_Box *app_status_text(UI_BoxBuilder *builder, u64 key, String text, UI_TextStyle style, f32 emission)
 {
-	UI_Box *box = ui_text_box(builder, key, text, desc, style);
+	UI_Box *box = ui_text_box(builder, key, text, style);
 	if (emission > 0.f)
 	{
 		AppBoxPaintData *paint = arena_push_zero(builder->arena, sizeof(*paint));
@@ -814,72 +814,94 @@ static AppShell app_build_shell(rect_f32 window_rect)
 	shell.root = ui_box_builder_begin(&builder, &app.ui->frame_arena, app.ui, 1, LIT("application shell"), root_desc);
 
 	f32 status_height = app.ui->theme.code.size + 8.f;
-	UI_BoxDesc bar_desc = ui_box_desc();
-	bar_desc.axis = AXIS_X;
-	bar_desc.size[AXIS_X] = ui_box_fill(1.f);
-	bar_desc.size[AXIS_Y] = ui_box_pixels(status_height);
-	bar_desc.horz_padd[0] = bar_desc.horz_padd[1] = 6.f;
-
-	UI_BoxDesc text_desc = ui_box_desc();
-	text_desc.size[AXIS_Y] = ui_box_fill(1.f);
 	UI_TextStyle style = app.ui->theme.code;
 	style.align.y = 0.5f;
 
-	shell.top = ui_box_begin(&builder, 1, LIT("top status"), bar_desc);
-	style.color = app.ui->theme.palette.cyan;
-	app_status_text(&builder, 1, LIT("ORBITER"), text_desc, style, app.ui->theme.palette.emission_medium);
+	ui_push(&builder);
+	ui_axis(&builder, AXIS_X);
+	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
+	ui_size(&builder, AXIS_Y, ui_box_pixels(status_height));
+	ui_padd(&builder, AXIS_X, 6.f, 6.f);
+	shell.top = ui_box_begin(&builder, 1, LIT("top status"));
+	ui_pop(&builder);
 
-	UI_BoxDesc shrinking_text = text_desc;
-	shrinking_text.size[AXIS_X] = ui_box_flex(0.f, 1.f);
+	ui_push(&builder);
+	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
+	style.color = app.ui->theme.palette.cyan;
+	app_status_text(&builder, 1, LIT("ORBITER"), style, app.ui->theme.palette.emission_medium);
+
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_flex(0.f, 1.f));
 	style.color = app.ui->theme.text_subtle;
-	app_status_text(&builder, 2, LIT("  |  github.com/MicroRJ  |  "), shrinking_text, style, 0.f);
+	app_status_text(&builder, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
+	ui_pop(&builder);
 
 	if (app.running)
 	{
 		style.color = app.ui->theme.palette.amber;
-		app_status_text(&builder, 3, LIT("RUNNING"), text_desc, style, app.ui->theme.palette.emission_medium);
+		app_status_text(&builder, 3, LIT("RUNNING"), style, app.ui->theme.palette.emission_medium);
 	}
 	else
 	{
 		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f);
 		style.color = app.ui->theme.palette.error;
-		app_status_text(&builder, 3, LIT("PAUSED"), text_desc, style, 0.06f + pulse * 0.16f);
+		app_status_text(&builder, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
 	}
 
 	style.color = app.ui->theme.text_subtle;
-	if (app.app_gif.recording) app_status_text(&builder, 4, LIT("   REC APP"), text_desc, style, 0.f);
-	else if (app.ppu_gif.recording) app_status_text(&builder, 4, LIT("   REC PPU"), text_desc, style, 0.f);
-	if (app.apu_muted) app_status_text(&builder, 5, LIT("   MUTED"), text_desc, style, 0.f);
+	if (app.app_gif.recording) app_status_text(&builder, 4, LIT("   REC APP"), style, 0.f);
+	else if (app.ppu_gif.recording) app_status_text(&builder, 4, LIT("   REC PPU"), style, 0.f);
+	if (app.apu_muted) app_status_text(&builder, 5, LIT("   MUTED"), style, 0.f);
 
-	UI_BoxDesc spacer = ui_box_desc();
-	spacer.size[AXIS_X] = ui_box_fill(1.f);
-	spacer.size[AXIS_Y] = ui_box_fill(1.f);
-	ui_box_make(&builder, 6, LIT("top spacer"), spacer);
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
+	ui_box_make(&builder, 6, LIT("top spacer"));
+	ui_pop(&builder);
 
-	String top_right = push_formatted(&app.ui->frame_arena, "%.1f FPS   FRAME %llu", app.frames_per_second, app.published.generation);
-	UI_BoxDesc top_right_desc = text_desc;
-	top_right_desc.size[AXIS_X] = ui_box_flex(0.f, 1.f);
-	style.align.x = 1.f;
-	ui_text_box_sized(&builder, 7, top_right, LIT("999.9 FPS   FRAME 9999999999"), top_right_desc, style);
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_flex(0.f, 1.f));
+	style.align.x = 0.f;
+	ui_text_box_sized(&builder, 7, push_formatted(&app.ui->frame_arena, "FPS %02.2f", app.frames_per_second), LIT("FPS 999.9"), style);
+	ui_pop(&builder);
+	style.align.x = 0.f;
+	ui_text_box_sized(&builder, 8, push_formatted(&app.ui->frame_arena, " FRAME %llu", app.published.generation), LIT("FRAME 999999999"), style);
+	ui_pop(&builder);
+
 	ui_box_end(&builder);
 
-	UI_BoxDesc panel_desc = ui_box_desc();
-	panel_desc.size[AXIS_X] = ui_box_fill(1.f);
-	panel_desc.size[AXIS_Y] = ui_box_fill(1.f);
-	shell.panel_host = ui_box_make(&builder, 2, LIT("panel host"), panel_desc);
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
+	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
+	shell.panel_host = ui_box_make(&builder, 2, LIT("panel host"));
+	ui_pop(&builder);
 
-	shell.bottom = ui_box_begin(&builder, 3, LIT("bottom status"), bar_desc);
+	ui_push(&builder);
+	ui_axis(&builder, AXIS_X);
+	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
+	ui_size(&builder, AXIS_Y, ui_box_pixels(status_height));
+	ui_padd(&builder, AXIS_X, 6.f, 6.f);
+	shell.bottom = ui_box_begin(&builder, 3, LIT("bottom status"));
+	ui_pop(&builder);
+
+	ui_push(&builder);
+	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
 	String rom_name = app_rom_name(app.last_rom_path);
 	String bottom_left = rom_name.size ? push_formatted(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
-	UI_BoxDesc bottom_left_desc = text_desc;
-	bottom_left_desc.size[AXIS_X] = ui_box_flex(0.f, 1.f);
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_flex(0.f, 1.f));
 	style.align.x = 0.f;
-	app_status_text(&builder, 1, bottom_left, bottom_left_desc, style, 0.f);
-	ui_box_make(&builder, 2, LIT("bottom spacer"), spacer);
-	UI_BoxDesc bottom_right_desc = text_desc;
-	bottom_right_desc.size[AXIS_X] = ui_box_flex(0.f, 3.f);
+	app_status_text(&builder, 1, bottom_left, style, 0.f);
+	ui_pop(&builder);
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
+	ui_box_make(&builder, 2, LIT("bottom spacer"));
+	ui_pop(&builder);
+	ui_push(&builder);
+	ui_size(&builder, AXIS_X, ui_box_flex(0.f, 3.f));
 	style.align.x = 1.f;
-	app_status_text(&builder, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), bottom_right_desc, style, 0.f);
+	app_status_text(&builder, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
+	ui_pop(&builder);
+	ui_pop(&builder);
 	ui_box_end(&builder);
 
 	ui_box_builder_end(&builder);

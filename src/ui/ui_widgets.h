@@ -4,7 +4,9 @@
 #include "ui_box.h"
 #include "ui.h"
 
-UI_Box *ui_text_box(UI_BoxBuilder *builder, u64 key, String text, UI_BoxDesc desc, UI_TextStyle style);
-UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, String text, String sizing_text, UI_BoxDesc desc, UI_TextStyle style);
+UI_Box *ui_text_box(UI_BoxBuilder *builder, u64 key, String text, UI_TextStyle style);
+UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, String text, String sizing_text, UI_TextStyle style);
+UI_Box *ui_text_box_desc(UI_BoxBuilder *builder, u64 key, String text, UI_BoxDesc desc, UI_TextStyle style);
+UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, u64 key, String text, String sizing_text, UI_BoxDesc desc, UI_TextStyle style);
 
 #endif

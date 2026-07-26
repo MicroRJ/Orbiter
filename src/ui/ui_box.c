@@ -76,13 +76,14 @@ UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *u
 	memory_zero(builder, sizeof(*builder));
 	builder->arena = arena;
 	builder->ui = ui;
+	builder->desc = ui_box_desc();
 	builder->id = ui_id_child(UI_ID_NONE, root_key);
 	builder->root = ui_box__allocate_box(builder, builder->id, root_name, root_desc);
 	builder->parent = builder->root;
 	return builder->root;
 }
 
-UI_Box *ui_box_make(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc)
+UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc)
 {
 	Assert(builder);
 	Assert(builder->parent);
@@ -98,15 +99,25 @@ UI_Box *ui_box_make(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc des
 	return box;
 }
 
-UI_Box *ui_box_begin(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc)
+UI_Box *ui_box_make(UI_BoxBuilder *builder, u64 key, String name)
 {
-	UI_Box *box = ui_box_make(builder, key, name, desc);
+	return ui_box_make_desc(builder, key, name, builder->desc);
+}
+
+UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc)
+{
+	UI_Box *box = ui_box_make_desc(builder, key, name, desc);
 	Assert(builder->parent_count < ArrayCount(builder->parent_stack));
 	builder->parent_stack[builder->parent_count] = builder->parent;
 	builder->parent_id_stack[builder->parent_count++] = builder->id;
 	builder->parent = box;
 	builder->id = box->id;
 	return box;
+}
+
+UI_Box *ui_box_begin(UI_BoxBuilder *builder, u64 key, String name)
+{
+	return ui_box_begin_desc(builder, key, name, builder->desc);
 }
 
 void ui_box_end(UI_BoxBuilder *builder)
@@ -126,6 +137,7 @@ UI_Box *ui_box_builder_end(UI_BoxBuilder *builder)
 	Assert(builder->parent == builder->root);
 	Assert(builder->parent_count == 0);
 	Assert(builder->id_count == 0);
+	Assert(builder->desc_count == 0);
 	Assert(ui_id_equal(builder->id, builder->root->id));
 	ui_box__finish_children(builder, builder->root);
 	Assert(builder->child_count == 0);
@@ -147,12 +159,12 @@ void ui_box_pop_id(UI_BoxBuilder *builder)
 	builder->id = builder->id_stack[--builder->id_count];
 }
 
-UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
+UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
 {
 	Assert(builder);
 	Assert(list.build_item);
 	desc.overflow[desc.axis] = UI_BOX_OVERFLOW_SCROLL;
-	UI_Box *box = ui_box_begin(builder, key, name, desc);
+	UI_Box *box = ui_box_begin_desc(builder, key, name, desc);
 	box->virtual_list.arena = builder->arena;
 	box->virtual_list.build_item = list.build_item;
 	box->virtual_list.user = list.user;
@@ -171,6 +183,81 @@ UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, u64 key, String name, U
 	box->children = 0;
 	box->child_count = 0;
 	return box;
+}
+
+UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, u64 key, String name, UI_BoxVirtualListDesc list)
+{
+	return ui_box_make_virtual_list_desc(builder, key, name, builder->desc, list);
+}
+
+void ui_push(UI_BoxBuilder *builder)
+{
+	Assert(builder);
+	Assert(builder->desc_count < ArrayCount(builder->desc_stack));
+	builder->desc_stack[builder->desc_count++] = builder->desc;
+}
+
+void ui_pop(UI_BoxBuilder *builder)
+{
+	Assert(builder);
+	Assert(builder->desc_count);
+	builder->desc = builder->desc_stack[--builder->desc_count];
+}
+
+void ui_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size)
+{
+	Assert(builder);
+	builder->desc.size[axis] = size;
+}
+
+void ui_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
+{
+	Assert(builder);
+	builder->desc.min_size.xy[axis] = size;
+}
+
+void ui_max_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
+{
+	Assert(builder);
+	builder->desc.max_size.xy[axis] = size;
+}
+
+void ui_margin(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
+{
+	Assert(builder);
+	builder->desc.margin[axis][0] = before;
+	builder->desc.margin[axis][1] = after;
+}
+
+void ui_padd(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
+{
+	Assert(builder);
+	builder->desc.padd[axis][0] = before;
+	builder->desc.padd[axis][1] = after;
+}
+
+void ui_axis(UI_BoxBuilder *builder, AXIS axis)
+{
+	Assert(builder);
+	builder->desc.axis = axis;
+}
+
+void ui_gap(UI_BoxBuilder *builder, f32 gap)
+{
+	Assert(builder);
+	builder->desc.gap = gap;
+}
+
+void ui_perp_align(UI_BoxBuilder *builder, f32 align)
+{
+	Assert(builder);
+	builder->desc.perp_align = align;
+}
+
+void ui_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow)
+{
+	Assert(builder);
+	builder->desc.overflow[axis] = overflow;
 }
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
@@ -321,6 +408,7 @@ static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 on
 		.root = box,
 		.parent = box,
 		.id = box->id,
+		.desc = ui_box_desc(),
 	};
 	box->children = 0;
 	box->child_count = 0;
