@@ -484,6 +484,6 @@ static void prg_activity_view_content(ViewFrameData *frame)
 void prg_activity_view_frame(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("PRG ACTIVITY — EXECUTION HISTORY"));
-	prg_activity_view_content(&content);
+	PROF_BLOCK("prg activity content") prg_activity_view_content(&content);
 	view_end_frame(&content);
 }

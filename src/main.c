@@ -1224,6 +1224,7 @@ static void app_draw_ui_bloom(UI_LayerKind layer_kind, GFX_Texture *frame_textur
 	draw_texture_copy(app.draw, app.bloom_texture);
 	gfx_end_pass(app.draw);
 
+	// Todo, instead of clearing we could instead just disable blending
 	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = app.blur_vertical_texture, .clear = true, .clear_color = COLOR_BLACK });
 	draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) { .texture = app.blur_horizontal_texture, .direction = v2(1.f, 0.f), .sigma = 5.f });
 	gfx_end_pass(app.draw);
@@ -1436,6 +1437,7 @@ static void app_init(void)
 	app.panels = panels_create(&app.arena);
 	app.crt_enabled = true;
 	app.debugger = debugger_create(&app.arena, audio_info.sample_rate);
+	// Todo, get rid of these, we already have a transient texture system
 	app.video_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
 		.usage = GRAPHICS_TEXTURE_USAGE_PER_FRAME,
 		.bind_flags = GFX_TEXTURE_BIND_INPUT,

@@ -5,8 +5,7 @@
 #include "os_graphical.h"
 #include "ui.h"
 
-static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer,
-	UI_DrawCommandKind kind, b32 inherit_clip)
+static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer, UI_DrawCommandKind kind, b32 inherit_clip)
 {
 	Assert(ui);
 	Assert(layer >= 0 && layer < UI_LAYER_COUNT);
@@ -49,8 +48,7 @@ void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SR
 
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength)
 {
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer,
-		UI_DRAW_COMMAND_INSET_SHADOW, true);
+	UI_DrawCommand *command = ui__push_command(ui, ui->layer, UI_DRAW_COMMAND_INSET_SHADOW, true);
 	command->inset_shadow.rect = rect;
 	command->inset_shadow.strength = strength;
 }
@@ -63,8 +61,7 @@ static void ui__draw_backdrop(UI_Context *ui, UI_LayerKind layer, rect_f32 rect)
 	command->backdrop.distortion = 10.f;
 	command->backdrop.distortion_width = 15.f;
 	command->backdrop.saturation = 1.12f;
-	command->backdrop.tint = color_with_alpha(
-		ui->theme.palette.overlay, 0.20f);
+	command->backdrop.tint = color_with_alpha(ui->theme.palette.overlay, 0.20f);
 	command->backdrop.grain = 0.002f;
 	command->backdrop.highlight = 0.055f;
 	command->backdrop.shadow = 0.005f;
@@ -436,8 +433,7 @@ UI_Table ui_table_begin(UI_Context *ui, Arena *arena, rect_f32 rect, u32 row_cou
 	return table;
 }
 
-void ui_table_set_column(UI_Table *table, u32 column,
-	UI_TableColumnSpec spec)
+void ui_table_set_column(UI_Table *table, u32 column, UI_TableColumnSpec spec)
 {
 	Assert(table);
 	Assert(column < table->column_count);
@@ -445,22 +441,19 @@ void ui_table_set_column(UI_Table *table, u32 column,
 	table->is_laid_out = false;
 }
 
-void ui_table_set_text(UI_Table *table, u32 row, u32 column,
-	UI_TextStyle style, String text)
+void ui_table_set_text(UI_Table *table, u32 row, u32 column, UI_TextStyle style, String text)
 {
 	Assert(table);
 	Assert(row < table->row_count);
 	Assert(column < table->column_count);
-	table->cells[row * table->column_count + column] =
-		(UI_TableCell) { text, style };
+	table->cells[row * table->column_count + column] = (UI_TableCell) { text, style };
 	table->is_laid_out = false;
 }
 
 void ui_table_layout(UI_Table *table)
 {
 	Assert(table);
-	f32 committed_width = table->column_gap *
-		Max((i32)table->column_count - 1, 0);
+	f32 committed_width = table->column_gap * Max((i32)table->column_count - 1, 0);
 	f32 flex_weight = 0.f;
 
 	for (u32 column = 0; column < table->column_count; ++column)
@@ -471,10 +464,8 @@ void ui_table_layout(UI_Table *table)
 		{
 			for (u32 row = 0; row < table->row_count; ++row)
 			{
-				UI_TableCell *cell = &table->cells[
-					row * table->column_count + column];
-				vec2 text_size = ui_measure_text(table->ui,
-					cell->style, cell->text);
+				UI_TableCell *cell = &table->cells[row * table->column_count + column];
+				vec2 text_size = ui_measure_text(table->ui, cell->style, cell->text);
 				width = Max(width, text_size.x + table->cell_padding.x * 2.f);
 			}
 		}
@@ -497,8 +488,7 @@ void ui_table_layout(UI_Table *table)
 		UI_TableColumnSpec spec = table->columns[column];
 		if (spec.kind == UI_TABLE_COLUMN_FLEX)
 		{
-			table->resolved_widths[column] = flex_weight > 0.f
-				? flex_space * spec.value / flex_weight : 0.f;
+			table->resolved_widths[column] = flex_weight > 0.f ? flex_space * spec.value / flex_weight : 0.f;
 		}
 	}
 	table->is_laid_out = true;
@@ -532,8 +522,7 @@ void ui_table_draw(UI_Table *table)
 	{
 		for (u32 column = 0; column < table->column_count; ++column)
 		{
-			UI_TableCell *cell = &table->cells[
-				row * table->column_count + column];
+			UI_TableCell *cell = &table->cells[row * table->column_count + column];
 			if (!cell->text.size) continue;
 
 			rect_f32 cell_rect = ui_table_cell_rect(table, row, column);
@@ -545,8 +534,7 @@ void ui_table_draw(UI_Table *table)
 
 			// Clip each cell independently so constrained tables hide overflow
 			// instead of allowing one value to collide with the next column.
-			rect_i32 clip = rect_i32_intersect(rect_i32_from_f32(cell_rect),
-				rect_i32_from_f32(table->rect));
+			rect_i32 clip = rect_i32_intersect(rect_i32_from_f32(cell_rect), rect_i32_from_f32(table->rect));
 			ui_push_clip(table->ui, rect_f32_from_i32(clip));
 			ui_draw_text(table->ui, text_rect, cell->style, cell->text);
 			ui_pop_clip(table->ui);
