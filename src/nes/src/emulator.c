@@ -91,6 +91,7 @@ NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc)
 	NES_Emulator *core = arena_push_zero(arena, sizeof(*core));
 	core->mapper = nes_no_mapper;
 	core->instruction_trace_enabled = desc.enable_instruction_trace;
+	core->instruction_boundaries_enabled = desc.enable_instruction_boundaries;
 	core->audio_sample_rate = desc.audio_sample_rate ? desc.audio_sample_rate : 48000;
 	return core;
 }

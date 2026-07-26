@@ -316,6 +316,7 @@ typedef struct
 {
 	u32 audio_sample_rate;
 	b32 enable_instruction_trace;
+	b32 enable_instruction_boundaries;
 }
 NES_EmulatorDesc;
 

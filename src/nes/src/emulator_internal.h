@@ -15,6 +15,7 @@ struct NES_Emulator
 	u32              audio_sample_rate;
 	u64              scheduler_clock;
 	b32              instruction_trace_enabled;
+	b32              instruction_boundaries_enabled;
 	u32              instruction_trace_count;
 	u32              instruction_trace_dropped;
 	NES_InstructionTrace instruction_trace[NES_INSTRUCTION_TRACE_CAPACITY];

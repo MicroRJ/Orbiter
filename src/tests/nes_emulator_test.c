@@ -145,6 +145,7 @@ int main(int argc, char **argv)
 
 	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
 		.enable_instruction_trace = true,
+		.enable_instruction_boundaries = true,
 	});
 	Assert(core);
 	Assert(!nes_emulator_has_cartridge(core));

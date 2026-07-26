@@ -73,6 +73,7 @@ Debugger *debugger_create(Arena *arena, u32 audio_sample_rate)
 	debugger->emulator = nes_emulator_create(arena, (NES_EmulatorDesc) {
 		.audio_sample_rate = audio_sample_rate,
 		.enable_instruction_trace = false,
+		.enable_instruction_boundaries = true,
 	});
 	return debugger;
 }

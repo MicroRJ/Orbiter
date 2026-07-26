@@ -425,7 +425,7 @@ u32 nes_cpu_step(NES_Emulator *core)
 {
 	NES_CPUState *cpu = &core->core.cpu;
 	u16 opcode_address = cpu->PC;
-	NES_InstructionBoundary *boundary = nes_record_instruction_boundary(core, opcode_address);
+	NES_InstructionBoundary *boundary = core->instruction_boundaries_enabled ? nes_record_instruction_boundary(core, opcode_address) : 0;
 	core->core.cpu_stall_cycles = 0;
 	NES_MappedRead opcode_read = nes_cpu_bus_read_mapped(core, opcode_address);
 	if (boundary) boundary->program_address = opcode_read.mapped;

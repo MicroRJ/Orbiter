@@ -197,7 +197,9 @@ static void test_pull_audio_instruction_overshoot(void)
 static void test_instruction_boundary_clocks(void)
 {
 	Arena arena = arena_create(0, "NES instruction boundary clock test");
-	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {});
+	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
+		.enable_instruction_boundaries = true,
+	});
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
 	nes_emulator_run(core, 30);
 	NES_InstructionBoundarySpan boundaries = nes_emulator_instruction_boundaries(core);
