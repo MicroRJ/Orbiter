@@ -10,23 +10,22 @@ enum
 	ACTIVITY_TRACKER_SAMPLE_CAPACITY = KiB(1),
 };
 
+#define ACTIVITY_TRACKER_SUSTAIN_INTENSITY 0.05f
+#define ACTIVITY_TRACKER_DEAD_INTENSITY 0.01f
+
 typedef struct
 {
 	u32 source_offset;
 	u32 destination_offset;
-	f32 pulse;
-	f32 frequency;
+	f32 activity;
 }
 ActivityEdge;
 
 typedef struct
 {
 	u64 key;
-	u64 last_seen_sequence;
-	u64 pending_sequence_gap;
 	u32 pending_occurrences;
-	f32 pulse;
-	f32 frequency;
+	f32 activity;
 }
 ActivityTrackerEntry;
 

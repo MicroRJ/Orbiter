@@ -402,14 +402,16 @@ static void prg_activity_view_content(ViewFrameData *frame)
 			ActivityEdge *edge = &edges[index];
 			u32 source_cell = edge->source_offset / cell_size;
 			u32 destination_cell = edge->destination_offset / cell_size;
-			f32 intensity = edge->pulse;
-			if (source_cell >= cell_count || destination_cell >= cell_count || source_cell == destination_cell || intensity < 0.01f) {
+			f32 intensity = edge->activity;
+			if (source_cell >= cell_count || destination_cell >= cell_count || source_cell == destination_cell || intensity < ACTIVITY_TRACKER_DEAD_INTENSITY) {
 				continue;
 			}
 			Color_SRGBA residual_color = prg_activity_edge_color(&ui->theme, edge->source_offset, edge->destination_offset);
-			residual_color.a = 0.06f + intensity * 0.44f;
+			residual_color.a = intensity;
 			f32 thickness = Max(1.f, Min(3.f, grid.cell_extent * (0.12f + intensity * 0.18f)));
-			ui_push_emission(ui, ui->theme.palette.emission_high * intensity * 5.f);
+			f32 spike = CLAMP((intensity - ACTIVITY_TRACKER_SUSTAIN_INTENSITY) / (1.f - ACTIVITY_TRACKER_SUSTAIN_INTENSITY), 0.f, 1.f);
+			f32 emission = ui->theme.palette.emission_high * spike * 5.f;
+			ui_push_emission(ui, emission);
 			prg_activity_draw_edge(ui, &grid, source_cell, destination_cell, thickness, residual_color);
 			ui_pop_emission(ui);
 		}

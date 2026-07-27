@@ -27,17 +27,38 @@ int main(void)
 
 	u32 count = activity_tracker_sample(&tracker, 1, edges, ArrayCount(edges));
 	i32 exact = find_edge(edges, count, 5, 19);
-	if (exact < 0 || edges[exact].pulse <= 0.f) return 3;
+	if (exact < 0 || edges[exact].activity <= 0.f) return 3;
 
 	count = activity_tracker_sample(&tracker, 16, edges, ArrayCount(edges));
 	if (find_edge(edges, count, 0, 16) < 0) return 4;
 	if (tracker.edge_count != 2) return 5;
 
-	f32 intensity = edges[find_edge(edges, count, 0, 16)].pulse;
+	f32 intensity = edges[find_edge(edges, count, 0, 16)].activity;
 	activity_tracker_update(&tracker, 2.0);
 	count = activity_tracker_sample(&tracker, 16, edges, ArrayCount(edges));
 	i32 decayed = find_edge(edges, count, 0, 16);
-	if (decayed < 0 || edges[decayed].pulse >= intensity) return 6;
+	if (decayed < 0 || edges[decayed].activity >= intensity) return 6;
+
+	activity_tracker_record(&tracker, 5, 19, 16);
+	activity_tracker_update(&tracker, 2.1);
+	count = activity_tracker_sample(&tracker, 1, edges, ArrayCount(edges));
+	exact = find_edge(edges, count, 5, 19);
+	if (exact < 0 || edges[exact].activity > ACTIVITY_TRACKER_SUSTAIN_INTENSITY + 0.001f) return 7;
+
+	activity_tracker_update(&tracker, 2.85);
+	count = activity_tracker_sample(&tracker, 1, edges, ArrayCount(edges));
+	exact = find_edge(edges, count, 5, 19);
+	if (exact < 0 || edges[exact].activity >= ACTIVITY_TRACKER_SUSTAIN_INTENSITY) return 8;
+
+	activity_tracker_update(&tracker, 4.0);
+	count = activity_tracker_sample(&tracker, 1, edges, ArrayCount(edges));
+	if (find_edge(edges, count, 5, 19) >= 0) return 9;
+
+	activity_tracker_record(&tracker, 5, 19, 17);
+	activity_tracker_update(&tracker, 5.0);
+	count = activity_tracker_sample(&tracker, 1, edges, ArrayCount(edges));
+	exact = find_edge(edges, count, 5, 19);
+	if (exact < 0 || edges[exact].activity < 0.999f) return 10;
 
 	printf("Activity tracker tests passed\n");
 	return 0;
