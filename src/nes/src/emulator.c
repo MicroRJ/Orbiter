@@ -44,21 +44,6 @@ static void nes_reset_audio(NES_Emulator *core)
 	core->core.audio_sample_phase = 0;
 }
 
-NES_InstructionBoundary *nes_record_instruction_boundary(NES_Emulator *core, u16 cpu_address)
-{
-	if (core->instruction_boundary_count == NES_INSTRUCTION_BOUNDARY_CAPACITY)
-	{
-		core->instruction_boundary_dropped++;
-		return 0;
-	}
-	NES_InstructionBoundary *boundary = &core->instruction_boundaries[core->instruction_boundary_count++];
-	*boundary = (NES_InstructionBoundary) {
-		.scheduler_clock = core->scheduler_clock,
-		.cpu_address = cpu_address,
-	};
-	return boundary;
-}
-
 static void nes_zero_runtime(NES_Emulator *core)
 {
 	core->scheduler_clock = 0;
@@ -90,8 +75,6 @@ NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc)
 {
 	NES_Emulator *core = arena_push_zero(arena, sizeof(*core));
 	core->mapper = nes_no_mapper;
-	core->instruction_trace_enabled = desc.enable_instruction_trace;
-	core->instruction_boundaries_enabled = desc.enable_instruction_boundaries;
 	core->audio_sample_rate = desc.audio_sample_rate ? desc.audio_sample_rate : 48000;
 	return core;
 }
@@ -153,28 +136,16 @@ u64 nes_emulator_scheduler_clock(const NES_Emulator *core)
 
 void nes_emulator_run(NES_Emulator *core, u64 ppu_cycles)
 {
-	core->instruction_trace_count = 0;
-	core->instruction_trace_dropped = 0;
-	core->instruction_boundary_count = 0;
-	core->instruction_boundary_dropped = 0;
 	nes_scheduler_run(core, ppu_cycles);
 }
 
 u32 nes_emulator_step(NES_Emulator *core)
 {
-	core->instruction_trace_count = 0;
-	core->instruction_trace_dropped = 0;
-	core->instruction_boundary_count = 0;
-	core->instruction_boundary_dropped = 0;
 	return nes_scheduler_step(core);
 }
 
 u64 nes_emulator_run_samples(NES_Emulator *core, u64 minimum_samples, f32 *samples, u64 capacity)
 {
-	core->instruction_trace_count = 0;
-	core->instruction_trace_dropped = 0;
-	core->instruction_boundary_count = 0;
-	core->instruction_boundary_dropped = 0;
 	return nes_scheduler_run_samples(core, minimum_samples, samples, capacity);
 }
 
@@ -259,22 +230,9 @@ void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map)
 	}
 }
 
-NES_InstructionTraceSpan nes_emulator_instruction_trace(const NES_Emulator *core)
+NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core)
 {
-	return (NES_InstructionTraceSpan) {
-		.events = core->instruction_trace,
-		.count = core->instruction_trace_count,
-		.dropped = core->instruction_trace_dropped,
-	};
-}
-
-NES_InstructionBoundarySpan nes_emulator_instruction_boundaries(const NES_Emulator *core)
-{
-	return (NES_InstructionBoundarySpan) {
-		.items = core->instruction_boundaries,
-		.count = core->instruction_boundary_count,
-		.dropped = core->instruction_boundary_dropped,
-	};
+	return (NES_SchedulerTraceView) { .trace = core->scheduler_trace, .index = core->scheduler_trace_index };
 }
 
 void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value)
@@ -293,9 +251,7 @@ ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena)
 
 b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state)
 {
-	if (!serialize_read_record(state, nes_state_record_map(), NES_RECORD_EMULATOR, core))
-	{
-		LOG_ERROR("failed to load state: incompatible or invalid serialization format");
+	if (!serialize_read_record(state, nes_state_record_map(), NES_RECORD_EMULATOR, core)) {
 		return false;
 	}
 	b32 success = nes_instantiate_cartridge(core);

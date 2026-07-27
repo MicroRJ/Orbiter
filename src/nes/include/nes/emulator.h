@@ -6,23 +6,26 @@
 
 enum
 {
-	NES_PPU_MAX_SPRITES_PER_SCANLINE = 8,
-	NES_APU_MAX_PULSE_TIMER_VALUE    = 1 << 11,
-	NES_MAX_CHR_ROM_SIZE             = MB(1)  ,
-	NES_MAX_PRG_ROM_SIZE             = MB(1)  ,
-	NES_MAX_CHR_RAM_SIZE             = MB(1)  ,
-	NES_MAX_PRG_RAM_SIZE             = MB(1)  ,
-	NES_VRAM_SIZE                    = 0x2000 ,
-	NES_WRAM_SIZE                    = 0x2000 ,
-	NES_CPU_ADDRESS_SPACE            = 0x10000,
-	NES_PPU_ADDRESS_SPACE            = 0x4000 ,
-	NES_CPU_HZ                       = 1789773,
-	NES_VIDEO_WIDTH                  = 256,
-	NES_VIDEO_HEIGHT                 = 240,
-	NES_PPU_FRAME_CYCLES             = 262 * 341,
-	NES_INSTRUCTION_TRACE_CAPACITY   = 32768,
-	NES_INSTRUCTION_BOUNDARY_CAPACITY = 1 << 16,
-	NES_EXECUTION_HISTORY_CAPACITY   = KiB(8),
+	NES_PPU_MAX_SPRITES_PER_SCANLINE  = 8,
+	NES_APU_MAX_PULSE_TIMER_VALUE     = 1 << 11,
+	NES_MAX_CHR_ROM_SIZE              = MB(1)  ,
+	NES_MAX_PRG_ROM_SIZE              = MB(1)  ,
+	NES_MAX_CHR_RAM_SIZE              = MB(1)  ,
+	NES_MAX_PRG_RAM_SIZE              = MB(1)  ,
+	NES_VRAM_SIZE                     = 0x2000 ,
+	NES_WRAM_SIZE                     = 0x2000 ,
+	NES_CPU_ADDRESS_SPACE             = 0x10000,
+	NES_PPU_ADDRESS_SPACE             = 0x4000 ,
+	NES_CPU_HZ                        = 1789773,
+	NES_VIDEO_WIDTH                   = 256,
+	NES_VIDEO_HEIGHT                  = 240,
+	NES_PPU_FRAME_CYCLES              = 262 * 341,
+
+	NES_SCHEDULER_TRACE_CAPACITY_POW2 = 1 << 16,
+	NES_SCHEDULER_TRACE_CAPACITY_MASK = NES_SCHEDULER_TRACE_CAPACITY_POW2 - 1,
+
+	// TODO, BROTHER!
+	NES_EXECUTION_HISTORY_CAPACITY    = KiB(8),
 };
 
 typedef u8 NES_Input;
@@ -268,56 +271,6 @@ typedef struct
 }
 NES_CHRMap;
 
-typedef struct
-{
-	u16 cpu_address;
-	u8  size;
-	u8  bytes[3];
-	NES_MapAddr mappings[3];
-}
-NES_InstructionTrace;
-
-typedef struct
-{
-	// Borrowed storage: consume this span before the next core run.
-	const NES_InstructionTrace *events;
-	u32 count;
-	u32 dropped;
-}
-NES_InstructionTraceSpan;
-
-typedef struct
-{
-	NES_MapAddr program_address;
-	u64 scheduler_clock;
-	u16 cpu_address;
-}
-NES_InstructionBoundary;
-
-typedef struct
-{
-	const NES_InstructionBoundary *items;
-	u32 count;
-	u32 dropped;
-}
-NES_InstructionBoundarySpan;
-
-typedef struct
-{
-	u16 cpu_address;
-	NES_MapAddr destination;
-}
-NES_ExecutionMapping;
-
-typedef struct
-{
-	const NES_ExecutionMapping *entries;
-	u32 capacity;
-	u32 count;
-	u32 write_index;
-	u64 total_count;
-}
-NES_ExecutionHistory;
 
 typedef struct
 {
@@ -326,7 +279,6 @@ typedef struct
 	b32 enable_instruction_boundaries;
 }
 NES_EmulatorDesc;
-
 NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc);
 
 b32 nes_emulator_has_cartridge(const NES_Emulator *core);
@@ -354,10 +306,44 @@ NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
 void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value);
 NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index);
 void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map);
-NES_InstructionTraceSpan nes_emulator_instruction_trace(const NES_Emulator *core);
-NES_InstructionBoundarySpan nes_emulator_instruction_boundaries(const NES_Emulator *core);
 ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
 b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
 
+typedef struct
+{
+	u64         scheduler_clock;
+	u16         cpu_address;
+	NES_MapAddr cpu_mapped;
+	u8          cpu_byte;
+}
+NES_SchedulerBoundary;
+
+typedef struct
+{
+	const NES_SchedulerBoundary *trace;
+	u64                          index;
+}
+NES_SchedulerTraceView;
+
+static inline u64 nes_scheduler_trace_first_since(NES_SchedulerTraceView view, u64 since)
+{
+	Assert(since <= view.index);
+	u64 oldest = view.index > NES_SCHEDULER_TRACE_CAPACITY_POW2 ? view.index - NES_SCHEDULER_TRACE_CAPACITY_POW2 : 0;
+	return Max(since, oldest);
+}
+
+static inline u64 nes_scheduler_trace_dropped_since(NES_SchedulerTraceView view, u64 since)
+{
+	return nes_scheduler_trace_first_since(view, since) - since;
+}
+
+static inline const NES_SchedulerBoundary *nes_scheduler_trace_at(NES_SchedulerTraceView view, u64 index)
+{
+	u64 oldest = view.index > NES_SCHEDULER_TRACE_CAPACITY_POW2 ? view.index - NES_SCHEDULER_TRACE_CAPACITY_POW2 : 0;
+	Assert(index >= oldest && index < view.index);
+	return &view.trace[index & NES_SCHEDULER_TRACE_CAPACITY_MASK];
+}
+
+NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core);
 
 #endif

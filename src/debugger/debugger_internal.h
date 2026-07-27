@@ -65,6 +65,7 @@ struct Debugger
 	b32 breakpoint_hit;
 	b32 breakpoint_resume_pending;
 	b32 warned_missing_cartridge;
+	u64 personal_scheduler_trace_index;
 };
 
 #endif

@@ -5,14 +5,33 @@
 #include "../ppu/ppu.h"
 #include "../apu/apu.h"
 
-// If the CPU's /IRQ input is 0 at the end of an instruction, then the CPU pushes the program counter
-// and the processor status register, sets the I flag to ignore further IRQs, and the Program Counter
-// takes the value read at $fffe and $ffff.
 static inline u32 nes_scheduler_cpu_step(NES_Emulator *core)
 {
+	NES_CPUState *cpu = & core->core.cpu;
+
+	// """
+	// If the CPU's /IRQ input is 0 at the end of an instruction, then the CPU pushes the program counter
+	// and the processor status register, sets the I flag to ignore further IRQs, and the Program Counter
+	// takes the value read at $fffe and $ffff.
+	// """
 	b32 irq_line = core->core.apu.irq_pending;
-	if (irq_line && (~ core->core.cpu.P & cpu_status_mask(CPU_STAT_I))) {
+	if (irq_line && (~ cpu->P & cpu_status_mask(CPU_STAT_I))) {
 		return nes_cpu_irq(core);
+	}
+	//
+	// Note, this is introspection stuff:
+	// Has to be done here because the debugger doesn't have fine grain control over the CPU's execution
+	//
+	if (1) {
+		NES_BusAccess access = nes_cpu_bus_peek_mapped(core, cpu->PC);
+		u64 trace_index = core->scheduler_trace_index;
+		core->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = (NES_SchedulerBoundary) {
+			.scheduler_clock = core->scheduler_clock,
+			.cpu_address = cpu->PC,
+			.cpu_mapped = access.mapped,
+			.cpu_byte = access.value,
+		};
+		core->scheduler_trace_index = trace_index + 1;
 	}
 	return nes_cpu_step(core);
 }

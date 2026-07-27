@@ -863,45 +863,14 @@ void program_reset(Debugger *debugger)
 
 }
 
-void program_observe_execution(Debugger *debugger, NES_InstructionTrace trace)
+void program_observe_execution(Debugger *debugger, NES_SchedulerBoundary trace)
 {
 	Program *program = &debugger->program;
 	++program->executed_instruction_count;
-	u32 program_offsets[3] = { MAX_VALUE_U32, MAX_VALUE_U32, MAX_VALUE_U32 };
-	for (u32 byte_index = 0; byte_index < trace.size; ++byte_index)
-	{
-		NES_MapAddr mapped = trace.mappings[byte_index];
-		if (program_storage_offset_from_map(program, mapped, &program_offsets[byte_index])) {
-			program_update_cached_byte(program, mapped, program_offsets[byte_index], trace.bytes[byte_index]);
-		}
-	}
+	u32 program_offsets[1] = { MAX_VALUE_U32 };
+	NES_MapAddr mapped = trace.cpu_mapped;
 
-	b32 discontinuous = false;
-	for (u32 byte_index = 1; byte_index < trace.size; ++byte_index)
-	{
-		u32 previous = program_offsets[byte_index - 1];
-		u32 current = program_offsets[byte_index];
-		if (previous != MAX_VALUE_U32 && current != MAX_VALUE_U32 &&
-			(trace.mappings[byte_index].device != trace.mappings[0].device || current != previous + 1))
-		{
-			discontinuous = true;
-		}
+	if (program_storage_offset_from_map(program, mapped, &program_offsets[0])) {
+		program_update_cached_byte(program, mapped, program_offsets[0], trace.cpu_byte);
 	}
-	if (discontinuous)
-	{
-		++program->discontinuous_instruction_count;
-		if (program->discontinuous_instruction_count <= 8)
-		{
-			LOG_WARN("executed instruction at CPU $%04X has discontinuous program offsets: $%X $%X $%X", trace.cpu_address, program_offsets[0], program_offsets[1], program_offsets[2]);
-		}
-	}
-
-	if (!discontinuous && program_offsets_contiguous(program_offsets, trace.size))
-	{
-		program_mark_instruction(program, program_offsets, trace.size, PROGRAM_INSTRUCTION_EXECUTED, true, trace.cpu_address);
-	}
-
-	// A contiguous physical offset does not prove that an instruction stayed in
-	// one mapper bank: adjacent physical banks can make the offsets look linear.
-	// Exact bank-boundary diagnostics require the mapper-window/range model.
 }

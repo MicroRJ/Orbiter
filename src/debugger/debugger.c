@@ -45,10 +45,6 @@ static b32 debugger_restore_runtime_snapshot(Debugger *debugger, const DebuggerR
 	memory_copy(state->chr_ram, snapshot->chr_ram, sizeof(snapshot->chr_ram));
 	memory_copy(state->prg_ram, snapshot->prg_ram, sizeof(snapshot->prg_ram));
 	memory_copy(emulator->video, snapshot->video, sizeof(snapshot->video));
-	emulator->instruction_trace_count = 0;
-	emulator->instruction_trace_dropped = 0;
-	emulator->instruction_boundary_count = 0;
-	emulator->instruction_boundary_dropped = 0;
 	return true;
 }
 
@@ -72,20 +68,28 @@ Debugger *debugger_create(Arena *arena, u32 audio_sample_rate)
 	debugger->program_work_arena = arena_create(0, "debugger program work arena");
 	debugger->emulator = nes_emulator_create(arena, (NES_EmulatorDesc) {
 		.audio_sample_rate = audio_sample_rate,
-		.enable_instruction_trace = false,
+		.enable_instruction_trace = true,
 		.enable_instruction_boundaries = true,
 	});
 	return debugger;
 }
 
+static void debugger_discard_scheduler_trace(Debugger *debugger)
+{
+	debugger->personal_scheduler_trace_index = nes_emulator_scheduler_trace(debugger->emulator).index;
+}
+
 static void debugger_process_instruction_trace(Debugger *debugger)
 {
-	NES_InstructionTraceSpan trace = nes_emulator_instruction_trace(debugger->emulator);
-	for (u32 index = 0; index < trace.count; ++index) {
-		program_observe_execution(debugger, trace.events[index]);
-	}
-	if (trace.dropped) {
-		LOG_WARN("instruction trace dropped %u events", trace.dropped);
+	// Todo, why are we doing this twice! .1
+	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
+	u64 first = nes_scheduler_trace_first_since(trace, debugger->personal_scheduler_trace_index);
+	u64 dropped = first - debugger->personal_scheduler_trace_index;
+	if (dropped) LOG_WARN("instruction trace dropped %llu events", dropped);
+
+	for (u64 index = first; index < trace.index; index ++)
+	{
+		program_observe_execution(debugger, *nes_scheduler_trace_at(trace, index));
 	}
 }
 
@@ -94,33 +98,43 @@ static b32 debugger_map_address_equal(NES_MapAddr a, NES_MapAddr b)
 	return a.device == b.device && a.address == b.address;
 }
 
-static void debugger_process_breakpoints(Debugger *debugger)
+// Todo, this is to be removed and replaced with a map that also handles reads/writes to arbitrary memory
+static void debugger_process_breakpoints_(Debugger *debugger)
 {
 	debugger->breakpoint_hit = false;
-	NES_InstructionBoundarySpan boundaries = nes_emulator_instruction_boundaries(debugger->emulator);
-	if (boundaries.dropped) LOG_WARN("instruction boundary history dropped %u events", boundaries.dropped);
-	for (u32 index = 0; index < boundaries.count; ++index)
+
+	// Todo, why are we doing this twice! .2
+	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
+	u64 first = nes_scheduler_trace_first_since(trace, debugger->personal_scheduler_trace_index);
+
+	for (u64 index = first; index < trace.index; index ++)
 	{
-		NES_InstructionBoundary boundary = boundaries.items[index];
+		NES_SchedulerBoundary boundary = *nes_scheduler_trace_at(trace, index);
+
 		debugger->execution_history[debugger->execution_history_write_index] = (NES_ExecutionMapping) {
 			.cpu_address = boundary.cpu_address,
-			.destination = boundary.program_address,
+			.destination = boundary.cpu_mapped,
 		};
 		debugger->execution_history_write_index = (debugger->execution_history_write_index + 1) % NES_EXECUTION_HISTORY_CAPACITY;
 		debugger->execution_history_count = Min(debugger->execution_history_count + 1, NES_EXECUTION_HISTORY_CAPACITY);
 		++debugger->execution_history_total_count;
 	}
+
+	debugger->personal_scheduler_trace_index = trace.index;
 	if (!debugger->program_breakpoint_count) return;
+
 	b32 skip_resume = debugger->breakpoint_resume_pending;
 	debugger->breakpoint_resume_pending = false;
+
 	b32 found_expired_breakpoint = false;
-	for (u32 boundary_index = 0; boundary_index < boundaries.count; boundary_index++)
+	for (u64 index = first; index < trace.index; index ++)
 	{
-		NES_InstructionBoundary boundary = boundaries.items[boundary_index];
+		NES_SchedulerBoundary boundary = *nes_scheduler_trace_at(trace, index);
+
 		for (u32 breakpoint_index = 0; breakpoint_index < debugger->program_breakpoint_count; breakpoint_index++)
 		{
-			if (!debugger_map_address_equal(boundary.program_address, debugger->program_breakpoints[breakpoint_index])) continue;
-			if (skip_resume && debugger_map_address_equal(boundary.program_address, debugger->breakpoint_hit_address))
+			if (!debugger_map_address_equal(boundary.cpu_mapped, debugger->program_breakpoints[breakpoint_index])) continue;
+			if (skip_resume && debugger_map_address_equal(boundary.cpu_mapped, debugger->breakpoint_hit_address))
 			{
 				skip_resume = false;
 				continue;
@@ -133,7 +147,8 @@ static void debugger_process_breakpoints(Debugger *debugger)
 			while (debugger_scheduler_clock(debugger) < boundary.scheduler_clock) {
 				nes_emulator_step(debugger->emulator);
 			}
-			debugger->breakpoint_hit_address = boundary.program_address;
+			debugger->personal_scheduler_trace_index = nes_emulator_scheduler_trace(debugger->emulator).index;
+			debugger->breakpoint_hit_address = boundary.cpu_mapped;
 			debugger->breakpoint_hit = true;
 			debugger->breakpoint_resume_pending = true;
 			return;
@@ -142,6 +157,11 @@ static void debugger_process_breakpoints(Debugger *debugger)
 	if (found_expired_breakpoint) {
 		LOG_WARN("could not restore the runtime snapshot for a program breakpoint");
 	}
+}
+
+static void debugger_process_breakpoints(Debugger *debugger)
+{
+	PROF_BLOCK("process breakpoints") debugger_process_breakpoints_(debugger);
 }
 
 void debugger_destroy(Debugger *debugger)
@@ -214,6 +234,7 @@ b32 debugger_reset(Debugger *debugger)
 		return false;
 	}
 	nes_emulator_reset(debugger->emulator);
+	debugger_discard_scheduler_trace(debugger);
 	debugger->execution_history_count = 0;
 	debugger->execution_history_write_index = 0;
 	debugger->execution_history_total_count = 0;
@@ -235,6 +256,7 @@ b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 	if (success)
 	{
 		debugger->warned_missing_cartridge = false;
+		debugger_discard_scheduler_trace(debugger);
 		debugger->execution_history_count = 0;
 		debugger->execution_history_write_index = 0;
 		debugger->execution_history_total_count = 0;
@@ -257,7 +279,9 @@ ByteSpan debugger_snapshot(Debugger *debugger, Arena *arena)
 b32 debugger_restore_snapshot(Debugger *debugger, ByteSpan snapshot)
 {
 	if (!snapshot.data || snapshot.size != sizeof(DebuggerRuntimeSnapshot)) return false;
-	return debugger_restore_runtime_snapshot(debugger, snapshot.data);
+	b32 success = debugger_restore_runtime_snapshot(debugger, snapshot.data);
+	if (success) debugger_discard_scheduler_trace(debugger);
+	return success;
 }
 
 b32 debugger_save_state(Debugger *debugger, Arena *arena)
@@ -273,6 +297,7 @@ b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 	if (success)
 	{
 		debugger->warned_missing_cartridge = false;
+		debugger_discard_scheduler_trace(debugger);
 		debugger->execution_history_count = 0;
 		debugger->execution_history_write_index = 0;
 		debugger->execution_history_total_count = 0;
@@ -280,6 +305,8 @@ b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 		debugger_clear_snapshots(debugger);
 		debugger_capture_frame(debugger);
 	}
+	// Todo, remove diagnistic printing from the debugger instead return an error code or something,
+	// otherwise tests print stuff
 	else LOG_WARN("failed to restore state: no supported cartridge was instantiated");
 	return success;
 }
@@ -360,6 +387,7 @@ static b32 debugger_restore_frame_snapshot(Debugger *debugger, u64 index)
 	u64 oldest = debugger->snapshot_count > DEBUGGER_SNAPSHOT_CAPACITY ? debugger->snapshot_count - DEBUGGER_SNAPSHOT_CAPACITY : 0;
 	if (index < oldest || index >= debugger->snapshot_count) return false;
 	if (!debugger_restore_runtime_snapshot(debugger, &debugger->snapshots[index & DEBUGGER_SNAPSHOT_MASK])) return false;
+	debugger_discard_scheduler_trace(debugger);
 	debugger->snapshot_cursor = index;
 	return true;
 }

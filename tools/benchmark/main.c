@@ -3,6 +3,7 @@
 #include "nes/emulator.h"
 #include "nes/src/emulator_internal.h"
 #include "nes/src/ppu/ppu.h"
+#include "debugger/debugger.h"
 #include "os.h"
 
 #include <errno.h>
@@ -133,25 +134,27 @@ static b32 benchmark_parse_iterations(const char *text, u32 *result)
 	return true;
 }
 
-static void benchmark_scan_execution_history(NES_InstructionBoundarySpan boundaries, NES_ExecutionMapping *history)
+static void benchmark_scan_execution_history(NES_SchedulerTraceView boundaries, NES_ExecutionMapping *history)
 {
-	for (u32 index = 0; index < boundaries.count; ++index)
+	u64 first = nes_scheduler_trace_first_since(boundaries, 0);
+	for (u64 index = first; index < boundaries.index; ++index)
 	{
-		NES_InstructionBoundary boundary = boundaries.items[index];
-		history[index] = (NES_ExecutionMapping) {
-			.cpu_address = boundary.cpu_address,
-			.destination = boundary.program_address,
+		const NES_SchedulerBoundary *boundary = nes_scheduler_trace_at(boundaries, index);
+		history[index - first] = (NES_ExecutionMapping) {
+			.cpu_address = boundary->cpu_address,
+			.destination = boundary->cpu_mapped,
 		};
 	}
-	benchmark_boundary_sink += history[boundaries.count - 1].cpu_address;
+	benchmark_boundary_sink += history[boundaries.index - first - 1].cpu_address;
 }
 
-static void benchmark_scan_breakpoints(NES_InstructionBoundarySpan boundaries, const NES_MapAddr *breakpoints, u32 breakpoint_count)
+static void benchmark_scan_breakpoints(NES_SchedulerTraceView boundaries, const NES_MapAddr *breakpoints, u32 breakpoint_count)
 {
 	u64 matches = 0;
-	for (u32 boundary_index = 0; boundary_index < boundaries.count; ++boundary_index)
+	u64 first = nes_scheduler_trace_first_since(boundaries, 0);
+	for (u64 index = first; index < boundaries.index; ++index)
 	{
-		NES_MapAddr address = boundaries.items[boundary_index].program_address;
+		NES_MapAddr address = nes_scheduler_trace_at(boundaries, index)->cpu_mapped;
 		for (u32 breakpoint_index = 0; breakpoint_index < breakpoint_count; ++breakpoint_index) {
 			matches += address.device == breakpoints[breakpoint_index].device && address.address == breakpoints[breakpoint_index].address;
 		}
@@ -258,11 +261,12 @@ int main(int argc, char **argv)
 	benchmark_print_bus("PPU bus", ppu_bus, iterations, frame_elapsed);
 	printf("%-24s median %+8.3f ms  %+6.2f%%\n", "boundary recording cost",
 		(boundary_stats.median - frame_stats.median) * 1000.0,
-		frame_stats.median ? (boundary_stats.median / frame_stats.median - 1.0) * 100.0 : 0.0);
-	printf("%-24s %u events in final frame\n", "", nes_emulator_instruction_boundaries(boundary_core).count);
-
-	NES_InstructionBoundarySpan boundaries = nes_emulator_instruction_boundaries(boundary_core);
-	NES_ExecutionMapping *history = arena_push(&arena, sizeof(*history) * boundaries.count);
+		frame_stats.median > 0.f ? (boundary_stats.median / frame_stats.median - 1.0) * 100.0 : 0.0);
+	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(boundary_core);
+	u64 boundary_first = nes_scheduler_trace_first_since(boundaries, 0);
+	u32 boundary_count = (u32)(boundaries.index - boundary_first);
+	printf("%-24s %u retained events, %llu total\n", "", boundary_count, boundaries.index);
+	NES_ExecutionMapping *history = arena_push(&arena, sizeof(*history) * boundary_count);
 	NES_MapAddr breakpoints[16] = {};
 	for (u32 index = 0; index < ArrayCount(breakpoints); ++index) {
 		breakpoints[index] = (NES_MapAddr) { NES_DEVICE_PRG_ROM, MAX_VALUE_U32 - index };

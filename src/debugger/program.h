@@ -103,7 +103,7 @@ u32 program_mapped_instruction_count(Debugger *debugger);
 b32 program_dump(Debugger *debugger, const char *path, Arena *scratch);
 void program_refine(Debugger *debugger, u32 instruction_budget);
 void program_reset(Debugger *debugger);
-void program_observe_execution(Debugger *debugger, NES_InstructionTrace trace);
+void program_observe_execution(Debugger *debugger, NES_SchedulerBoundary trace);
 ProgramSlice program_slice(Debugger *debugger, Arena *arena, u32 first_instruction_index, u32 capacity);
 b32 program_index_from_cpu_address(Debugger *debugger, u16 cpu_address, u32 *instruction_index);
 

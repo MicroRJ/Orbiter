@@ -202,11 +202,13 @@ static void test_instruction_boundary_clocks(void)
 	});
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
 	nes_emulator_run(core, 30);
-	NES_InstructionBoundarySpan boundaries = nes_emulator_instruction_boundaries(core);
-	Assert(boundaries.count > 0);
-	Assert(boundaries.dropped == 0);
-	for (u32 index = 1; index < boundaries.count; ++index) {
-		Assert(boundaries.items[index].scheduler_clock > boundaries.items[index - 1].scheduler_clock);
+	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(core);
+	Assert(!nes_scheduler_trace_dropped_since(boundaries, 0));
+	Assert(boundaries.index > 0);
+	for (u64 index = 1; index < boundaries.index; index ++) {
+		const NES_SchedulerBoundary *current = nes_scheduler_trace_at(boundaries, index);
+		const NES_SchedulerBoundary *previous = nes_scheduler_trace_at(boundaries, index - 1);
+		Assert(current->scheduler_clock > previous->scheduler_clock);
 	}
 	arena_destroy(&arena);
 }

@@ -7,6 +7,26 @@
 
 typedef struct Debugger Debugger;
 
+
+// TODO, BROTHER ...
+typedef struct
+{
+	u16         cpu_address;
+	NES_MapAddr destination;
+}
+NES_ExecutionMapping;
+
+// TODO, BROTHER ...
+typedef struct
+{
+	const NES_ExecutionMapping *entries;
+	u32 capacity;
+	u32 count;
+	u32 write_index;
+	u64 total_count;
+}
+NES_ExecutionHistory;
+
 typedef struct
 {
 	NES_CPUState cpu;

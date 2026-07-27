@@ -60,6 +60,7 @@ u8          nes_cpu_bus_read(NES_Emulator *core, u16 address);
 NES_MappedRead nes_cpu_bus_read_mapped(NES_Emulator *core, u16 address);
 void        nes_cpu_bus_write(NES_Emulator *core, u16 address, u8 value);
 u8          nes_cpu_bus_peek(NES_Emulator *core, u16 address);
+NES_BusAccess nes_cpu_bus_peek_mapped(NES_Emulator *core, u16 address);
 NES_MapAddr nes_cpu_bus_map(NES_Emulator *core, u16 address);
 
 u8          nes_ppu_bus_read(NES_Emulator *core, u16 address);

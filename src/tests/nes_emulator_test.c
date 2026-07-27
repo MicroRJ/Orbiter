@@ -169,18 +169,25 @@ int main(int argc, char **argv)
 	nes_emulator_run(core, 3);
 	NES_CPUState after = nes_emulator_cpu_state(core);
 	Assert(after.PC != before.PC);
-	NES_InstructionTraceSpan trace = nes_emulator_instruction_trace(core);
-	Assert(trace.count > 0);
-	Assert(trace.dropped == 0);
-	Assert(trace.events[0].cpu_address == before.PC);
-	Assert(trace.events[0].size == 1);
-	Assert(trace.events[0].mappings[0].device == NES_DEVICE_PRG_ROM);
-	Assert(trace.events[0].mappings[0].offset == 0);
-	NES_InstructionBoundarySpan boundaries = nes_emulator_instruction_boundaries(core);
-	Assert(boundaries.count > 0);
-	Assert(boundaries.items[0].cpu_address == before.PC);
-	Assert(boundaries.items[0].program_address.device == NES_DEVICE_PRG_ROM);
-	Assert(boundaries.items[0].program_address.offset == 0);
+	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(core);
+	Assert(trace.index > 0);
+	Assert(!nes_scheduler_trace_dropped_since(trace, 0));
+	const NES_SchedulerBoundary *first = nes_scheduler_trace_at(trace, 0);
+	Assert(first->cpu_address == before.PC);
+	Assert(first->cpu_mapped.device == NES_DEVICE_PRG_ROM);
+	Assert(first->cpu_mapped.offset == 0);
+	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(core);
+	Assert(boundaries.index > 0);
+	first = nes_scheduler_trace_at(boundaries, 0);
+	Assert(first->cpu_address == before.PC);
+	Assert(first->cpu_mapped.device == NES_DEVICE_PRG_ROM);
+	Assert(first->cpu_mapped.offset == 0);
+
+	NES_SchedulerTraceView wrapped = { .trace = trace.trace, .index = NES_SCHEDULER_TRACE_CAPACITY_POW2 + 7 };
+	Assert(nes_scheduler_trace_first_since(wrapped, 0) == 7);
+	Assert(nes_scheduler_trace_dropped_since(wrapped, 0) == 7);
+	Assert(nes_scheduler_trace_at(wrapped, 7) == &wrapped.trace[7]);
+	Assert(nes_scheduler_trace_at(wrapped, wrapped.index - 1) == &wrapped.trace[(wrapped.index - 1) & NES_SCHEDULER_TRACE_CAPACITY_MASK]);
 
 	NES_CPUState captured_cpu = nes_emulator_cpu_state(core);
 	NES_PPUState captured_ppu = nes_emulator_ppu_state(core);

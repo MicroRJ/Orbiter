@@ -16,23 +16,17 @@ NES_BusMetrics;
 
 struct NES_Emulator
 {
-	NES_State        core;
-	u8               video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
-	NES_MapperClass  mapper;
-	u32              audio_sample_rate;
-	u64              scheduler_clock;
-	b32              instruction_trace_enabled;
-	b32              instruction_boundaries_enabled;
-	u32              instruction_trace_count;
-	u32              instruction_trace_dropped;
-	NES_InstructionTrace instruction_trace[NES_INSTRUCTION_TRACE_CAPACITY];
-	u32 instruction_boundary_count;
-	u32 instruction_boundary_dropped;
-	NES_InstructionBoundary instruction_boundaries[NES_INSTRUCTION_BOUNDARY_CAPACITY];
-	NES_BusMetrics cpu_bus_metrics;
-	NES_BusMetrics ppu_bus_metrics;
+	NES_State             core;
+	NES_MapperClass       mapper;
+	u32                   audio_sample_rate;
+	u64                   scheduler_clock;
+	NES_BusMetrics        cpu_bus_metrics;
+	NES_BusMetrics        ppu_bus_metrics;
+	u64                   scheduler_trace_index;
+	u8                    video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+	NES_SchedulerBoundary scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
 };
 
-NES_InstructionBoundary *nes_record_instruction_boundary(NES_Emulator *core, u16 cpu_address);
+void nes_record_instruction_boundary(NES_Emulator *core, u16 cpu_address);
 
 #endif

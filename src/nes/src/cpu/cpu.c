@@ -395,45 +395,18 @@ void nes_cpu_reset(NES_Emulator *core)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Execution
 
-static void cpu_trace_instruction(NES_Emulator *core, u16 cpu_address, u32 opcode, NES_MapAddr mapped_start)
-{
-	if (!core->instruction_trace_enabled) return;
-	if (core->instruction_trace_count == NES_INSTRUCTION_TRACE_CAPACITY)
-	{
-		++core->instruction_trace_dropped;
-		return;
-	}
-
-	NES_InstructionTrace *trace =
-		&core->instruction_trace[core->instruction_trace_count++];
-	*trace = (NES_InstructionTrace) {};
-	trace->cpu_address = cpu_address;
-	trace->size = (u8)nes_instruction_desc(opcode).size;
-	Assert(trace->size <= ArrayCount(trace->mappings));
-	trace->bytes[0] = (u8)opcode;
-	trace->mappings[0] = mapped_start;
-	for (u32 byte_index = 1; byte_index < trace->size; ++byte_index)
-	{
-		u16 byte_address = (u16)(cpu_address + byte_index);
-		NES_MapAddr mapped = nes_cpu_bus_map(core, byte_address);
-		trace->bytes[byte_index] = nes_cpu_bus_peek(core, byte_address);
-		trace->mappings[byte_index] = mapped;
-	}
-}
-
 u32 nes_cpu_step(NES_Emulator *core)
 {
-	NES_CPUState *cpu = &core->core.cpu;
-	u16 opcode_address = cpu->PC;
-	NES_InstructionBoundary *boundary = core->instruction_boundaries_enabled ? nes_record_instruction_boundary(core, opcode_address) : 0;
+	// Todo, remove this from here, put in the scheduler?
 	core->core.cpu_stall_cycles = 0;
-	NES_MappedRead opcode_read = nes_cpu_bus_read_mapped(core, opcode_address);
-	if (boundary) boundary->program_address = opcode_read.mapped;
-	core->core.cpu.PC = (u16)(cpu->PC + 1);
-	u32 opcode = opcode_read.value;
+
+	NES_CPUState *cpu = &core->core.cpu;
+
+	u32 opcode = cpu_fetch_byte(core);
 	u32 cycles = 0;
-	u32 address;
-	u32 value;
+
+	u32                  value;
+	u32                address;
 	CPU_IndexedAddress indexed;
 
 	switch (opcode)
@@ -633,12 +606,14 @@ u32 nes_cpu_step(NES_Emulator *core)
 		case 0xEA: cycles = 2; break;
 
 		default:
-			LOG_ERROR("%02X %04X %s: UNIMPLEMENTED INSTRUCTION",
-				opcode, opcode_address, nes_instruction_desc(opcode).name);
+		{
+			Assert(cpu->PC >= 1);
+			LOG_ERROR("%02X %04X %s: UNIMPLEMENTED INSTRUCTION", opcode, cpu->PC - 1, nes_instruction_desc(opcode).name);
 			Assert(!"unimplemented CPU opcode");
 			return 0;
+		}
+		break;
 	}
 
-	cpu_trace_instruction(core, opcode_address, opcode, opcode_read.mapped);
 	return cycles + core->core.cpu_stall_cycles;
 }
