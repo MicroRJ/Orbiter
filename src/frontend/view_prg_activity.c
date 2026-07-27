@@ -6,7 +6,6 @@ enum
 	PRG_ACTIVITY_DEFAULT_CELL_SIZE = 256,
 	PRG_ACTIVITY_MIN_CELL_SIZE = 4,
 	PRG_ACTIVITY_MAX_CELL_SIZE = KiB(8),
-	PRG_ACTIVITY_VISIBLE_EDGE_COUNT = 64,
 };
 
 typedef struct
@@ -70,18 +69,6 @@ static void prg_activity_draw_segment(UI_Context *ui, vec2 from, vec2 to, f32 th
 		segment.h = thickness;
 	}
 	ui_draw_rect(ui, segment, color);
-}
-
-static vec2 prg_activity_edge_position(vec2 from, vec2 bend, vec2 to, f32 progress)
-{
-	f32 first_length = fabsf(bend.x - from.x) + fabsf(bend.y - from.y);
-	f32 second_length = fabsf(to.x - bend.x) + fabsf(to.y - bend.y);
-	f32 distance = progress * (first_length + second_length);
-	if (distance <= first_length && first_length > 0.f) {
-		return v2(from.x + (bend.x - from.x) * distance / first_length, from.y + (bend.y - from.y) * distance / first_length);
-	}
-	f32 second_progress = second_length > 0.f ? (distance - first_length) / second_length : 1.f;
-	return v2(bend.x + (to.x - bend.x) * second_progress, bend.y + (to.y - bend.y) * second_progress);
 }
 
 static Color_SRGBA prg_activity_edge_color(const UI_Theme *theme, u32 source_offset, u32 destination_offset)
@@ -285,7 +272,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	Debugger *debugger = frame->debugger;
 	UI_Context *ui = frame->ui;
 	PRGActivityViewState *state = &frame->view->prg_activity;
-	ActivityTracker *tracker = frame->activity_tracker;
+	const ActivityTracker *tracker = debugger_activity_tracker(debugger);
 	Assert(tracker);
 	if (!state->cell_size) {
 		state->cell_size = PRG_ACTIVITY_DEFAULT_CELL_SIZE;
@@ -315,10 +302,9 @@ static void prg_activity_view_content(ViewFrameData *frame)
 		}
 	}
 	u32 cell_size = state->cell_size;
-	NES_ExecutionHistory history = frame->publication->execution_history;
-	const NES_ExecutionMapping *head = history.count ? &history.entries[(history.write_index + history.capacity - 1) % history.capacity] : 0;
+	NES_MapAddr active_mapping = debugger_cpu_map(debugger, pc);
 	u32 active_offset = 0;
-	b32 has_active_cell = head && prg_activity_storage_offset(program, head->destination, include_prg_ram, &active_offset);
+	b32 has_active_cell = prg_activity_storage_offset(program, active_mapping, include_prg_ram, &active_offset);
 	u32 active_cell = has_active_cell ? active_offset / cell_size : MAX_VALUE_U32;
 	u32 active_begin = active_cell * cell_size;
 	u32 active_end = Min(active_begin + cell_size, program_size);
@@ -333,9 +319,9 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	u32 crawler_cell = crawler_in_prg ? crawler_offset / cell_size : MAX_VALUE_U32;
 	f32 label_height = ui->theme.code.size + 10.f;
 	rect_f32 label = rect_f32_slice(&layout, AXIS_Y, label_height);
-	const char *active_device = has_active_cell && head->destination.device == NES_DEVICE_PRG_RAM ? "PRG RAM" : "PRG ROM";
+	const char *active_device = has_active_cell && active_mapping.device == NES_DEVICE_PRG_RAM ? "PRG RAM" : "PRG ROM";
 	String label_text = has_active_cell
-		? push_formatted(frame->scratch, "%u B / cell   PC $%04X -> %s $%X   active $%X-$%X   Ctrl+wheel zooms", cell_size, head->cpu_address, active_device, head->destination.offset, active_begin, active_end - 1)
+		? push_formatted(frame->scratch, "%u B / cell   PC $%04X -> %s $%X   active $%X-$%X   Ctrl+wheel zooms", cell_size, pc, active_device, active_mapping.offset, active_begin, active_end - 1)
 		: push_formatted(frame->scratch, "%u B / cell   PC $%04X is not mapped to program storage   Ctrl+wheel zooms", cell_size, pc);
 	ui_draw_text(ui, label, text_style, label_text);
 	label = rect_f32_slice(&layout, AXIS_Y, label_height);
@@ -358,22 +344,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	u32 ram_size = include_prg_ram ? program->prg_ram_byte_count : 0;
 	u32 bank_size = Max((u32)CPU_MAPPING_CHUNK_SIZE, cell_size);
 	PRGActivityGrid grid = prg_activity_grid(layout, program->prg_rom_byte_count, ram_size, bank_size, cell_size);
-	u32 *cell_ages = arena_push_fill(frame->scratch, cell_count * sizeof(*cell_ages), 0xFF);
-	for (u32 age = 0; age < history.count; ++age)
-	{
-		u32 history_index = (history.write_index + history.capacity - 1 - age) % history.capacity;
-		const NES_ExecutionMapping *mapping = &history.entries[history_index];
-		u32 storage_offset = 0;
-		if (!prg_activity_storage_offset(program, mapping->destination, include_prg_ram, &storage_offset)) {
-			continue;
-		}
-		u32 cell_index = storage_offset / cell_size;
-		if (cell_index < cell_count && cell_ages[cell_index] == MAX_VALUE_U32) {
-			cell_ages[cell_index] = age;
-		}
-	}
 	Color_SRGBA mapped_color = color_srgba_mix(ui->theme.slider_track, ui->theme.text_subtle, 0.05f);
-	u32 edge_count = Min(history.count > 0 ? history.count - 1 : 0, (u32)PRG_ACTIVITY_VISIBLE_EDGE_COUNT);
 	for (u32 cell_index = 0; cell_index < cell_count; ++cell_index)
 	{
 		rect_f32 cell = prg_activity_cell_rect(&grid, cell_index);
@@ -382,11 +353,6 @@ static void prg_activity_view_content(ViewFrameData *frame)
 		Color_SRGBA color = prg_activity_cell_is_mapped(debugger, program, include_prg_ram, cell_begin, cell_end) ? mapped_color : ui->theme.slider_track;
 		if (include_prg_ram && cell_begin >= program->prg_rom_byte_count) {
 			color = color_srgba_mix(color, ui->theme.program_bridge, 0.06f);
-		}
-		if (cell_ages[cell_index] != MAX_VALUE_U32)
-		{
-			f32 recency = history.count > 1 ? 1.f - (f32)cell_ages[cell_index] / (history.count - 1) : 1.f;
-			color = color_srgba_mix(color, ui->theme.program_counter, 0.20f + recency * 0.80f);
 		}
 		ui_draw_rect(ui, cell, color);
 		if (cell_index == active_cell && grid.cell_extent >= 4.f) {
@@ -416,51 +382,13 @@ static void prg_activity_view_content(ViewFrameData *frame)
 			ui_pop_emission(ui);
 		}
 	}
-	if (grid.cell_extent >= 1.f)
-	{
-		for (u32 age = edge_count; age-- > 0;)
-		{
-			u32 destination_index = (history.write_index + history.capacity - 1 - age) % history.capacity;
-			u32 source_index = (history.write_index + history.capacity - 2 - age) % history.capacity;
-			const NES_ExecutionMapping *source_mapping = &history.entries[source_index];
-			const NES_ExecutionMapping *destination_mapping = &history.entries[destination_index];
-			u32 source_offset = 0;
-			u32 destination_offset = 0;
-			if (!prg_activity_storage_offset(program, source_mapping->destination, include_prg_ram, &source_offset) ||
-				!prg_activity_storage_offset(program, destination_mapping->destination, include_prg_ram, &destination_offset)) {
-				continue;
-			}
-			u32 source_cell = source_offset / cell_size;
-			u32 destination_cell = destination_offset / cell_size;
-			if (source_cell >= cell_count || destination_cell >= cell_count || source_cell == destination_cell) {
-				continue;
-			}
-			vec2 source = prg_activity_cell_center(&grid, source_cell);
-			vec2 destination = prg_activity_cell_center(&grid, destination_cell);
-			vec2 bend = v2(destination.x, source.y);
-			f32 recency = edge_count > 1 ? 1.f - (f32)age / (edge_count - 1) : 1.f;
-			Color_SRGBA edge_color = prg_activity_edge_color(&ui->theme, source_offset, destination_offset);
-			edge_color.a = 0.08f + recency * 0.42f;
-			f32 thickness = Max(1.f, Min(2.f, grid.cell_extent * 0.2f));
-			ui_push_emission(ui, ui->theme.palette.emission_high * recency);
-			prg_activity_draw_segment(ui, source, bend, thickness, edge_color);
-			prg_activity_draw_segment(ui, bend, destination, thickness, edge_color);
-			f32 pulse_progress = fmodf((f32)frame->publication->generation * 0.12f + age * 0.173f, 1.f);
-			vec2 pulse = prg_activity_edge_position(source, bend, destination, pulse_progress);
-			f32 pulse_size = Max(2.f, Min(5.f, grid.cell_extent * 0.5f));
-			Color_SRGBA pulse_color = color_srgba_mix(edge_color, ui->theme.palette.text, 0.35f);
-			pulse_color.a = 0.35f + recency * 0.65f;
-			ui_draw_rect(ui, (rect_f32) { pulse.x - pulse_size * 0.5f, pulse.y - pulse_size * 0.5f, pulse_size, pulse_size }, pulse_color);
-			ui_pop_emission(ui);
-		}
-	}
 	prg_activity_draw_crawler(frame, &grid, cell_count, crawler_cell);
 	prg_activity_draw_tooltip(frame, &grid, cell_count, program, program_size);
 }
 
 void prg_activity_view_frame(ViewFrameData *frame)
 {
-	ViewFrameData content = view_begin_frame(frame, LIT("PRG ACTIVITY — EXECUTION HISTORY"));
+	ViewFrameData content = view_begin_frame(frame, LIT("PRG ACTIVITY - EXECUTION FLOW"));
 	PROF_BLOCK("prg activity content") prg_activity_view_content(&content);
 	view_end_frame(&content);
 }

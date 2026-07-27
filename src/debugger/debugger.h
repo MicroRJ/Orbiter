@@ -4,28 +4,9 @@
 #include "base.h"
 #include "nes/emulator.h"
 #include "program.h"
+#include "activity_tracker.h"
 
 typedef struct Debugger Debugger;
-
-
-// TODO, BROTHER ...
-typedef struct
-{
-	u16         cpu_address;
-	NES_MapAddr destination;
-}
-NES_ExecutionMapping;
-
-// TODO, BROTHER ...
-typedef struct
-{
-	const NES_ExecutionMapping *entries;
-	u32 capacity;
-	u32 count;
-	u32 write_index;
-	u64 total_count;
-}
-NES_ExecutionHistory;
 
 typedef struct
 {
@@ -67,9 +48,9 @@ void debugger_update_cpu_mapping(Debugger *debugger);
 DebuggerState debugger_capture_state(const Debugger *debugger);
 void debugger_capture_video(const Debugger *debugger, u8 *pixels, u32 stride);
 void debugger_capture_chr_map(const Debugger *debugger, NES_CHRMap *map);
-void debugger_capture_execution_history(const Debugger *debugger, NES_ExecutionMapping *entries, u32 capacity, NES_ExecutionHistory *history);
 u32 debugger_prg_rom_size(const Debugger *debugger);
 const Program *debugger_program(const Debugger *debugger);
+const ActivityTracker *debugger_activity_tracker(const Debugger *debugger);
 
 u32 debugger_cpu_peek(Debugger *debugger, u16 address, NES_MapAddr *mapped);
 u32 debugger_cpu_peek_word(Debugger *debugger, u16 address);

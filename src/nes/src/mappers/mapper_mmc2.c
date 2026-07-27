@@ -24,6 +24,7 @@ NES_MAPPER_RSET_FUNC(mmc2_reset) {
 }
 
 NES_BusAccess mmc2_ppu(NES_Emulator *nes, NES_BusAccess access) {
+	u16 latch_address = (u16)access.address;
 	switch (access.address >> 12) {
 		case 0: case 1: {
 			u32 table = access.address >> 12;
@@ -36,17 +37,16 @@ NES_BusAccess mmc2_ppu(NES_Emulator *nes, NES_BusAccess access) {
 
 			if (access.kind == NES_BUS_ACCESS_READ)
 			{
-				u16 address = access.bus_address;
-				if (address == 0x0FD8) {
+				if (latch_address == 0x0FD8) {
 					nes_mapper_set_value(nes, LATCH0, 0xFD);
 				}
-				else if (address == 0x0FE8) {
+				else if (latch_address == 0x0FE8) {
 					nes_mapper_set_value(nes, LATCH0, 0xFE);
 				}
-				else if (address >= 0x1FD8 && address <= 0x1FDF) {
+				else if (latch_address >= 0x1FD8 && latch_address <= 0x1FDF) {
 					nes_mapper_set_value(nes, LATCH1, 0xFD);
 				}
-				else if (address >= 0x1FE8 && address <= 0x1FEF) {
+				else if (latch_address >= 0x1FE8 && latch_address <= 0x1FEF) {
 					nes_mapper_set_value(nes, LATCH1, 0xFE);
 				}
 			}

@@ -54,11 +54,8 @@ struct Debugger
 	u64 snapshot_count;
 	u64 snapshot_cursor;
 	Program program;
+	ActivityTracker activity_tracker;
 	CPU_MappingSnapshot cpu_mapping;
-	NES_ExecutionMapping execution_history[NES_EXECUTION_HISTORY_CAPACITY];
-	u32 execution_history_count;
-	u32 execution_history_write_index;
-	u64 execution_history_total_count;
 	NES_MapAddr program_breakpoints[DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY];
 	u32 program_breakpoint_count;
 	NES_MapAddr breakpoint_hit_address;

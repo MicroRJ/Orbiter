@@ -54,7 +54,6 @@ static NES_BusAccess mapper_access(NES_Emulator *core, NES_BusFunc bus,
 {
 	return bus(core, (NES_BusAccess) {
 		.kind = kind,
-		.bus_address = address,
 		.address = address,
 		.value = value,
 	});

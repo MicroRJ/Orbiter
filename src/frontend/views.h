@@ -113,8 +113,6 @@ struct PanelViewData
 typedef struct
 {
 	DebuggerState state;
-	NES_ExecutionHistory execution_history;
-	NES_ExecutionMapping execution_entries[NES_EXECUTION_HISTORY_CAPACITY];
 	u8 video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
 	NES_CHRMap chr_map;
 	Color_RGBA8 palette[64];
@@ -135,7 +133,6 @@ typedef struct
 	rect_f32       rect;
 	f32            header_height;
 	void         (*draw_box_tree)(UI_Box *box);
-	ActivityTracker *activity_tracker;
 
 	// The application prepares shared publication resources once per frame.
 	const FrontendPublication *publication;

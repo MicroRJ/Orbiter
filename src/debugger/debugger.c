@@ -77,20 +77,7 @@ Debugger *debugger_create(Arena *arena, u32 audio_sample_rate)
 static void debugger_discard_scheduler_trace(Debugger *debugger)
 {
 	debugger->personal_scheduler_trace_index = nes_emulator_scheduler_trace(debugger->emulator).index;
-}
-
-static void debugger_process_instruction_trace(Debugger *debugger)
-{
-	// Todo, why are we doing this twice! .1
-	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
-	u64 first = nes_scheduler_trace_first_since(trace, debugger->personal_scheduler_trace_index);
-	u64 dropped = first - debugger->personal_scheduler_trace_index;
-	if (dropped) LOG_WARN("instruction trace dropped %llu events", dropped);
-
-	for (u64 index = first; index < trace.index; index ++)
-	{
-		program_observe_execution(debugger, *nes_scheduler_trace_at(trace, index));
-	}
+	activity_tracker_discard_sequence(&debugger->activity_tracker);
 }
 
 static b32 debugger_map_address_equal(NES_MapAddr a, NES_MapAddr b)
@@ -99,37 +86,29 @@ static b32 debugger_map_address_equal(NES_MapAddr a, NES_MapAddr b)
 }
 
 // Todo, this is to be removed and replaced with a map that also handles reads/writes to arbitrary memory
-static void debugger_process_breakpoints_(Debugger *debugger)
+static void debugger_process_scheduler_trace_(Debugger *debugger)
 {
 	debugger->breakpoint_hit = false;
 
-	// Todo, why are we doing this twice! .2
 	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
 	u64 first = nes_scheduler_trace_first_since(trace, debugger->personal_scheduler_trace_index);
-
-	for (u64 index = first; index < trace.index; index ++)
-	{
-		NES_SchedulerBoundary boundary = *nes_scheduler_trace_at(trace, index);
-
-		debugger->execution_history[debugger->execution_history_write_index] = (NES_ExecutionMapping) {
-			.cpu_address = boundary.cpu_address,
-			.destination = boundary.cpu_mapped,
-		};
-		debugger->execution_history_write_index = (debugger->execution_history_write_index + 1) % NES_EXECUTION_HISTORY_CAPACITY;
-		debugger->execution_history_count = Min(debugger->execution_history_count + 1, NES_EXECUTION_HISTORY_CAPACITY);
-		++debugger->execution_history_total_count;
-	}
-
+	u64 dropped = first - debugger->personal_scheduler_trace_index;
+	if (dropped) LOG_WARN("instruction trace dropped %llu events", dropped);
 	debugger->personal_scheduler_trace_index = trace.index;
-	if (!debugger->program_breakpoint_count) return;
 
-	b32 skip_resume = debugger->breakpoint_resume_pending;
-	debugger->breakpoint_resume_pending = false;
+	b32 skip_resume = false;
+	if (debugger->program_breakpoint_count)
+	{
+		skip_resume = debugger->breakpoint_resume_pending;
+		debugger->breakpoint_resume_pending = false;
+	}
 
 	b32 found_expired_breakpoint = false;
 	for (u64 index = first; index < trace.index; index ++)
 	{
 		NES_SchedulerBoundary boundary = *nes_scheduler_trace_at(trace, index);
+		program_observe_execution(debugger, boundary);
+		activity_tracker_observe_execution(&debugger->activity_tracker, &debugger->program, boundary);
 
 		for (u32 breakpoint_index = 0; breakpoint_index < debugger->program_breakpoint_count; breakpoint_index++)
 		{
@@ -148,20 +127,23 @@ static void debugger_process_breakpoints_(Debugger *debugger)
 				nes_emulator_step(debugger->emulator);
 			}
 			debugger->personal_scheduler_trace_index = nes_emulator_scheduler_trace(debugger->emulator).index;
+			activity_tracker_discard_sequence(&debugger->activity_tracker);
 			debugger->breakpoint_hit_address = boundary.cpu_mapped;
 			debugger->breakpoint_hit = true;
 			debugger->breakpoint_resume_pending = true;
+			activity_tracker_update(&debugger->activity_tracker, seconds_now().seconds);
 			return;
 		}
 	}
+	activity_tracker_update(&debugger->activity_tracker, seconds_now().seconds);
 	if (found_expired_breakpoint) {
 		LOG_WARN("could not restore the runtime snapshot for a program breakpoint");
 	}
 }
 
-static void debugger_process_breakpoints(Debugger *debugger)
+static void debugger_process_scheduler_trace(Debugger *debugger)
 {
-	PROF_BLOCK("process breakpoints") debugger_process_breakpoints_(debugger);
+	PROF_BLOCK("process scheduler trace") debugger_process_scheduler_trace_(debugger);
 }
 
 void debugger_destroy(Debugger *debugger)
@@ -235,9 +217,7 @@ b32 debugger_reset(Debugger *debugger)
 	}
 	nes_emulator_reset(debugger->emulator);
 	debugger_discard_scheduler_trace(debugger);
-	debugger->execution_history_count = 0;
-	debugger->execution_history_write_index = 0;
-	debugger->execution_history_total_count = 0;
+	activity_tracker_reset(&debugger->activity_tracker);
 	program_reset(debugger);
 	debugger_clear_snapshots(debugger);
 	debugger_capture_frame(debugger);
@@ -257,9 +237,7 @@ b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 	{
 		debugger->warned_missing_cartridge = false;
 		debugger_discard_scheduler_trace(debugger);
-		debugger->execution_history_count = 0;
-		debugger->execution_history_write_index = 0;
-		debugger->execution_history_total_count = 0;
+		activity_tracker_reset(&debugger->activity_tracker);
 		program_reset(debugger);
 		debugger_clear_snapshots(debugger);
 		debugger_capture_frame(debugger);
@@ -298,9 +276,7 @@ b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 	{
 		debugger->warned_missing_cartridge = false;
 		debugger_discard_scheduler_trace(debugger);
-		debugger->execution_history_count = 0;
-		debugger->execution_history_write_index = 0;
-		debugger->execution_history_total_count = 0;
+		activity_tracker_reset(&debugger->activity_tracker);
 		program_reset(debugger);
 		debugger_clear_snapshots(debugger);
 		debugger_capture_frame(debugger);
@@ -327,8 +303,7 @@ u32 debugger_step(Debugger *debugger)
 	debugger_prepare_execution(debugger);
 	if (debugger->program_breakpoint_count) debugger_capture_runtime_snapshot(debugger, &debugger->breakpoint_snapshot);
 	u32 cycles = nes_emulator_step(debugger->emulator);
-	debugger_process_instruction_trace(debugger);
-	debugger_process_breakpoints(debugger);
+	debugger_process_scheduler_trace(debugger);
 	return cycles;
 }
 
@@ -351,8 +326,7 @@ void debugger_run(Debugger *debugger, u64 ppu_cycles)
 		if (debugger->program_breakpoint_count) debugger_capture_runtime_snapshot(debugger, &debugger->breakpoint_snapshot);
 	}
 	nes_emulator_run(debugger->emulator, ppu_cycles);
-	debugger_process_instruction_trace(debugger);
-	debugger_process_breakpoints(debugger);
+	debugger_process_scheduler_trace(debugger);
 }
 
 u64 debugger_run_samples(Debugger *debugger, u64 minimum_samples, f32 *samples, u64 capacity)
@@ -363,8 +337,7 @@ u64 debugger_run_samples(Debugger *debugger, u64 minimum_samples, f32 *samples, 
 	if (!debugger->program_breakpoint_count)
 	{
 		u64 count = nes_emulator_run_samples(debugger->emulator, minimum_samples, samples, capacity);
-		debugger_process_instruction_trace(debugger);
-		debugger_process_breakpoints(debugger);
+		debugger_process_scheduler_trace(debugger);
 		return count;
 	}
 
@@ -374,8 +347,7 @@ u64 debugger_run_samples(Debugger *debugger, u64 minimum_samples, f32 *samples, 
 	{
 		u64 request = Min(minimum_samples - total, 128);
 		u64 count = nes_emulator_run_samples(debugger->emulator, request, samples + total, capacity - total);
-		debugger_process_instruction_trace(debugger);
-		debugger_process_breakpoints(debugger);
+		debugger_process_scheduler_trace(debugger);
 		if (debugger->breakpoint_hit) return 0;
 		total += count;
 	}
@@ -486,21 +458,6 @@ void debugger_capture_chr_map(const Debugger *debugger, NES_CHRMap *map)
 	nes_emulator_capture_chr_map(debugger->emulator, map);
 }
 
-void debugger_capture_execution_history(const Debugger *debugger, NES_ExecutionMapping *entries, u32 capacity, NES_ExecutionHistory *history)
-{
-	Assert(entries);
-	Assert(history);
-	Assert(capacity >= NES_EXECUTION_HISTORY_CAPACITY);
-	memory_copy(entries, debugger->execution_history, sizeof(debugger->execution_history));
-	*history = (NES_ExecutionHistory) {
-		.entries = entries,
-		.capacity = NES_EXECUTION_HISTORY_CAPACITY,
-		.count = debugger->execution_history_count,
-		.write_index = debugger->execution_history_write_index,
-		.total_count = debugger->execution_history_total_count,
-	};
-}
-
 u32 debugger_prg_rom_size(const Debugger *debugger)
 {
 	return nes_emulator_prg_rom_size(debugger->emulator);
@@ -509,4 +466,9 @@ u32 debugger_prg_rom_size(const Debugger *debugger)
 const Program *debugger_program(const Debugger *debugger)
 {
 	return &debugger->program;
+}
+
+const ActivityTracker *debugger_activity_tracker(const Debugger *debugger)
+{
+	return &debugger->activity_tracker;
 }

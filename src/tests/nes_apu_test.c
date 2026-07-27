@@ -27,7 +27,6 @@ static NES_BusAccess apu_access(NES_BusAccessKind kind, u16 address, u8 value)
 {
 	return nes_apu_register_access(apu_test_core, (NES_BusAccess) {
 		.kind = kind,
-		.bus_address = address,
 		.address = address,
 		.value = value,
 	});

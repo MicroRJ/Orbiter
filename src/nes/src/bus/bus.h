@@ -15,10 +15,8 @@ NES_BusAccessKind;
 typedef struct
 {
 	NES_BusAccessKind kind;
-	// The old generic address type obscured two different domains here. The bus
-	// address is always 16-bit; mapper translation can produce a larger device
-	// offset, so address deliberately remains 32-bit.
-	u16               bus_address;
+	// Mapper translation can produce a device offset larger than the original
+	// 16-bit bus address, so address deliberately remains 32-bit.
 	u32               address;
 	NES_MapAddr       mapped;
 	u8                value;

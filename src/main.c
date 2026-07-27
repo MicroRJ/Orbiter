@@ -88,7 +88,6 @@ typedef struct
 	Arena frame_arena;
 	Debugger *debugger;
 	FrontendPublication published;
-	ActivityTracker activity_tracker;
 	GFX_Texture *video_texture;
 	GFX_Texture *crt_scanline_texture;
 	GFX_Texture *crt_bloom_ping_texture;
@@ -763,8 +762,6 @@ static void app_publish(void)
 	app.published.state = debugger_capture_state(app.debugger);
 	PROF_BLOCK("capture video") debugger_capture_video(app.debugger, &app.published.video[0][0], NES_VIDEO_WIDTH);
 	PROF_BLOCK("capture chr map") debugger_capture_chr_map(app.debugger, &app.published.chr_map);
-	PROF_BLOCK("capture exec history") debugger_capture_execution_history(app.debugger, app.published.execution_entries, ArrayCount(app.published.execution_entries), &app.published.execution_history);
-	PROF_BLOCK("update activity tracker") activity_tracker_observe_execution(&app.activity_tracker, app.debugger, app.published.execution_history);
 	app.published.prg_rom_size = debugger_prg_rom_size(app.debugger);
 	memory_copy(app.published.palette, nes_palette, sizeof(nes_palette));
 	PROF_BLOCK("publish sprites") app_publish_sprites();
@@ -1433,7 +1430,6 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 		.ui = app.ui,
 		.scratch = &app.ui->frame_arena,
 		.draw_box_tree = app_draw_box_tree,
-		.activity_tracker = &app.activity_tracker,
 	};
 
 	gfx_begin_pass(app.draw, (GFX_PassDesc) {

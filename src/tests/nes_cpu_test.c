@@ -18,7 +18,7 @@ static const char *cpu_test_name;
 static NES_BusAccess cpu_test_expansion_bus(NES_Emulator *core,
 	NES_BusAccess access)
 {
-	if (access.bus_address == 0x4020 &&
+	if (access.address == 0x4020 &&
 		access.kind == NES_BUS_ACCESS_WRITE)
 	{
 		core->core.values[31] = access.value;
@@ -124,10 +124,8 @@ static void cpu_test_explicit_bus_operations(CPU_TestFixture *fixture)
 
 	NES_BusAccess routed = nrom_cpu(fixture->core, (NES_BusAccess) {
 		.kind = NES_BUS_ACCESS_MAP,
-		.bus_address = 0x8000,
 		.address = 0x8000,
 	});
-	CPU_EXPECT_EQUAL(0x8000, routed.bus_address);
 	CPU_EXPECT_EQUAL(0, routed.address);
 	CPU_EXPECT_EQUAL(NES_DEVICE_PRG_ROM, routed.mapped.device);
 	CPU_EXPECT_EQUAL(0, routed.mapped.offset);

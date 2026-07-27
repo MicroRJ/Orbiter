@@ -1,6 +1,7 @@
 #include "base.h"
 #include "nes/cartridge.h"
 #include "nes/emulator.h"
+#include "nes/isa.h"
 #include "nes/src/emulator_internal.h"
 #include "nes/src/ppu/ppu.h"
 #include "debugger/debugger.h"
@@ -44,6 +45,23 @@ typedef struct
 	f64 p95;
 }
 BenchmarkStats;
+
+typedef struct
+{
+	NES_SchedulerTraceView trace;
+	u64 first;
+}
+BenchmarkTraceRange;
+
+typedef struct
+{
+	u64 lookups;
+	u64 key_misses;
+	u64 collision_misses;
+	u64 probes;
+	u32 maximum_probe_count;
+}
+BenchmarkHashStats;
 
 typedef struct
 {
@@ -114,6 +132,11 @@ static void benchmark_print(const char *name, BenchmarkStats stats)
 		stats.mean * 1000.0, stats.p95 * 1000.0);
 }
 
+static void benchmark_print_delta(const char *name, BenchmarkStats total, BenchmarkStats baseline)
+{
+	printf("%-24s median %+8.3f ms\n", name, (total.median - baseline.median) * 1000.0);
+}
+
 static void benchmark_print_bus(const char *name, NES_BusMetrics metrics, u32 iterations, f64 elapsed)
 {
 	f64 accesses = (f64)(metrics.reads + metrics.writes);
@@ -134,31 +157,129 @@ static b32 benchmark_parse_iterations(const char *text, u32 *result)
 	return true;
 }
 
-static void benchmark_scan_execution_history(NES_SchedulerTraceView boundaries, NES_ExecutionMapping *history)
+static void benchmark_scan_trace(BenchmarkTraceRange range)
 {
-	u64 first = nes_scheduler_trace_first_since(boundaries, 0);
-	for (u64 index = first; index < boundaries.index; ++index)
-	{
-		const NES_SchedulerBoundary *boundary = nes_scheduler_trace_at(boundaries, index);
-		history[index - first] = (NES_ExecutionMapping) {
-			.cpu_address = boundary->cpu_address,
-			.destination = boundary->cpu_mapped,
-		};
+	u64 sum = 0;
+	for (u64 index = range.first; index < range.trace.index; ++index) {
+		sum += nes_scheduler_trace_at(range.trace, index)->cpu_address;
 	}
-	benchmark_boundary_sink += history[boundaries.index - first - 1].cpu_address;
+	benchmark_boundary_sink += sum;
 }
 
-static void benchmark_scan_breakpoints(NES_SchedulerTraceView boundaries, const NES_MapAddr *breakpoints, u32 breakpoint_count)
+static b32 benchmark_activity_storage_offset(const Program *program, NES_MapAddr mapped, u32 *offset)
 {
-	u64 matches = 0;
-	u64 first = nes_scheduler_trace_first_since(boundaries, 0);
-	for (u64 index = first; index < boundaries.index; ++index)
+	if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < program->prg_rom_byte_count)
 	{
-		NES_MapAddr address = nes_scheduler_trace_at(boundaries, index)->cpu_mapped;
-		for (u32 breakpoint_index = 0; breakpoint_index < breakpoint_count; ++breakpoint_index) {
-			matches += address.device == breakpoints[breakpoint_index].device && address.address == breakpoints[breakpoint_index].address;
+		*offset = mapped.offset;
+		return true;
+	}
+	if (mapped.device == NES_DEVICE_PRG_RAM && mapped.offset < program->prg_ram_byte_count)
+	{
+		*offset = program->prg_rom_byte_count + mapped.offset;
+		return true;
+	}
+	return false;
+}
+
+static u64 benchmark_activity_edge_key(u32 source_offset, u32 destination_offset)
+{
+	return (((u64)source_offset << 32) | destination_offset) + 1;
+}
+
+static u32 benchmark_activity_hash(u64 key)
+{
+	key ^= key >> 30;
+	key *= 0xBF58476D1CE4E5B9ull;
+	key ^= key >> 27;
+	key *= 0x94D049BB133111EBull;
+	key ^= key >> 31;
+	return (u32)key & (ACTIVITY_TRACKER_EDGE_CAPACITY - 1);
+}
+
+static BenchmarkHashStats benchmark_measure_activity_hash(BenchmarkTraceRange range, const Program *program, u64 *keys)
+{
+	BenchmarkHashStats result = {};
+	for (u64 index = range.first + 1; index < range.trace.index; ++index)
+	{
+		const NES_SchedulerBoundary *source = nes_scheduler_trace_at(range.trace, index - 1);
+		const NES_SchedulerBoundary *destination = nes_scheduler_trace_at(range.trace, index);
+		if (!nes_instruction_links_to_next(source->cpu_address, source->cpu_byte, destination->cpu_address)) continue;
+		u32 source_offset = 0;
+		u32 destination_offset = 0;
+		if (!benchmark_activity_storage_offset(program, source->cpu_mapped, &source_offset) ||
+			!benchmark_activity_storage_offset(program, destination->cpu_mapped, &destination_offset)) {
+			continue;
+		}
+
+		++result.lookups;
+		u64 key = benchmark_activity_edge_key(source_offset, destination_offset);
+		u32 slot = benchmark_activity_hash(key);
+		u32 probe_count = 0;
+		for (; probe_count < ACTIVITY_TRACKER_EDGE_CAPACITY; ++probe_count)
+		{
+			++result.probes;
+			if (!keys[slot])
+			{
+				keys[slot] = key;
+				++result.key_misses;
+				break;
+			}
+			if (keys[slot] == key) break;
+			++result.collision_misses;
+			slot = (slot + 1) & (ACTIVITY_TRACKER_EDGE_CAPACITY - 1);
+		}
+		result.maximum_probe_count = Max(result.maximum_probe_count, probe_count + 1);
+	}
+	return result;
+}
+
+static void benchmark_print_hash_stats(const char *name, BenchmarkHashStats stats)
+{
+	printf("%-24s %llu lookups, %llu new keys, %llu collision misses, %.3f probes/lookup, max %u\n",
+		name, stats.lookups, stats.key_misses, stats.collision_misses,
+		stats.lookups ? (f64)stats.probes / stats.lookups : 0.0, stats.maximum_probe_count);
+}
+
+static void benchmark_print_control_flow(BenchmarkTraceRange range)
+{
+	u32 counts[256] = {};
+	u32 total = 0;
+	for (u64 index = range.first; index + 1 < range.trace.index; ++index)
+	{
+		u8 opcode = nes_scheduler_trace_at(range.trace, index)->cpu_byte;
+		if (nes_instruction_is_control_flow(opcode))
+		{
+			++counts[opcode];
+			++total;
 		}
 	}
+	printf("%-24s %u instructions\n", "control flow", total);
+	for (u32 opcode = 0; opcode < ArrayCount(counts); ++opcode) {
+		if (counts[opcode]) printf("%-24s $%02X %-4s %u\n", "", opcode, nes_instruction_desc(opcode).name, counts[opcode]);
+	}
+}
+
+static void benchmark_scan_program(Debugger *debugger, BenchmarkTraceRange range)
+{
+	for (u64 index = range.first; index < range.trace.index; ++index) {
+		program_observe_execution(debugger, *nes_scheduler_trace_at(range.trace, index));
+	}
+}
+
+static void benchmark_scan_program_activity(Debugger *debugger, ActivityTracker *tracker, BenchmarkTraceRange range, const NES_MapAddr *breakpoints, u32 breakpoint_count, f64 now_seconds)
+{
+	u64 matches = 0;
+	const Program *program = debugger_program(debugger);
+	for (u64 index = range.first; index < range.trace.index; ++index)
+	{
+		NES_SchedulerBoundary boundary = *nes_scheduler_trace_at(range.trace, index);
+		program_observe_execution(debugger, boundary);
+		activity_tracker_observe_execution(tracker, program, boundary);
+		for (u32 breakpoint_index = 0; breakpoint_index < breakpoint_count; ++breakpoint_index) {
+			matches += boundary.cpu_mapped.device == breakpoints[breakpoint_index].device && boundary.cpu_mapped.address == breakpoints[breakpoint_index].address;
+		}
+	}
+	activity_tracker_update(tracker, now_seconds);
 	benchmark_boundary_sink += matches;
 }
 
@@ -188,25 +309,17 @@ int main(int argc, char **argv)
 	}
 
 	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) { .audio_sample_rate = 48000 });
-	NES_Emulator *boundary_core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.audio_sample_rate = 48000,
-		.enable_instruction_boundaries = true,
-	});
 	if (!nes_emulator_load_cartridge(core, cartridge))
 	{
 		fprintf(stderr, "unsupported ROM '%s'\n", argv[1]);
 		return 1;
 	}
-	Assert(nes_emulator_load_cartridge(boundary_core, cartridge));
 
-	for (u32 frame = 0; frame < BENCHMARK_WARMUP_FRAMES; ++frame)
-	{
+	for (u32 frame = 0; frame < BENCHMARK_WARMUP_FRAMES; ++frame) {
 		nes_emulator_run(core, NES_PPU_FRAME_CYCLES);
-		nes_emulator_run(boundary_core, NES_PPU_FRAME_CYCLES);
 	}
 
 	f64 *samples = arena_push(&arena, sizeof(*samples) * iterations);
-	f64 *boundary_samples = arena_push(&arena, sizeof(*boundary_samples) * iterations);
 	u64 full_snapshot_size = sizeof(core->core) + sizeof(core->video);
 	u8 *full_snapshot = arena_push(&arena, full_snapshot_size);
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
@@ -240,15 +353,9 @@ int main(int argc, char **argv)
 		nes_emulator_run(core, NES_PPU_FRAME_CYCLES);
 		samples[iteration] = seconds_now().seconds - begin.seconds;
 		frame_elapsed += samples[iteration];
-
-		begin = seconds_now();
-		nes_emulator_run(boundary_core, NES_PPU_FRAME_CYCLES);
-		boundary_samples[iteration] = seconds_now().seconds - begin.seconds;
 	}
 	BenchmarkStats frame_stats = benchmark_stats(samples, iterations);
-	BenchmarkStats boundary_stats = benchmark_stats(boundary_samples, iterations);
-	benchmark_print("frame, boundaries off", frame_stats);
-	benchmark_print("frame, boundaries on", boundary_stats);
+	benchmark_print("emulator frame", frame_stats);
 	NES_BusMetrics cpu_bus = {
 		.reads = core->cpu_bus_metrics.reads - cpu_bus_begin.reads,
 		.writes = core->cpu_bus_metrics.writes - cpu_bus_begin.writes,
@@ -259,39 +366,89 @@ int main(int argc, char **argv)
 	};
 	benchmark_print_bus("CPU bus", cpu_bus, iterations, frame_elapsed);
 	benchmark_print_bus("PPU bus", ppu_bus, iterations, frame_elapsed);
-	printf("%-24s median %+8.3f ms  %+6.2f%%\n", "boundary recording cost",
-		(boundary_stats.median - frame_stats.median) * 1000.0,
-		frame_stats.median > 0.f ? (boundary_stats.median / frame_stats.median - 1.0) * 100.0 : 0.0);
-	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(boundary_core);
-	u64 boundary_first = nes_scheduler_trace_first_since(boundaries, 0);
-	u32 boundary_count = (u32)(boundaries.index - boundary_first);
-	printf("%-24s %u retained events, %llu total\n", "", boundary_count, boundaries.index);
-	NES_ExecutionMapping *history = arena_push(&arena, sizeof(*history) * boundary_count);
+
+	u64 trace_first = nes_emulator_scheduler_trace(core).index;
+	nes_emulator_run(core, NES_PPU_FRAME_CYCLES);
+	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(core);
+	Assert(nes_scheduler_trace_first_since(trace, trace_first) == trace_first);
+	BenchmarkTraceRange range = { .trace = trace, .first = trace_first };
+	u32 trace_count = (u32)(trace.index - trace_first);
+	printf("%-24s %u events from one frame\n", "scheduler trace", trace_count);
+	benchmark_print_control_flow(range);
+
+	Debugger *analysis_debugger = debugger_create(&arena, 48000);
+	Assert(debugger_open_rom(analysis_debugger, byte_span((void *)file.text, file.size)));
+	u64 *activity_hash_keys = arena_push_zero(&arena, sizeof(*activity_hash_keys) * ACTIVITY_TRACKER_EDGE_CAPACITY);
+	BenchmarkHashStats cold_hash_stats = benchmark_measure_activity_hash(range, debugger_program(analysis_debugger), activity_hash_keys);
+	BenchmarkHashStats warm_hash_stats = benchmark_measure_activity_hash(range, debugger_program(analysis_debugger), activity_hash_keys);
+	benchmark_print_hash_stats("activity hash, cold", cold_hash_stats);
+	benchmark_print_hash_stats("activity hash, warm", warm_hash_stats);
+	ActivityTracker *tracker = arena_push_zero(&arena, sizeof(*tracker));
 	NES_MapAddr breakpoints[16] = {};
 	for (u32 index = 0; index < ArrayCount(breakpoints); ++index) {
 		breakpoints[index] = (NES_MapAddr) { NES_DEVICE_PRG_ROM, MAX_VALUE_U32 - index };
 	}
+
+	benchmark_scan_trace(range);
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
 	{
 		Seconds begin = seconds_now();
-		benchmark_scan_execution_history(boundaries, history);
+		benchmark_scan_trace(range);
 		samples[iteration] = seconds_now().seconds - begin.seconds;
 	}
-	benchmark_print("boundary history scan", benchmark_stats(samples, iterations));
+	BenchmarkStats traversal_stats = benchmark_stats(samples, iterations);
+	benchmark_print("trace traversal", traversal_stats);
+
+	benchmark_scan_program(analysis_debugger, range);
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
 	{
 		Seconds begin = seconds_now();
-		benchmark_scan_breakpoints(boundaries, breakpoints, 1);
+		benchmark_scan_program(analysis_debugger, range);
 		samples[iteration] = seconds_now().seconds - begin.seconds;
 	}
-	benchmark_print("breakpoint scan, 1", benchmark_stats(samples, iterations));
+	BenchmarkStats program_stats = benchmark_stats(samples, iterations);
+	benchmark_print("program observation", program_stats);
+	benchmark_print_delta("program cost", program_stats, traversal_stats);
+
+	activity_tracker_reset(tracker);
+	benchmark_scan_program_activity(analysis_debugger, tracker, range, breakpoints, 0, 1.0);
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
 	{
+		activity_tracker_discard_sequence(tracker);
 		Seconds begin = seconds_now();
-		benchmark_scan_breakpoints(boundaries, breakpoints, ArrayCount(breakpoints));
+		benchmark_scan_program_activity(analysis_debugger, tracker, range, breakpoints, 0, 1.0 + (f64)(iteration + 1) / 60.0);
 		samples[iteration] = seconds_now().seconds - begin.seconds;
 	}
-	benchmark_print("breakpoint scan, 16", benchmark_stats(samples, iterations));
+	BenchmarkStats activity_stats = benchmark_stats(samples, iterations);
+	benchmark_print("program + activity", activity_stats);
+	benchmark_print_delta("activity cost", activity_stats, program_stats);
+	printf("%-24s %u tracked edges\n", "", tracker->edge_count);
+
+	activity_tracker_reset(tracker);
+	benchmark_scan_program_activity(analysis_debugger, tracker, range, breakpoints, 1, 1.0);
+	for (u32 iteration = 0; iteration < iterations; ++iteration)
+	{
+		activity_tracker_discard_sequence(tracker);
+		Seconds begin = seconds_now();
+		benchmark_scan_program_activity(analysis_debugger, tracker, range, breakpoints, 1, 1.0 + (f64)(iteration + 1) / 60.0);
+		samples[iteration] = seconds_now().seconds - begin.seconds;
+	}
+	BenchmarkStats breakpoint_one_stats = benchmark_stats(samples, iterations);
+	benchmark_print("+ breakpoint, 1", breakpoint_one_stats);
+	benchmark_print_delta("breakpoint 1 cost", breakpoint_one_stats, activity_stats);
+
+	activity_tracker_reset(tracker);
+	benchmark_scan_program_activity(analysis_debugger, tracker, range, breakpoints, ArrayCount(breakpoints), 1.0);
+	for (u32 iteration = 0; iteration < iterations; ++iteration)
+	{
+		activity_tracker_discard_sequence(tracker);
+		Seconds begin = seconds_now();
+		benchmark_scan_program_activity(analysis_debugger, tracker, range, breakpoints, ArrayCount(breakpoints), 1.0 + (f64)(iteration + 1) / 60.0);
+		samples[iteration] = seconds_now().seconds - begin.seconds;
+	}
+	BenchmarkStats breakpoint_sixteen_stats = benchmark_stats(samples, iterations);
+	benchmark_print("+ breakpoint, 16", breakpoint_sixteen_stats);
+	benchmark_print_delta("breakpoint 16 cost", breakpoint_sixteen_stats, activity_stats);
 
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
 	{

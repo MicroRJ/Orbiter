@@ -57,4 +57,34 @@ static inline NES_InstructionDesc nes_instruction_desc(u32 opcode)
 	return nes_instruction_descs[opcode];
 }
 
+static inline b32 nes_instruction_is_control_flow_terminator(u32 opcode)
+{
+	switch ((NES_Opcode)opcode)
+	{
+		case BRK_IMP:
+		case JSR_ABS:
+		case RTI_IMP:
+		case JMP_ABS:
+		case RTS_IMP:
+		case JMP_IND: return true;
+		default: return false;
+	}
+}
+
+static inline b32 nes_instruction_is_control_flow(u32 opcode)
+{
+	return nes_instruction_desc(opcode).branch_taken_cycles || nes_instruction_is_control_flow_terminator(opcode);
+}
+
+static inline u16 nes_instruction_fallthrough(u16 cpu_address, u32 opcode)
+{
+	return (u16)(cpu_address + nes_instruction_desc(opcode).size);
+}
+
+static inline b32 nes_instruction_links_to_next(u16 cpu_address, u32 opcode, u16 next_cpu_address)
+{
+	NES_InstructionDesc desc = nes_instruction_desc(opcode);
+	return next_cpu_address != (u16)(cpu_address + desc.size) || desc.branch_taken_cycles || nes_instruction_is_control_flow_terminator(opcode);
+}
+
 #endif
