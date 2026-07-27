@@ -47,11 +47,13 @@ void prof_add_metric(Prof_Metric metric, i64 size) {
 }
 
 void prof_begin_scope(Prof_Scope *scope, String name) {
+	Assert(name.data);
+	Assert(name.size);
 	if (scope->id == 0) {
 		Assert(Prof.id < ArrayCount(prof_frame()->fields));
 		scope->id = ++ Prof.id;
 	}
-	prof_frame()->nfields = Max(prof_frame()->nfields, scope->id - 1);
+	prof_frame()->nfields = Max(prof_frame()->nfields, scope->id);
 	prof_frame()->fields[scope->id - 1].freq ++;
 	prof_frame()->fields[scope->id - 1].name = name;
 	prof_frame()->fields[scope->id - 1].time.seconds -= prof_seconds_now();

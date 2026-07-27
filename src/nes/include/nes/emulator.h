@@ -59,6 +59,13 @@ typedef struct
 }
 NES_PPUSprite;
 
+enum
+{
+	NES_PPU_EVENT_NONE  = 0,
+	NES_PPU_EVENT_NMI   = 1 << 0,
+	NES_PPU_EVENT_FRAME = 1 << 1,
+};
+
 typedef struct
 {
 	u16           xtick;

@@ -5,13 +5,6 @@
 #include "../ppu/ppu.h"
 #include "../apu/apu.h"
 
-static inline void nes_scheduler_run_ppu(NES_Emulator *core) {
-	u32 events = nes_ppu_step(core);
-	if (events & NES_PPU_EVENT_NMI) {
-		nes_cpu_nmi(core);
-	}
-}
-
 // If the CPU's /IRQ input is 0 at the end of an instruction, then the CPU pushes the program counter
 // and the processor status register, sets the I flag to ignore further IRQs, and the Program Counter
 // takes the value read at $fffe and $ffff.
@@ -24,13 +17,15 @@ static inline u32 nes_scheduler_cpu_step(NES_Emulator *core)
 	return nes_cpu_step(core);
 }
 
+// Todo, we may want to average the samples ...
 static u32 nes_scheduler_step_internal(NES_Emulator *core, f32 *samples, u64 capacity, u64 *sample_count)
 {
 	u32 cpu_cycles = nes_scheduler_cpu_step(core);
 	for (u32 cycle = 0; cycle < cpu_cycles; ++cycle)
 	{
 		for (u32 ppu_cycle = 0; ppu_cycle < 3; ++ppu_cycle) {
-			nes_scheduler_run_ppu(core);
+			u32 events = nes_ppu_step(core);
+			if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(core);
 		}
 		nes_apu_clock_cpu_cycle(&core->core.apu);
 		core->core.audio_sample_phase += core->audio_sample_rate;
@@ -44,6 +39,7 @@ static u32 nes_scheduler_step_internal(NES_Emulator *core, f32 *samples, u64 cap
 			}
 		}
 	}
+	prof_add_metric(PROF_METRIC_CPU_CYCLES, cpu_cycles);
 	core->scheduler_clock ++;
 	return cpu_cycles;
 }

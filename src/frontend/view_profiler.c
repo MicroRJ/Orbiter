@@ -1,4 +1,8 @@
+#include "ui_widgets.h"
 #include "views.h"
+
+static const u64 PROFILER_TIMING_SCROLLBAR_ID = 0x50524F4654494D45ull;
+static const u64 PROFILER_METRIC_SCROLLBAR_ID = 0x50524F464D455452ull;
 
 typedef struct
 {
@@ -118,50 +122,72 @@ static Color_SRGBA profiler_color_for_frame_pct(const UI_Theme *theme, Color_SRG
 	return color_srgba_mix(low, theme->palette.error, amount);
 }
 
-static void profiler_set_header(UI_Table *table, u32 column, String text)
+static void profiler_table_cell(UI_BoxTable *table, UI_TextStyle style, String sizing_text, String text, f32 align)
 {
-	UI_TextStyle style = table->ui->theme.code;
-	style.color = table->ui->theme.text_neutral;
-	ui_table_set_text(table, 0, column, style, text);
+	ui_box_table_cell_begin(table);
+	UI_BoxDesc desc = ui_box_desc();
+	desc.perp_align = align;
+	if (sizing_text.size) ui_text_box_sized_string_desc(table->builder, 1, desc, style, sizing_text, text);
+	else ui_text_box_string_desc(table->builder, 1, desc, style, text);
+	ui_box_table_cell_end(table);
 }
 
-static void profiler_draw_time_table(ViewFrameData *frame, rect_f32 rect, const Prof_Frame *snapshot, f32 row_height)
+static UI_Box *profiler_build_time_table(UI_BoxBuilder *builder, const Prof_Frame *snapshot, f32 row_height)
 {
-	UI_Context *ui = frame->ui;
+	UI_Context *ui = builder->ui;
+	UI_TextStyle header_style = ui->theme.code;
+	header_style.color = ui->theme.text_neutral;
 	UI_TextStyle value_style = ui->theme.code;
 	value_style.color = ui->theme.text_subtle;
 	f64 frame_seconds = snapshot->time.seconds;
-	u32 visible_count = Min(snapshot->nfields, (u32)Max(0.f, floorf(rect.h / row_height) - 1.f));
-	UI_Table table = ui_table_begin(ui, frame->scratch, rect, visible_count + 1, 5, row_height);
-	ui_table_set_column(&table, 0, ui_table_column_flex(1.f));
-	ui_table_set_column(&table, 1, ui_table_column_content());
-	ui_table_set_column(&table, 2, ui_table_column_content());
-	ui_table_set_column(&table, 3, ui_table_column_content());
-	ui_table_set_column(&table, 4, ui_table_column_content());
-	profiler_set_header(&table, 0, LIT("SCOPE"));
-	profiler_set_header(&table, 1, LIT("MS"));
-	profiler_set_header(&table, 2, LIT("FRAME %"));
-	profiler_set_header(&table, 3, LIT("CALLS"));
-	profiler_set_header(&table, 4, LIT("US/CALL"));
+	UI_BoxTableColumn columns[] = {
+		ui_box_table_flex(1.f),
+		ui_box_table_content(),
+		ui_box_table_content(),
+		ui_box_table_content(),
+		ui_box_table_content(),
+	};
+	ui_push(builder);
+	ui_size(builder, AXIS_X, ui_box_fill(1.f));
+	ui_size(builder, AXIS_Y, ui_box_fill(1.f));
+	ui_overflow(builder, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(builder, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
+	UI_BoxTable table = ui_box_table_begin(builder, 1, LIT("profiler timing table"), (UI_BoxTableDesc) {
+		.columns = columns,
+		.column_count = ArrayCount(columns),
+		.row_height = row_height,
+		.column_gap = 8.f,
+		.cell_padd = v2(2.f, 2.f),
+	});
+	ui_pop(builder);
 
-	for (u32 index = 0; index < visible_count; ++index)
+	ui_box_table_row_begin(&table, 1);
+	profiler_table_cell(&table, header_style, (String) {}, LIT("SCOPE"), 0.f);
+	profiler_table_cell(&table, header_style, LIT("999.999"), LIT("MS"), 1.f);
+	profiler_table_cell(&table, header_style, LIT("100.0"), LIT("FRAME %"), 1.f);
+	profiler_table_cell(&table, header_style, LIT("999999"), LIT("CALLS"), 1.f);
+	profiler_table_cell(&table, header_style, LIT("99999.99"), LIT("US/CALL"), 1.f);
+	ui_box_table_row_end(&table);
+
+	for (u32 index = 0; index < snapshot->nfields; ++index)
 	{
 		const Prof_Field *field = &snapshot->fields[index];
-		u32 row = index + 1;
 		f64 frame_pct = frame_seconds > 0.0 ? field->time.seconds / frame_seconds : 0.0;
 		f64 microseconds_per_call = field->freq ? field->time.seconds * 1000000.0 / field->freq : 0.0;
 		UI_TextStyle row_style = value_style;
 		row_style.color = profiler_color_for_frame_pct(&ui->theme, value_style.color, frame_pct);
-		ui_table_set_text(&table, row, 0, row_style, field->name);
-		ui_table_set_text(&table, row, 1, row_style, push_formatted(frame->scratch, "%.3f", field->time.seconds * 1000.0));
-		ui_table_set_text(&table, row, 2, row_style, push_formatted(frame->scratch, "%.1f", frame_pct * 100.0));
-		ui_table_set_text(&table, row, 3, row_style, push_formatted(frame->scratch, "%u", field->freq));
-		ui_table_set_text(&table, row, 4, row_style, push_formatted(frame->scratch, "%.2f", microseconds_per_call));
+		ui_box_table_row_begin(&table, index + 2);
+		profiler_table_cell(&table, row_style, (String) {}, field->name, 0.f);
+		profiler_table_cell(&table, row_style, LIT("999.999"), push_formatted(builder->arena, "%.3f", field->time.seconds * 1000.0), 1.f);
+		profiler_table_cell(&table, row_style, LIT("100.0"), push_formatted(builder->arena, "%.1f", frame_pct * 100.0), 1.f);
+		profiler_table_cell(&table, row_style, LIT("999999"), push_formatted(builder->arena, "%u", field->freq), 1.f);
+		profiler_table_cell(&table, row_style, LIT("99999.99"), push_formatted(builder->arena, "%.2f", microseconds_per_call), 1.f);
+		ui_box_table_row_end(&table);
 	}
-	ui_table_draw(&table);
+	return ui_box_table_end(&table);
 }
 
-static void profiler_draw_metric_table(ViewFrameData *frame, rect_f32 rect, const Prof_Frame *snapshot, f32 row_height)
+static UI_Box *profiler_build_metric_table(UI_BoxBuilder *builder, const Prof_Frame *snapshot, f32 row_height)
 {
 	static const String metric_names[] = {
 #define XPAND(name, text) LIT(text),
@@ -170,21 +196,66 @@ static void profiler_draw_metric_table(ViewFrameData *frame, rect_f32 rect, cons
 	};
 	STATIC_ASSERT(ArrayCount(metric_names) == PROF_METRIC_COUNT_);
 
-	UI_Context *ui = frame->ui;
+	UI_Context *ui = builder->ui;
+	UI_TextStyle header_style = ui->theme.code;
+	header_style.color = ui->theme.text_neutral;
 	UI_TextStyle value_style = ui->theme.code;
 	value_style.color = ui->theme.text_subtle;
-	u32 visible_count = Min((u32)PROF_METRIC_COUNT_, (u32)Max(0.f, floorf(rect.h / row_height) - 1.f));
-	UI_Table table = ui_table_begin(ui, frame->scratch, rect, visible_count + 1, 2, row_height);
-	ui_table_set_column(&table, 0, ui_table_column_flex(1.f));
-	ui_table_set_column(&table, 1, ui_table_column_content());
-	profiler_set_header(&table, 0, LIT("METRIC"));
-	profiler_set_header(&table, 1, LIT("VALUE"));
-	for (u32 index = 0; index < visible_count; ++index)
+	UI_BoxTableColumn columns[] = {
+		ui_box_table_flex(1.f),
+		ui_box_table_content(),
+	};
+	ui_push(builder);
+	ui_size(builder, AXIS_X, ui_box_fill(1.f));
+	ui_size(builder, AXIS_Y, ui_box_fill(1.f));
+	ui_overflow(builder, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(builder, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
+	UI_BoxTable table = ui_box_table_begin(builder, 2, LIT("profiler metric table"), (UI_BoxTableDesc) {
+		.columns = columns,
+		.column_count = ArrayCount(columns),
+		.row_height = row_height,
+		.column_gap = 8.f,
+		.cell_padd = v2(2.f, 2.f),
+	});
+	ui_pop(builder);
+
+	ui_box_table_row_begin(&table, 1);
+	profiler_table_cell(&table, header_style, (String) {}, LIT("METRIC"), 0.f);
+	profiler_table_cell(&table, header_style, LIT("9999999999"), LIT("VALUE"), 1.f);
+	ui_box_table_row_end(&table);
+
+	for (u32 index = 0; index < PROF_METRIC_COUNT_; ++index)
 	{
-		ui_table_set_text(&table, index + 1, 0, value_style, metric_names[index]);
-		ui_table_set_text(&table, index + 1, 1, value_style, push_formatted(frame->scratch, "%lld", snapshot->metrics.fields[index]));
+		ui_box_table_row_begin(&table, index + 2);
+		profiler_table_cell(&table, value_style, (String) {}, metric_names[index], 0.f);
+		profiler_table_cell(&table, value_style, LIT("9999999999"), push_formatted(builder->arena, "%lld", snapshot->metrics.fields[index]), 1.f);
+		ui_box_table_row_end(&table);
 	}
-	ui_table_draw(&table);
+	return ui_box_table_end(&table);
+}
+
+static void profiler_scroll_table(ViewFrameData *frame, UI_Box *table, f32 *scroll, u64 scrollbar_key)
+{
+	*scroll = table->scroll_offset.y;
+	if (rect_f32_contains(table->viewport, frame->ui->mouse) && frame->ui->window->mouse_wheel.y) {
+		*scroll = CLAMP(*scroll - frame->ui->window->mouse_wheel.y * 48.f, table->scroll_min.y, table->scroll_max.y);
+	}
+	rect_f32 track = {
+		.x = table->viewport.x + table->viewport.w,
+		.y = table->viewport.y,
+		.w = 12.f,
+		.h = table->viewport.h,
+	};
+	f32 laid_out_scroll = table->scroll_offset.y;
+	ui_push_layer(frame->ui, UI_LAYER_HEADER);
+	ui_scrollbar(frame->ui, ui_id_child(table->id, scrollbar_key), track, table->viewport.h, scroll, table->content_size.y);
+	ui_pop_layer(frame->ui);
+	if (fabsf(*scroll - laid_out_scroll) > 0.001f)
+	{
+		table->scroll_offset.y = *scroll;
+		ui_box_relayout(table);
+		*scroll = table->scroll_offset.y;
+	}
 }
 
 static void profiler_view_content(ViewFrameData *frame)
@@ -200,11 +271,28 @@ static void profiler_view_content(ViewFrameData *frame)
 	selection_style.color = ui->theme.text_neutral;
 	ui_draw_text(ui, selection, selection_style, push_formatted(frame->scratch, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
 
-	f32 gap = 12.f;
-	rect_f32 timing = rect_f32_slice(&layout, AXIS_X, (layout.w - gap) * 0.5f);
-	rect_f32_slice(&layout, AXIS_X, gap);
-	profiler_draw_time_table(frame, timing, snapshot, row_height);
-	profiler_draw_metric_table(frame, layout, snapshot, row_height);
+	Assert(frame->draw_box_tree);
+	UI_BoxBuilder builder;
+	UI_BoxDesc root_desc = ui_box_desc();
+	root_desc.axis = AXIS_X;
+	root_desc.size[AXIS_X] = ui_box_fill(1.f);
+	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
+	root_desc.gap = 12.f;
+	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
+	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+	UI_Box *root = ui_box_builder_begin(&builder, frame->scratch, ui, frame->view->id, LIT("profiler tables"), root_desc);
+	UI_Box *timing_table = profiler_build_time_table(&builder, snapshot, row_height);
+	UI_Box *metric_table = profiler_build_metric_table(&builder, snapshot, row_height);
+	ui_box_builder_end(&builder);
+
+	ProfilerViewState *state = &frame->view->profiler;
+	timing_table->scroll_offset.y = state->timing_scroll;
+	metric_table->scroll_offset.y = state->metric_scroll;
+	ui_box_measure(root, (UI_BoxConstraints) { .min = layout.size, .max = layout.size });
+	ui_box_layout(root, layout);
+	profiler_scroll_table(frame, timing_table, &state->timing_scroll, PROFILER_TIMING_SCROLLBAR_ID);
+	profiler_scroll_table(frame, metric_table, &state->metric_scroll, PROFILER_METRIC_SCROLLBAR_ID);
+	frame->draw_box_tree(root);
 }
 
 void profiler_view_frame(ViewFrameData *frame)

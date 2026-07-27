@@ -391,7 +391,10 @@ u32 nes_ppu_step(NES_Emulator *core)
 	{
 		core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS & 0x1F);
 	}
-	if (scanline == 261 && dot == 340) events |= NES_PPU_EVENT_FRAME;
+	if (scanline == 261 && dot == 340) {
+		prof_add_metric(PROF_METRIC_PPU_VBLANKS, 1);
+		events |= NES_PPU_EVENT_FRAME;
+	}
 
 	b32 visible_scanline   = scanline < 240;
 	b32 prerender_scanline = scanline == 261;

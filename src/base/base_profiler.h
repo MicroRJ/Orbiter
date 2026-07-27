@@ -1,20 +1,23 @@
 
 #define PROF_METRICS_XDEF(_) \
-_(METRIC_STACK_PUSH_CALLS        ,           "stack_push_calls" ) \
-_(METRIC_STACK_ALIGN_CALLS       ,          "stack_align_calls" ) \
-_(METRIC_STACK_PUSH_SIZE         ,            "stack_push_size" ) \
-_(METRIC_HASH_TABLE_MISSES       ,          "hash_table_misses" ) \
-_(METRIC_HASH_TABLE_LOOKUPS      ,         "hash_table_lookups" ) \
-_(METRIC_HASH_FUNC_CALLS         ,            "hash_func_calls" ) \
-_(METRIC_HASH_BYTES              ,            "hash_bytes"      ) \
-_(METRIC_BUILD_TEXT_RUN_CALLS    ,       "build_text_run_calls" ) \
-_(METRIC_COPY_MEMORY_CALLS       ,       "copy_memory_calls"     ) \
-_(METRIC_COPY_MEMORY_SIZE        ,       "copy_memory_size"      ) \
-_(METRIC_ZERO_MEMORY_CALLS       ,       "zero_memory_calls"     ) \
-_(METRIC_ZERO_MEMORY_SIZE        ,       "zero_memory_size"      ) \
-_(METRIC_FILL_MEMORY_CALLS       ,       "fill_memory_calls"    ) \
-_(METRIC_FILL_MEMORY_SIZE        ,       "fill_memory_size"     ) \
+_(METRIC_STACK_PUSH_CALLS        ,           "stack_push_calls"   ) \
+_(METRIC_STACK_ALIGN_CALLS       ,          "stack_align_calls"   ) \
+_(METRIC_STACK_PUSH_SIZE         ,            "stack_push_size"   ) \
+_(METRIC_HASH_TABLE_MISSES       ,          "hash_table_misses"   ) \
+_(METRIC_HASH_TABLE_LOOKUPS      ,         "hash_table_lookups"   ) \
+_(METRIC_HASH_FUNC_CALLS         ,            "hash_func_calls"   ) \
+_(METRIC_HASH_BYTES              ,            "hash_bytes"        ) \
+_(METRIC_BUILD_TEXT_RUN_CALLS    ,       "build_text_run_calls"   ) \
+_(METRIC_COPY_MEMORY_CALLS       ,       "copy_memory_calls"      ) \
+_(METRIC_COPY_MEMORY_SIZE        ,       "copy_memory_size"       ) \
+_(METRIC_ZERO_MEMORY_CALLS       ,       "zero_memory_calls"      ) \
+_(METRIC_ZERO_MEMORY_SIZE        ,       "zero_memory_size"       ) \
+_(METRIC_FILL_MEMORY_CALLS       ,       "fill_memory_calls"      ) \
+_(METRIC_FILL_MEMORY_SIZE        ,       "fill_memory_size"       ) \
 _(METRIC_AUDIO_SAMPLES_GENERATED ,      "audio_samples_generated" ) \
+_(METRIC_CPU_CYCLES              ,                   "cpu_cycles" ) \
+_(METRIC_PPU_SCANLINES           ,                   "ppu_cycles" ) \
+_(METRIC_PPU_VBLANKS             ,                  "ppu_vblanks" ) \
 /* end */
 
 typedef enum

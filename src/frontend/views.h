@@ -56,6 +56,8 @@ typedef struct
 {
 	i64 right_frame_index;
 	f32 frame_stride;
+	f32 timing_scroll;
+	f32 metric_scroll;
 	b32 following;
 	b32 initialized;
 }
