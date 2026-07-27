@@ -232,7 +232,7 @@ void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map)
 
 NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core)
 {
-	return (NES_SchedulerTraceView) { .trace = core->scheduler_trace, .index = core->scheduler_trace_index };
+	return (NES_SchedulerTraceView) { .trace = core->scheduler_trace, .index = core->scheduler_trace_index, .scheduler_clock = core->scheduler_clock };
 }
 
 void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value)

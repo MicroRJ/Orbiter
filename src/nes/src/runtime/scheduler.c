@@ -25,12 +25,12 @@ static inline u32 nes_scheduler_cpu_step(NES_Emulator *core)
 	if (1) {
 		NES_BusAccess access = nes_cpu_bus_peek_mapped(core, cpu->PC);
 		u64 trace_index = core->scheduler_trace_index;
-		core->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = (NES_SchedulerBoundary) {
+		core->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_SchedulerBoundary) {
 			.scheduler_clock = core->scheduler_clock,
 			.cpu_address = cpu->PC,
 			.cpu_mapped = access.mapped,
 			.cpu_byte = access.value,
-		};
+		});
 		core->scheduler_trace_index = trace_index + 1;
 	}
 	return nes_cpu_step(core);

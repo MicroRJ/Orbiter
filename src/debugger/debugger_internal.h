@@ -54,7 +54,8 @@ struct Debugger
 	u64 snapshot_count;
 	u64 snapshot_cursor;
 	Program program;
-	ActivityTracker activity_tracker;
+	ExecutionGraph execution_graph;
+	ExecutionPathState execution_path;
 	CPU_MappingSnapshot cpu_mapping;
 	NES_MapAddr program_breakpoints[DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY];
 	u32 program_breakpoint_count;
@@ -63,6 +64,7 @@ struct Debugger
 	b32 breakpoint_resume_pending;
 	b32 warned_missing_cartridge;
 	u64 personal_scheduler_trace_index;
+	u64 personal_scheduler_trace_clock;
 };
 
 #endif

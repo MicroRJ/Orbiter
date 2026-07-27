@@ -272,8 +272,8 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	Debugger *debugger = frame->debugger;
 	UI_Context *ui = frame->ui;
 	PRGActivityViewState *state = &frame->view->prg_activity;
-	const ActivityTracker *tracker = debugger_activity_tracker(debugger);
-	Assert(tracker);
+	Assert(frame->execution_graph);
+	Assert(frame->execution_activity);
 	if (!state->cell_size) {
 		state->cell_size = PRG_ACTIVITY_DEFAULT_CELL_SIZE;
 	}
@@ -361,22 +361,21 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	}
 	if (grid.cell_extent >= 1.f)
 	{
-		ActivityEdge *edges = arena_push(frame->scratch, sizeof(*edges) * ACTIVITY_TRACKER_SAMPLE_CAPACITY);
-		u32 sampled_edge_count = activity_tracker_sample(tracker, cell_size, edges, ACTIVITY_TRACKER_SAMPLE_CAPACITY);
+		ExecutionActivitySample *edges = arena_push(frame->scratch, sizeof(*edges) * EXECUTION_ACTIVITY_SAMPLE_CAPACITY);
+		u32 sampled_edge_count = execution_activity_sample(frame->execution_activity, frame->execution_graph, cell_size, edges, EXECUTION_ACTIVITY_SAMPLE_CAPACITY);
 		for (u32 index = 0; index < sampled_edge_count; ++index)
 		{
-			ActivityEdge *edge = &edges[index];
+			ExecutionActivitySample *edge = &edges[index];
 			u32 source_cell = edge->source_offset / cell_size;
 			u32 destination_cell = edge->destination_offset / cell_size;
-			f32 intensity = edge->activity;
-			if (source_cell >= cell_count || destination_cell >= cell_count || source_cell == destination_cell || intensity < ACTIVITY_TRACKER_DEAD_INTENSITY) {
+			f32 intensity = edge->intensity;
+			if (source_cell >= cell_count || destination_cell >= cell_count || source_cell == destination_cell || intensity <= 0.f) {
 				continue;
 			}
 			Color_SRGBA residual_color = prg_activity_edge_color(&ui->theme, edge->source_offset, edge->destination_offset);
 			residual_color.a = intensity;
 			f32 thickness = Max(1.f, Min(3.f, grid.cell_extent * (0.12f + intensity * 0.18f)));
-			f32 spike = CLAMP((intensity - ACTIVITY_TRACKER_SUSTAIN_INTENSITY) / (1.f - ACTIVITY_TRACKER_SUSTAIN_INTENSITY), 0.f, 1.f);
-			f32 emission = ui->theme.palette.emission_high * spike * 5.f;
+			f32 emission = ui->theme.palette.emission_high * intensity * 5.f;
 			ui_push_emission(ui, emission);
 			prg_activity_draw_edge(ui, &grid, source_cell, destination_cell, thickness, residual_color);
 			ui_pop_emission(ui);

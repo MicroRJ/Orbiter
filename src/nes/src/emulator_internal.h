@@ -24,7 +24,7 @@ struct NES_Emulator
 	NES_BusMetrics        ppu_bus_metrics;
 	u64                   scheduler_trace_index;
 	u8                    video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
-	NES_SchedulerBoundary scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
+	NES_SchedulerTraceEntry scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
 };
 
 void nes_record_instruction_boundary(NES_Emulator *core, u16 cpu_address);

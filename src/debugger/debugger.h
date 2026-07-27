@@ -4,7 +4,7 @@
 #include "base.h"
 #include "nes/emulator.h"
 #include "program.h"
-#include "activity_tracker.h"
+#include "execution_graph.h"
 
 typedef struct Debugger Debugger;
 
@@ -50,7 +50,7 @@ void debugger_capture_video(const Debugger *debugger, u8 *pixels, u32 stride);
 void debugger_capture_chr_map(const Debugger *debugger, NES_CHRMap *map);
 u32 debugger_prg_rom_size(const Debugger *debugger);
 const Program *debugger_program(const Debugger *debugger);
-const ActivityTracker *debugger_activity_tracker(const Debugger *debugger);
+const ExecutionGraph *debugger_execution_graph(const Debugger *debugger);
 
 u32 debugger_cpu_peek(Debugger *debugger, u16 address, NES_MapAddr *mapped);
 u32 debugger_cpu_peek_word(Debugger *debugger, u16 address);

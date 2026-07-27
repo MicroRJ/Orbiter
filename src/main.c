@@ -8,6 +8,7 @@
 #include "ui_box.h"
 #include "ui_widgets.h"
 #include "views.h"
+#include "execution_activity.h"
 #include "gif_recorder.h"
 #include "os.h"
 
@@ -87,6 +88,7 @@ typedef struct
 	Arena arena;
 	Arena frame_arena;
 	Debugger *debugger;
+	ExecutionActivity execution_activity;
 	FrontendPublication published;
 	GFX_Texture *video_texture;
 	GFX_Texture *crt_scanline_texture;
@@ -1424,6 +1426,8 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 	AppShell shell = app_build_shell(window_rect);
 	ViewFrameData frame = {
 		.debugger = app.debugger,
+		.execution_graph = debugger_execution_graph(app.debugger),
+		.execution_activity = &app.execution_activity,
 		.publication = &app.published,
 		.video_texture = app.video_texture,
 		.chr_texture = app.chr_texture,
@@ -1535,6 +1539,7 @@ static void app_frame(void)
 			PROF_BLOCK("snapshot")               debugger_capture_frame(app.debugger);
 			PROF_BLOCK("program refinement")     debugger_refine(app.debugger, refinement_budget);
 			PROF_BLOCK("drain audio")            app_drain_audio();
+			PROF_BLOCK("execution activity")     execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
 
 			PROF_BLOCK("application")            app_publish();
 			PROF_BLOCK("application draw")       app_draw();

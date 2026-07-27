@@ -317,10 +317,63 @@ NES_SchedulerBoundary;
 
 typedef struct
 {
-	const NES_SchedulerBoundary *trace;
-	u64                          index;
+	u64 bits;
+}
+NES_SchedulerTraceEntry;
+
+STATIC_ASSERT(sizeof(NES_SchedulerTraceEntry) == 8);
+
+enum
+{
+	NES_SCHEDULER_TRACE_CLOCK_SHIFT         = 0,
+	NES_SCHEDULER_TRACE_CPU_ADDRESS_SHIFT   = 16,
+	NES_SCHEDULER_TRACE_CPU_BYTE_SHIFT      = 32,
+	NES_SCHEDULER_TRACE_MAPPED_DEVICE_SHIFT = 40,
+	NES_SCHEDULER_TRACE_MAPPED_OFFSET_SHIFT = 44,
+	NES_SCHEDULER_TRACE_MAPPED_DEVICE_MASK  = 0xF,
+	NES_SCHEDULER_TRACE_MAPPED_OFFSET_MASK  = (1 << 20) - 1,
+};
+
+STATIC_ASSERT(NES_DEVICE_COUNT - 1 <= NES_SCHEDULER_TRACE_MAPPED_DEVICE_MASK);
+STATIC_ASSERT(NES_MAX_PRG_ROM_SIZE - 1 <= NES_SCHEDULER_TRACE_MAPPED_OFFSET_MASK);
+STATIC_ASSERT(NES_MAX_PRG_RAM_SIZE - 1 <= NES_SCHEDULER_TRACE_MAPPED_OFFSET_MASK);
+STATIC_ASSERT(sizeof(NES_SchedulerTraceEntry) * NES_SCHEDULER_TRACE_CAPACITY_POW2 == KiB(512));
+
+static __forceinline NES_SchedulerTraceEntry nes_scheduler_trace_pack(NES_SchedulerBoundary boundary)
+{
+	Assert((u32)boundary.cpu_mapped.device <= NES_SCHEDULER_TRACE_MAPPED_DEVICE_MASK);
+	Assert(boundary.cpu_mapped.offset <= NES_SCHEDULER_TRACE_MAPPED_OFFSET_MASK);
+	return (NES_SchedulerTraceEntry) {
+		.bits =
+			((boundary.scheduler_clock & MAX_VALUE_U16) << NES_SCHEDULER_TRACE_CLOCK_SHIFT) |
+			((u64)boundary.cpu_address << NES_SCHEDULER_TRACE_CPU_ADDRESS_SHIFT) |
+			((u64)boundary.cpu_byte << NES_SCHEDULER_TRACE_CPU_BYTE_SHIFT) |
+			((u64)boundary.cpu_mapped.device << NES_SCHEDULER_TRACE_MAPPED_DEVICE_SHIFT) |
+			((u64)boundary.cpu_mapped.offset << NES_SCHEDULER_TRACE_MAPPED_OFFSET_SHIFT),
+	};
+}
+
+typedef struct
+{
+	const NES_SchedulerTraceEntry *trace;
+	u64                            index;
+	u64                            scheduler_clock;
 }
 NES_SchedulerTraceView;
+
+typedef struct
+{
+	const NES_SchedulerTraceEntry *entries;
+	u32 count;
+}
+NES_SchedulerTraceSpan;
+
+typedef struct
+{
+	NES_SchedulerTraceSpan spans[2];
+	u64 dropped;
+}
+NES_SchedulerTraceSpans;
 
 static inline u64 nes_scheduler_trace_first_since(NES_SchedulerTraceView view, u64 since)
 {
@@ -334,11 +387,56 @@ static inline u64 nes_scheduler_trace_dropped_since(NES_SchedulerTraceView view,
 	return nes_scheduler_trace_first_since(view, since) - since;
 }
 
-static inline const NES_SchedulerBoundary *nes_scheduler_trace_at(NES_SchedulerTraceView view, u64 index)
+static inline NES_SchedulerTraceSpans nes_scheduler_trace_spans_since(NES_SchedulerTraceView view, u64 since)
+{
+	u64 first = nes_scheduler_trace_first_since(view, since);
+	u64 count = view.index - first;
+	Assert(count <= NES_SCHEDULER_TRACE_CAPACITY_POW2);
+	u32 first_slot = (u32)first & NES_SCHEDULER_TRACE_CAPACITY_MASK;
+	u32 first_count = (u32)Min(count, NES_SCHEDULER_TRACE_CAPACITY_POW2 - first_slot);
+	return (NES_SchedulerTraceSpans) {
+		.spans = {
+			{ .entries = view.trace + first_slot, .count = first_count },
+			{ .entries = view.trace, .count = (u32)count - first_count },
+		},
+		.dropped = first - since,
+	};
+}
+
+static __forceinline b32 nes_scheduler_trace_clock_reconstructable_since(NES_SchedulerTraceView view, u64 scheduler_clock)
+{
+	return scheduler_clock <= view.scheduler_clock && view.scheduler_clock - scheduler_clock <= MAX_VALUE_U16;
+}
+
+static __forceinline const NES_SchedulerTraceEntry *nes_scheduler_trace_entry_at(NES_SchedulerTraceView view, u64 index)
 {
 	u64 oldest = view.index > NES_SCHEDULER_TRACE_CAPACITY_POW2 ? view.index - NES_SCHEDULER_TRACE_CAPACITY_POW2 : 0;
 	Assert(index >= oldest && index < view.index);
 	return &view.trace[index & NES_SCHEDULER_TRACE_CAPACITY_MASK];
+}
+
+static __forceinline NES_SchedulerBoundary nes_scheduler_trace_decode(NES_SchedulerTraceView view, NES_SchedulerTraceEntry entry)
+{
+	u64 scheduler_clock = (view.scheduler_clock & ~(u64)MAX_VALUE_U16) | (u16)(entry.bits >> NES_SCHEDULER_TRACE_CLOCK_SHIFT);
+	if (scheduler_clock > view.scheduler_clock)
+	{
+		Assert(scheduler_clock >= (u64)MAX_VALUE_U16 + 1);
+		scheduler_clock -= (u64)MAX_VALUE_U16 + 1;
+	}
+	return (NES_SchedulerBoundary) {
+		.scheduler_clock = scheduler_clock,
+		.cpu_address = (u16)(entry.bits >> NES_SCHEDULER_TRACE_CPU_ADDRESS_SHIFT),
+		.cpu_mapped = {
+			.device = (NES_DeviceId)((entry.bits >> NES_SCHEDULER_TRACE_MAPPED_DEVICE_SHIFT) & NES_SCHEDULER_TRACE_MAPPED_DEVICE_MASK),
+			.offset = (u32)((entry.bits >> NES_SCHEDULER_TRACE_MAPPED_OFFSET_SHIFT) & NES_SCHEDULER_TRACE_MAPPED_OFFSET_MASK),
+		},
+		.cpu_byte = (u8)(entry.bits >> NES_SCHEDULER_TRACE_CPU_BYTE_SHIFT),
+	};
+}
+
+static __forceinline NES_SchedulerBoundary nes_scheduler_trace_at(NES_SchedulerTraceView view, u64 index)
+{
+	return nes_scheduler_trace_decode(view, *nes_scheduler_trace_entry_at(view, index));
 }
 
 NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core);

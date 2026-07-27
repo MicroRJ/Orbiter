@@ -76,8 +76,10 @@ Debugger *debugger_create(Arena *arena, u32 audio_sample_rate)
 
 static void debugger_discard_scheduler_trace(Debugger *debugger)
 {
-	debugger->personal_scheduler_trace_index = nes_emulator_scheduler_trace(debugger->emulator).index;
-	activity_tracker_discard_sequence(&debugger->activity_tracker);
+	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
+	debugger->personal_scheduler_trace_index = trace.index;
+	debugger->personal_scheduler_trace_clock = trace.scheduler_clock;
+	execution_path_discard(&debugger->execution_path);
 }
 
 static b32 debugger_map_address_equal(NES_MapAddr a, NES_MapAddr b)
@@ -91,10 +93,12 @@ static void debugger_process_scheduler_trace_(Debugger *debugger)
 	debugger->breakpoint_hit = false;
 
 	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
-	u64 first = nes_scheduler_trace_first_since(trace, debugger->personal_scheduler_trace_index);
-	u64 dropped = first - debugger->personal_scheduler_trace_index;
-	if (dropped) LOG_WARN("instruction trace dropped %llu events", dropped);
+	NES_SchedulerTraceSpans trace_spans = nes_scheduler_trace_spans_since(trace, debugger->personal_scheduler_trace_index);
+	if (trace_spans.dropped) LOG_WARN("instruction trace dropped %llu events", trace_spans.dropped);
+	b32 clock_reconstructable = nes_scheduler_trace_clock_reconstructable_since(trace, debugger->personal_scheduler_trace_clock);
+	if (!clock_reconstructable && debugger->program_breakpoint_count) LOG_WARN("instruction trace exceeded the 16-bit breakpoint clock window");
 	debugger->personal_scheduler_trace_index = trace.index;
+	debugger->personal_scheduler_trace_clock = trace.scheduler_clock;
 
 	b32 skip_resume = false;
 	if (debugger->program_breakpoint_count)
@@ -104,38 +108,41 @@ static void debugger_process_scheduler_trace_(Debugger *debugger)
 	}
 
 	b32 found_expired_breakpoint = false;
-	for (u64 index = first; index < trace.index; index ++)
+	for (u32 span_index = 0; span_index < ArrayCount(trace_spans.spans); ++span_index)
 	{
-		NES_SchedulerBoundary boundary = *nes_scheduler_trace_at(trace, index);
-		program_observe_execution(debugger, boundary);
-		activity_tracker_observe_execution(&debugger->activity_tracker, &debugger->program, boundary);
-
-		for (u32 breakpoint_index = 0; breakpoint_index < debugger->program_breakpoint_count; breakpoint_index++)
+		NES_SchedulerTraceSpan span = trace_spans.spans[span_index];
+		const NES_SchedulerTraceEntry *end = span.entries + span.count;
+		for (const NES_SchedulerTraceEntry *entry = span.entries; entry < end; ++entry)
 		{
-			if (!debugger_map_address_equal(boundary.cpu_mapped, debugger->program_breakpoints[breakpoint_index])) continue;
-			if (skip_resume && debugger_map_address_equal(boundary.cpu_mapped, debugger->breakpoint_hit_address))
+			NES_SchedulerBoundary boundary = nes_scheduler_trace_decode(trace, *entry);
+			program_observe_execution(debugger, boundary);
+			execution_graph_observe_execution(&debugger->execution_graph, &debugger->execution_path, &debugger->program, boundary);
+
+			if (!clock_reconstructable) continue;
+			for (u32 breakpoint_index = 0; breakpoint_index < debugger->program_breakpoint_count; breakpoint_index++)
 			{
-				skip_resume = false;
-				continue;
+				if (!debugger_map_address_equal(boundary.cpu_mapped, debugger->program_breakpoints[breakpoint_index])) continue;
+				if (skip_resume && debugger_map_address_equal(boundary.cpu_mapped, debugger->breakpoint_hit_address))
+				{
+					skip_resume = false;
+					continue;
+				}
+				if (!debugger_restore_runtime_snapshot(debugger, &debugger->breakpoint_snapshot))
+				{
+					found_expired_breakpoint = true;
+					continue;
+				}
+				while (debugger_scheduler_clock(debugger) < boundary.scheduler_clock) {
+					nes_emulator_step(debugger->emulator);
+				}
+				debugger_discard_scheduler_trace(debugger);
+				debugger->breakpoint_hit_address = boundary.cpu_mapped;
+				debugger->breakpoint_hit = true;
+				debugger->breakpoint_resume_pending = true;
+				return;
 			}
-			if (!debugger_restore_runtime_snapshot(debugger, &debugger->breakpoint_snapshot))
-			{
-				found_expired_breakpoint = true;
-				continue;
-			}
-			while (debugger_scheduler_clock(debugger) < boundary.scheduler_clock) {
-				nes_emulator_step(debugger->emulator);
-			}
-			debugger->personal_scheduler_trace_index = nes_emulator_scheduler_trace(debugger->emulator).index;
-			activity_tracker_discard_sequence(&debugger->activity_tracker);
-			debugger->breakpoint_hit_address = boundary.cpu_mapped;
-			debugger->breakpoint_hit = true;
-			debugger->breakpoint_resume_pending = true;
-			activity_tracker_update(&debugger->activity_tracker, seconds_now().seconds);
-			return;
 		}
 	}
-	activity_tracker_update(&debugger->activity_tracker, seconds_now().seconds);
 	if (found_expired_breakpoint) {
 		LOG_WARN("could not restore the runtime snapshot for a program breakpoint");
 	}
@@ -217,7 +224,7 @@ b32 debugger_reset(Debugger *debugger)
 	}
 	nes_emulator_reset(debugger->emulator);
 	debugger_discard_scheduler_trace(debugger);
-	activity_tracker_reset(&debugger->activity_tracker);
+	execution_graph_reset(&debugger->execution_graph);
 	program_reset(debugger);
 	debugger_clear_snapshots(debugger);
 	debugger_capture_frame(debugger);
@@ -237,7 +244,7 @@ b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 	{
 		debugger->warned_missing_cartridge = false;
 		debugger_discard_scheduler_trace(debugger);
-		activity_tracker_reset(&debugger->activity_tracker);
+		execution_graph_reset(&debugger->execution_graph);
 		program_reset(debugger);
 		debugger_clear_snapshots(debugger);
 		debugger_capture_frame(debugger);
@@ -276,7 +283,7 @@ b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 	{
 		debugger->warned_missing_cartridge = false;
 		debugger_discard_scheduler_trace(debugger);
-		activity_tracker_reset(&debugger->activity_tracker);
+		execution_graph_reset(&debugger->execution_graph);
 		program_reset(debugger);
 		debugger_clear_snapshots(debugger);
 		debugger_capture_frame(debugger);
@@ -468,7 +475,7 @@ const Program *debugger_program(const Debugger *debugger)
 	return &debugger->program;
 }
 
-const ActivityTracker *debugger_activity_tracker(const Debugger *debugger)
+const ExecutionGraph *debugger_execution_graph(const Debugger *debugger)
 {
-	return &debugger->activity_tracker;
+	return &debugger->execution_graph;
 }

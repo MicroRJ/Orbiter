@@ -2,7 +2,7 @@
 #define FRONTEND_VIEWS_H
 
 #include "debugger.h"
-#include "activity_tracker.h"
+#include "execution_activity.h"
 #include "graphics.h"
 #include "os_graphical.h"
 #include "ui.h"
@@ -136,6 +136,8 @@ typedef struct
 
 	// The application prepares shared publication resources once per frame.
 	const FrontendPublication *publication;
+	const ExecutionGraph *execution_graph;
+	const ExecutionActivity *execution_activity;
 	GFX_Texture *video_texture;
 	GFX_Texture *chr_texture;
 }

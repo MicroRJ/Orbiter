@@ -11,7 +11,7 @@ static const char *test_names[] =
 	"nes_mapper_test",
 	"nes_apu_test",
 	"nes_audio_test",
-	"activity_tracker_test",
+	"execution_graph_test",
 };
 
 #define TEST_COUNT (sizeof(test_names) / sizeof(test_names[0]))

@@ -75,6 +75,23 @@ stuff for read / write.
 
 A) Has the compiler already done this? B) is this insignificant? C) or all of the above?
 
+Do not get clever and pack the mapped device and address into one integer
+without evidence that it helps.
+
+The public read / write / peek / map functions pass a constant access kind
+into the private, statically visible bus access function. Once that function
+is inlined, we expect the compiler to scalarize the access structure,
+propagate the constant kind, and remove the irrelevant branches. Keeping the
+device and address as explicit fields makes that optimization transparent.
+Packing them would instead require masks and shifts at their uses, and it
+would not remove the indirect mapper call.
+
+Before changing the representation, build optimized and inspect the generated
+assembly for the public bus functions. If the shared function was not inlined,
+try force-inline, inspect the assembly again, and benchmark it. Packing should
+only be reconsidered if measurement shows a storage/cache benefit large enough
+to pay for the encoding and loss of clarity.
+
 
 For 1,000 Frames:
 Zelda: 28,015 CPU reads + 373 writes/frame; 103,914 PPU reads/frame; 3.343 ms median.
