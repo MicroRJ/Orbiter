@@ -126,6 +126,14 @@ static void prg_activity_draw_edge(UI_Context *ui, const PRGActivityGrid *grid, 
 	prg_activity_draw_segment(ui, bend, destination, thickness, color);
 }
 
+static vec2i rectangle_dimensions_from_area(u32 area)
+{
+	u32 i, y;
+	for (y = i = 1; i <= area / i; ++ i) if ((area % i) == 0) y = i;
+	vec2i dimen = { y, area / y };
+	return dimen;
+}
+
 static PRGActivityGrid prg_activity_grid(rect_f32 available, u32 rom_size, u32 ram_size, u32 bank_size, u32 cell_size)
 {
 	PRGActivityGrid best = {};

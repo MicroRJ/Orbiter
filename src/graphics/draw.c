@@ -10,6 +10,20 @@ enum
 	DRAW_CLIP_STACK_CAPACITY = 64,
 };
 
+typedef struct
+{
+	u32 breaks;
+	u32 pass_ends;
+	u32 texture;
+	u32 scissor;
+	u32 sampler;
+	u32 blender;
+	u32 shader;
+	u32 texture_mode;
+	u32 shader_block;
+}
+Draw_BatchMetrics;
+
 struct Draw_Context
 {
 	GFX_Renderer *renderer;
@@ -35,6 +49,7 @@ struct Draw_Context
 	rect_i32 clip;
 	rect_i32 clip_stack[DRAW_CLIP_STACK_CAPACITY];
 	u32 clip_depth;
+	Draw_BatchMetrics batch_metrics;
 	b32 frame_active;
 	b32 pass_active;
 };
@@ -81,6 +96,15 @@ static void draw__set_batch_desc(Draw_Context *draw, GFX_BatchDesc desc)
 		return;
 	}
 
+	GFX_BatchDesc previous = draw->active_batch;
+	draw->batch_metrics.breaks++;
+	draw->batch_metrics.texture += previous.texture != desc.texture;
+	draw->batch_metrics.scissor += !rect_i32_equal(previous.scissor, desc.scissor);
+	draw->batch_metrics.sampler += previous.sampler != desc.sampler;
+	draw->batch_metrics.blender += previous.blender != desc.blender;
+	draw->batch_metrics.shader += previous.shader != desc.shader;
+	draw->batch_metrics.texture_mode += previous.texture_mode != desc.texture_mode;
+	draw->batch_metrics.shader_block += !memory_match(&previous.shader_block, &desc.shader_block, sizeof(desc.shader_block));
 	draw__flush_batch(draw);
 	draw->active_batch = desc;
 }
@@ -196,6 +220,7 @@ void gfx_begin_frame(Draw_Context *draw)
 	draw->instances = arena_base(&draw->instance_arena);
 	draw->instance_count = 0;
 	draw->active_batch_offset = 0;
+	draw->batch_metrics = (Draw_BatchMetrics) { 0 };
 	draw->frame_active = true;
 }
 
@@ -226,6 +251,7 @@ void gfx_end_pass(Draw_Context *draw)
 	Assert(draw);
 	Assert(draw->pass_active);
 	Assert(draw->clip_depth == 0);
+	draw->batch_metrics.pass_ends += draw->instance_count != draw->active_batch_offset;
 	draw__flush_batch(draw);
 	GFX_Pass *pass = arena_push_aligned(&draw->pass_arena, sizeof(*pass), 1);
 	*pass = (GFX_Pass) {
@@ -251,6 +277,20 @@ void gfx_end_frame(Draw_Context *draw)
 		.instances = draw->instances,
 		.instances_size = draw->instance_count * sizeof(*draw->instances),
 	};
+	prof_add_metric(PROF_METRIC_DRAW_PASSES, draw->pass_count);
+	prof_add_metric(PROF_METRIC_DRAW_BATCHES, draw->batch_count);
+	prof_add_metric(PROF_METRIC_DRAW_CALLS, draw->batch_count);
+	prof_add_metric(PROF_METRIC_DRAW_INSTANCES, draw->instance_count);
+	prof_add_metric(PROF_METRIC_DRAW_INSTANCE_BYTES, data.instances_size);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_BREAKS, draw->batch_metrics.breaks);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_PASS_ENDS, draw->batch_metrics.pass_ends);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_TEXTURE, draw->batch_metrics.texture);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_SCISSOR, draw->batch_metrics.scissor);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_SAMPLER, draw->batch_metrics.sampler);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_BLENDER, draw->batch_metrics.blender);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_SHADER, draw->batch_metrics.shader);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_TEXTURE_MODE, draw->batch_metrics.texture_mode);
+	prof_add_metric(PROF_METRIC_DRAW_BATCH_SHADER_BLOCK, draw->batch_metrics.shader_block);
 	PROF_BLOCK("renderer submit") r_draw(draw->renderer, data);
 	draw->frame_active = false;
 }
@@ -287,7 +327,8 @@ void draw_pop_clip(Draw_Context *draw)
 void draw_rect(Draw_Context *draw, Draw_RectParams params)
 {
 	GFX_Texture *texture = draw->active_batch.texture ? draw->active_batch.texture : r_get_fallback_texture(draw->renderer);
-	GFX_BatchDesc desc = draw__batch_desc(draw, texture, GRAPHICS_SAMPLER_LINEAR, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
+	GFX_Sampler sampler = draw->active_batch.sampler ? draw->active_batch.sampler : GRAPHICS_SAMPLER_LINEAR;
+	GFX_BatchDesc desc = draw__batch_desc(draw, texture, sampler, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
 	GFX_RectInst instance = {
 		.dst = params.rect,

@@ -1263,8 +1263,10 @@ static Color_SRGBA app_emission_color(Color_SRGBA color, f32 emission)
 static void app_draw_ui_layer(UI_LayerKind layer_kind, GFX_Texture *backdrop_texture, b32 emission_only)
 {
 	const UI_Layer *layer = &ui_frame(app.ui)->layers[layer_kind];
-	for (UI_DrawCommand *command = layer->first; command; command = command->next)
+	u32 replay_count = 0;
+	PROF_BLOCK("ui layer playback") for (UI_DrawCommand *command = layer->first; command; command = command->next)
 	{
+		replay_count++;
 		if (emission_only && command->emission <= 0.f) {
 			continue;
 		}
@@ -1336,10 +1338,12 @@ static void app_draw_ui_layer(UI_LayerKind layer_kind, GFX_Texture *backdrop_tex
 			draw_pop_clip(app.draw);
 		}
 	}
+	prof_add_metric(PROF_METRIC_UI_COMMAND_REPLAYS, replay_count);
 }
 
 static GFX_Texture *app_blur_backdrop(GFX_Texture *frame_texture)
 {
+	prof_add_metric(PROF_METRIC_UI_BACKDROP_BLURS, 1);
 	gfx_begin_pass(app.draw, (GFX_PassDesc) {
 		.output = app.blur_horizontal_texture,
 	});
@@ -1376,6 +1380,7 @@ static void app_draw_ui_bloom(UI_LayerKind layer_kind, GFX_Texture *frame_textur
 	if (!ui_frame(app.ui)->layers[layer_kind].has_emission) {
 		return;
 	}
+	prof_add_metric(PROF_METRIC_UI_BLOOM_LAYERS, 1);
 
 	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = app.bloom_texture, .clear = true, .clear_color = COLOR_TRANSPARENT });
 	app_draw_ui_layer(layer_kind, 0, true);
@@ -1449,7 +1454,7 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 	app_draw_shell(shell);
 	gfx_end_pass(app.draw);
 
-	app_compose_ui_layers(frame_texture, window_rect);
+	PROF_BLOCK("ui composition") app_compose_ui_layers(frame_texture, window_rect);
 }
 
 static void app_draw(void)

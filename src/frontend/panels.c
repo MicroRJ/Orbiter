@@ -24,6 +24,12 @@ static const char *view_type_names[VIEW_COUNT] = {
 	[VIEW_CHR_MAP] = "chr_map",
 };
 
+static UI_Id panel_ui_id(const Panel *panel, u64 key)
+{
+	UI_Id namespace = ui_id_child(UI_ID_NONE, 0x50414E454C535953ull);
+	return ui_id_child(ui_id_child(namespace, panel->id), key);
+}
+
 static void layout_push_formatted(Arena *arena, const char *format, ...)
 {
 	va_list arguments;
@@ -399,7 +405,7 @@ static void panel_update_interaction(Panels *panels, OS_Window *window, UI_Conte
 	rect_f32 second;
 	rect_f32 handle;
 	panel_split_rects(panel, rect, &first, &second, &handle);
-	UI_Id resize_id = ui_id_child(ui_id_child(UI_ID_NONE, panel->id), 1);
+	UI_Id resize_id = panel_ui_id(panel, 1);
 	UI_Response response = ui_interact(ui, resize_id, handle);
 	if (response.hovered || response.held)
 	{
@@ -456,7 +462,7 @@ static void panel_draw(Panels *panels, Panel *panel, ViewFrameData *source, rect
 
 			rect_f32 line = rect_f32_from_slice(second, panel->axis, 2.f);
 			line = rect_f32_translate_axis(line, panel->axis, -1.f);
-			ui_draw_splitter(ui, line, ui_id_child(ui_id_child(UI_ID_NONE, panel->id), 1));
+			ui_draw_splitter(ui, line, panel_ui_id(panel, 1));
 		}
 		break;
 	}

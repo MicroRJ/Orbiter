@@ -56,6 +56,8 @@ Text_Layout text_layout(Arena *arena, Text_Context *text, Font_Handle font, i32 
 	Assert(text);
 	Assert(font);
 	Assert(size > 0);
+	prof_add_metric(PROF_METRIC_TEXT_LAYOUT_CALLS, 1);
+	prof_add_metric(PROF_METRIC_TEXT_LAYOUT_BYTES, string.size);
 	TTF_FontMetrics font_metrics = ttf_font_metrics(font, size);
 	Text_Layout result = {
 		.glyphs = string.size ? arena_push_zero(arena, sizeof(*result.glyphs) * string.size) : 0,

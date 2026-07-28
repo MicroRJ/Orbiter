@@ -407,6 +407,14 @@ static void ui_box__clip_axis(rect_f32 *clip, rect_f32 viewport, AXIS axis)
 	clip->wh[axis] = Max(0.f, maximum - minimum);
 }
 
+static rect_f32 ui_box__child_clip(UI_Box *box, rect_f32 clip)
+{
+	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++) {
+		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_VISIBLE && box->content_size.xy[axis] > box->viewport.wh[axis] + 0.001f) ui_box__clip_axis(&clip, box->viewport, axis);
+	}
+	return clip;
+}
+
 static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip);
 
 static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 one_past_item)
@@ -439,7 +447,7 @@ static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 on
 	box->virtual_list.one_past_item = one_past_item;
 }
 
-static void ui_box__layout_virtual_list(UI_Box *box, rect_f32 child_clip)
+static void ui_box__layout_virtual_list(UI_Box *box, rect_f32 clip)
 {
 	AXIS main_axis = box->desc.axis;
 	AXIS perp_axis = !main_axis;
@@ -469,6 +477,7 @@ static void ui_box__layout_virtual_list(UI_Box *box, rect_f32 child_clip)
 			box->scroll_offset.xy[axis] = ui_box__clamp(box->scroll_offset.xy[axis], box->scroll_min.xy[axis], box->scroll_max.xy[axis]);
 		}
 	}
+	rect_f32 child_clip = ui_box__child_clip(box, clip);
 
 	u32 first_item = 0;
 	u32 one_past_item = 0;
@@ -524,19 +533,15 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		box->ops->prepare_layout(box);
 	}
 
-	rect_f32 child_clip = clip;
 	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
 	{
-		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_VISIBLE) {
-			ui_box__clip_axis(&child_clip, box->viewport, axis);
-		}
 		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_SCROLL) {
 			box->scroll_offset.xy[axis] = 0.f;
 		}
 	}
 	if (box->virtual_list.build_item)
 	{
-		ui_box__layout_virtual_list(box, child_clip);
+		ui_box__layout_virtual_list(box, clip);
 		return;
 	}
 	if (!box->child_count) {
@@ -586,6 +591,7 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 			box->scroll_offset.xy[axis] = ui_box__clamp(box->scroll_offset.xy[axis], box->scroll_min.xy[axis], box->scroll_max.xy[axis]);
 		}
 	}
+	rect_f32 child_clip = ui_box__child_clip(box, clip);
 
 	f32 cursor = box->viewport.xy[main_axis] - box->scroll_offset.xy[main_axis];
 	for (u32 child_index = 0; child_index < box->child_count; child_index ++)

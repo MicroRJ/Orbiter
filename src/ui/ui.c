@@ -13,10 +13,25 @@ static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer, UI_D
 		sizeof(*command));
 	command->kind = kind;
 	command->emission = ui->emission;
+	prof_add_metric(PROF_METRIC_UI_COMMANDS, 1);
+	prof_add_metric(PROF_METRIC_UI_COMMAND_BYTES, sizeof(*command));
+	switch (kind)
+	{
+		case UI_DRAW_COMMAND_RECT:         prof_add_metric(PROF_METRIC_UI_RECT_COMMANDS, 1); break;
+		case UI_DRAW_COMMAND_IMAGE:        prof_add_metric(PROF_METRIC_UI_IMAGE_COMMANDS, 1); break;
+		case UI_DRAW_COMMAND_TEXT:         prof_add_metric(PROF_METRIC_UI_TEXT_COMMANDS, 1); break;
+		case UI_DRAW_COMMAND_INSET_SHADOW:
+		case UI_DRAW_COMMAND_BACKDROP:     prof_add_metric(PROF_METRIC_UI_EFFECT_COMMANDS, 1); break;
+		default: Assert(!"invalid UI draw command");
+	}
+	if (command->emission > 0.f) {
+		prof_add_metric(PROF_METRIC_UI_EMISSIVE_COMMANDS, 1);
+	}
 	if (inherit_clip && ui->clip_stack_count && !ui->unclipped_scope_count)
 	{
 		command->has_clip = true;
 		command->clip = ui->clip_stack[ui->clip_stack_count - 1];
+		prof_add_metric(PROF_METRIC_UI_CLIPPED_COMMANDS, 1);
 	}
 	UI_Layer *command_layer = &ui->frame.layers[layer];
 	command_layer->has_emission |= command->emission > 0.f;
@@ -320,7 +335,7 @@ vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text)
 {
 	vec2 result;
 	ARENA_SCOPE(&ui->frame_arena) {
-		result = text_layout(&ui->frame_arena, ui->text, style.font, style.size, text).metrics.dim;
+		PROF_BLOCK("ui text measure") result = text_layout(&ui->frame_arena, ui->text, style.font, style.size, text).metrics.dim;
 	}
 	return result;
 }

@@ -33,10 +33,12 @@ static void ui_box__paint_text(UI_Box *box)
 	vec2 text_size = ui_measure_text(box->ui, text->style, text->string);
 	vec2 remaining = v2(Max(0.f, box->viewport.w - text_size.x), Max(0.f, box->viewport.h - text_size.y));
 	vec2 position = v2_add(box->viewport.pos, v2_mul(remaining, text->style.align));
+	rect_f32 text_rect = { .pos = position, .size = text_size };
+	b32 clip_to_viewport = text_rect.x < box->viewport.x || text_rect.y < box->viewport.y || text_rect.x + text_rect.w > box->viewport.x + box->viewport.w || text_rect.y + text_rect.h > box->viewport.y + box->viewport.h;
 	ui_push_clip(box->ui, box->clip_rect);
-	ui_push_clip(box->ui, box->viewport);
-	ui_draw_text(box->ui, (rect_f32) { .pos = position, .size = text_size }, text->style, text->string);
-	ui_pop_clip(box->ui);
+	if (clip_to_viewport) ui_push_clip(box->ui, box->viewport);
+	ui_draw_text(box->ui, text_rect, text->style, text->string);
+	if (clip_to_viewport) ui_pop_clip(box->ui);
 	ui_pop_clip(box->ui);
 }
 

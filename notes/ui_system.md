@@ -1,5 +1,7 @@
 ## UI system
 
+----
+
 Our current UI system is pretty much a combination of immediate mode draw calls and some helper
 functions.
 
@@ -12,7 +14,7 @@ To layout things in a somewhat sensible and dynamic manner, you need to have som
 of deffered structure that you can analyze.
 
 And to persist information from one frame to another, you need to have some sort of temporal
-cache based off of that thing's unique identity across time.
+cache, based off of that thing's unique identity across time.
 
 The problem is creating a system that:
 	A) Is fully dynamic
@@ -89,4 +91,5 @@ Here are the things I want:
 	   For instance, I want to be able to set a child's weight, so that it takes up space
 	   relative to the other weighted children around it.
 	   I want to be able to specify the resistance to shrinking when not enough space.
+
 
