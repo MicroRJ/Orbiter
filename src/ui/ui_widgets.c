@@ -59,8 +59,8 @@ void ui_box_paint(UI_Box *box)
 	ui_push_clip(ui, box->clip_rect);
 	if (paint->flags & UI_BOX_DRAW_BACKGROUND)
 	{
-		UI_DrawCommand *command = ui_draw_rect(ui, box->rect, paint->background);
-		command->rect.roundness = paint->roundness;
+		Draw_Command *command = ui_draw_rect(ui, box->rect, paint->background);
+		command->rect.corner_radii = (Draw_CornerRadii) { paint->roundness, paint->roundness, paint->roundness, paint->roundness };
 		command->rect.edge_softness = paint->edge_softness;
 	}
 	if (paint->flags & UI_BOX_DRAW_BORDER && paint->border_width > 0.f) {

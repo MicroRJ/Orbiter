@@ -12,51 +12,14 @@ enum
 };
 STATIC_ASSERT((UI_BOX_STATE_SLOT_COUNT & (UI_BOX_STATE_SLOT_COUNT - 1)) == 0);
 
-static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer, UI_DrawCommandKind kind, b32 inherit_clip)
+Draw_Command *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
 {
 	Assert(ui);
-	Assert(layer >= 0 && layer < UI_LAYER_COUNT);
-	UI_DrawCommand *command = arena_push_zero(&ui->frame_arena, sizeof(*command));
-	command->kind = kind;
-	command->emission = ui->emission;
-	prof_add_metric(PROF_METRIC_UI_COMMANDS, 1);
-	prof_add_metric(PROF_METRIC_UI_COMMAND_BYTES, sizeof(*command));
-	switch (kind)
-	{
-		case UI_DRAW_COMMAND_RECT:         prof_add_metric(PROF_METRIC_UI_RECT_COMMANDS, 1); break;
-		case UI_DRAW_COMMAND_IMAGE:        prof_add_metric(PROF_METRIC_UI_IMAGE_COMMANDS, 1); break;
-		case UI_DRAW_COMMAND_TEXT:         prof_add_metric(PROF_METRIC_UI_TEXT_COMMANDS, 1); break;
-		case UI_DRAW_COMMAND_INSET_SHADOW:
-		case UI_DRAW_COMMAND_BACKDROP:     prof_add_metric(PROF_METRIC_UI_EFFECT_COMMANDS, 1); break;
-		default: Assert(!"invalid UI draw command");
-	}
-	if (command->emission > 0.f) {
-		prof_add_metric(PROF_METRIC_UI_EMISSIVE_COMMANDS, 1);
-	}
-	if (inherit_clip && ui->clip_stack_count && !ui->unclipped_scope_count)
-	{
-		command->has_clip = true;
-		command->clip = ui->clip_stack[ui->clip_stack_count - 1];
-		prof_add_metric(PROF_METRIC_UI_CLIPPED_COMMANDS, 1);
-	}
-	UI_Layer *command_layer = &ui->frame.layers[layer];
-	command_layer->has_emission |= command->emission > 0.f;
-	if (command_layer->last) {
-		command_layer->last->next = command;
-	} else {
-		command_layer->first = command;
-	}
-	command_layer->last = command;
-	command_layer->command_count += 1;
-	return command;
-}
-
-UI_DrawCommand *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
-{
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer, UI_DRAW_COMMAND_RECT, true);
-	command->rect.rect = rect;
-	command->rect.color = color;
-	return command;
+	Assert(ui->draw);
+	return draw_list_rect(ui->draw, (Draw_RectParams) {
+		.rect = rect,
+		.color = color,
+	});
 }
 
 void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SRGBA color)
@@ -69,29 +32,29 @@ void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SR
 
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength)
 {
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer, UI_DRAW_COMMAND_INSET_SHADOW, true);
-	command->inset_shadow.rect = rect;
-	command->inset_shadow.strength = strength;
-}
-
-static void ui__draw_backdrop(UI_Context *ui, UI_LayerKind layer, rect_f32 rect)
-{
-	UI_DrawCommand *command = ui__push_command(ui, layer, UI_DRAW_COMMAND_BACKDROP, false);
-	command->backdrop.rect = rect;
-	command->backdrop.corner_radius = 5.f;
-	command->backdrop.distortion = 10.f;
-	command->backdrop.distortion_width = 15.f;
-	command->backdrop.saturation = 1.12f;
-	command->backdrop.tint = color_with_alpha(ui->theme.palette.overlay, 0.20f);
-	command->backdrop.grain = 0.002f;
-	command->backdrop.highlight = 0.055f;
-	command->backdrop.shadow = 0.005f;
-	ui->frame.layers[layer].has_backdrops = true;
+	Assert(ui);
+	Assert(ui->draw);
+	draw_list_inset_shadow(ui->draw, (Draw_InsetShadowParams) {
+		.rect = rect,
+		.strength = strength,
+	});
 }
 
 void ui_draw_backdrop(UI_Context *ui, rect_f32 rect)
 {
-	ui__draw_backdrop(ui, ui->layer, rect);
+	Assert(ui);
+	Assert(ui->draw);
+	draw_list_backdrop(ui->draw, (Draw_BackdropParams) {
+		.rect = rect,
+		.corner_radius = 5.f,
+		.distortion = 10.f,
+		.distortion_width = 15.f,
+		.saturation = 1.12f,
+		.tint = color_with_alpha(ui->theme.palette.overlay, 0.20f),
+		.grain = 0.002f,
+		.highlight = 0.055f,
+		.shadow = 0.005f,
+	});
 }
 
 UI_Palette ui_default_palette(void)
@@ -146,7 +109,7 @@ UI_Theme ui_default_theme(Font_Handle code_font)
 }
 
 UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
-	UI_Theme theme)
+	Draw_Context *draw, UI_Theme theme)
 {
 	Assert(owner);
 	Assert(window);
@@ -155,6 +118,7 @@ UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
 	ui->owner = owner;
 	ui->window = window;
 	ui->text = text;
+	ui->draw = draw;
 	ui->frame_arena = arena_create(0, "UI frame arena");
 	ui->theme = theme;
 	ui->box_state_slot_count = UI_BOX_STATE_SLOT_COUNT;
@@ -187,13 +151,6 @@ void ui_begin_frame(UI_Context *ui)
 		ui_invalidate_layout(ui);
 	}
 	arena_reset(&ui->frame_arena);
-	ui->frame = (UI_Frame) { 0 };
-	ui->layer = UI_LAYER_CONTENT;
-	ui->layer_stack_count = 0;
-	ui->clip_stack_count = 0;
-	ui->unclipped_scope_count = 0;
-	ui->emission = 0.f;
-	ui->emission_stack_count = 0;
 	ui->mouse = v2_from_v2i(ui->window->mouse_position);
 	ui->hot = UI_ID_NONE;
 }
@@ -257,10 +214,6 @@ void ui_end_frame(UI_Context *ui)
 {
 	Assert(ui);
 	Assert(!ui->builder);
-	Assert(ui->layer_stack_count == 0);
-	Assert(ui->clip_stack_count == 0);
-	Assert(ui->unclipped_scope_count == 0);
-	Assert(ui->emission_stack_count == 0);
 	if (!(ui->window->keys[OS_Key_MouseLeft] & OS_KEY_DOWN))
 	{
 		ui->active = UI_ID_NONE;
@@ -288,26 +241,18 @@ void ui_end_frame(UI_Context *ui)
 	}
 }
 
-const UI_Frame *ui_frame(const UI_Context *ui)
+void ui_push_layer(UI_Context *ui, Draw_LayerKind layer)
 {
 	Assert(ui);
-	return &ui->frame;
-}
-
-void ui_push_layer(UI_Context *ui, UI_LayerKind layer)
-{
-	Assert(ui);
-	Assert(layer >= 0 && layer < UI_LAYER_COUNT);
-	Assert(ui->layer_stack_count < ArrayCount(ui->layer_stack));
-	ui->layer_stack[ui->layer_stack_count++] = ui->layer;
-	ui->layer = layer;
+	Assert(ui->draw);
+	draw_list_push_layer(ui->draw, layer);
 }
 
 void ui_pop_layer(UI_Context *ui)
 {
 	Assert(ui);
-	Assert(ui->layer_stack_count > 0);
-	ui->layer = ui->layer_stack[--ui->layer_stack_count];
+	Assert(ui->draw);
+	draw_list_pop_layer(ui->draw);
 }
 
 UI_Id ui_id_from_ptr(const void *pointer)
@@ -397,49 +342,43 @@ UI_Response ui_signal_from_box(UI_Box *box)
 void ui_push_clip(UI_Context *ui, rect_f32 rect)
 {
 	Assert(ui);
-	Assert(ui->clip_stack_count < ArrayCount(ui->clip_stack));
-	if (ui->clip_stack_count)
-	{
-		rect_i32 parent = rect_i32_from_f32( ui->clip_stack[ui->clip_stack_count - 1]);
-		rect_i32 child = rect_i32_from_f32(rect);
-		rect = rect_f32_from_i32(rect_i32_intersect(parent, child));
-	}
-	ui->clip_stack[ui->clip_stack_count++] = rect;
+	Assert(ui->draw);
+	draw_list_push_clip(ui->draw, rect);
 }
 
 void ui_pop_clip(UI_Context *ui)
 {
 	Assert(ui);
-	Assert(ui->clip_stack_count > 0);
-	ui->clip_stack_count -= 1;
+	Assert(ui->draw);
+	draw_list_pop_clip(ui->draw);
 }
 
 void ui_push_unclipped(UI_Context *ui)
 {
 	Assert(ui);
-	ui->unclipped_scope_count += 1;
+	Assert(ui->draw);
+	draw_list_push_unclipped(ui->draw);
 }
 
 void ui_pop_unclipped(UI_Context *ui)
 {
 	Assert(ui);
-	Assert(ui->unclipped_scope_count > 0);
-	ui->unclipped_scope_count -= 1;
+	Assert(ui->draw);
+	draw_list_pop_unclipped(ui->draw);
 }
 
 void ui_push_emission(UI_Context *ui, f32 emission)
 {
 	Assert(ui);
-	Assert(ui->emission_stack_count < ArrayCount(ui->emission_stack));
-	ui->emission_stack[ui->emission_stack_count++] = ui->emission;
-	ui->emission = emission;
+	Assert(ui->draw);
+	draw_list_push_emission(ui->draw, emission);
 }
 
 void ui_pop_emission(UI_Context *ui)
 {
 	Assert(ui);
-	Assert(ui->emission_stack_count > 0);
-	ui->emission = ui->emission_stack[--ui->emission_stack_count];
+	Assert(ui->draw);
+	draw_list_pop_emission(ui->draw);
 }
 
 void ui_draw_panel(UI_Context *ui, rect_f32 rect, b32 focused)
@@ -455,11 +394,11 @@ void ui_draw_splitter(UI_Context *ui, rect_f32 rect, UI_Id id)
 	ui_draw_rect(ui, rect, ui->theme.slider_track);
 }
 
-void ui_draw_image(UI_Context *ui, UI_ImageParams params)
+void ui_draw_image(UI_Context *ui, Draw_TextureParams params)
 {
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer,
-		UI_DRAW_COMMAND_IMAGE, true);
-	command->image.params = params;
+	Assert(ui);
+	Assert(ui->draw);
+	draw_list_image(ui->draw, params);
 }
 
 vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text)
@@ -480,12 +419,13 @@ vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text
 	{
 		Text_Layout layout = text_layout(&ui->frame_arena, ui->text,
 			style.font, style.size, text);
-		UI_DrawCommand *command = ui__push_command(ui, ui->layer,
-			UI_DRAW_COMMAND_TEXT, true);
-		command->text.run = text_make_draw_run(&ui->frame_arena, &layout);
-		command->text.position = v2(rect.x, rect.y);
-		command->text.color = style.color;
-		size = command->text.run.dim;
+		Draw_TextParams params = {
+			.run = text_make_draw_run(&ui->frame_arena, &layout),
+			.position = v2(rect.x, rect.y),
+			.color = style.color,
+		};
+		draw_list_text(ui->draw, params);
+		size = params.run.dim;
 	}
 	return size;
 }
@@ -530,11 +470,11 @@ UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_
 		thumb.y = thumb_track.y + travel * position_ratio;
 	}
 
-	UI_DrawCommand *cmd = ui_draw_rect(ui, track, ui->theme.slider_track);
-	cmd->rect.roundness = track.w * 0.10f;
+	Draw_Command *cmd = ui_draw_rect(ui, track, ui->theme.slider_track);
+	cmd->rect.corner_radii = (Draw_CornerRadii) { track.w * 0.10f, track.w * 0.10f, track.w * 0.10f, track.w * 0.10f };
 	cmd->rect.edge_softness = 0.5f;
 	cmd = ui_draw_rect(ui, thumb, ui->theme.slider_thumb);
-	cmd->rect.roundness = thumb.w * 0.10f;
+	cmd->rect.corner_radii = (Draw_CornerRadii) { thumb.w * 0.10f, thumb.w * 0.10f, thumb.w * 0.10f, thumb.w * 0.10f };
 	cmd->rect.edge_softness = 0.5f;
 	return response;
 }

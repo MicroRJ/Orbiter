@@ -82,7 +82,7 @@ static void chr_map_draw_tooltip(ViewFrameData *frame, rect_f32 image_rect)
 	rect_f32 tooltip = { ui->mouse.x + 14.f, ui->mouse.y + 18.f, 260.f, style.size * 2.f + padding * 2.f + 4.f };
 	tooltip.x = CLAMP(tooltip.x, frame->rect.x, Max(frame->rect.x, frame->rect.x + frame->rect.w - tooltip.w));
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
-	ui_push_layer(ui, UI_LAYER_OVERLAY);
+	ui_push_layer(ui, DRAW_LAYER_OVERLAY);
 	ui_push_unclipped(ui);
 	ui_draw_backdrop(ui, tooltip);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
@@ -130,7 +130,7 @@ static void chr_map_draw_sprite_tooltip(ViewFrameData *frame, rect_f32 atlas, re
 	rect_f32 tooltip = { ui->mouse.x + 14.f, ui->mouse.y + 18.f, 330.f, style.size * 3.f + padding * 2.f + 8.f };
 	tooltip.x = CLAMP(tooltip.x, frame->rect.x, Max(frame->rect.x, frame->rect.x + frame->rect.w - tooltip.w));
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
-	ui_push_layer(ui, UI_LAYER_OVERLAY);
+	ui_push_layer(ui, DRAW_LAYER_OVERLAY);
 	ui_push_unclipped(ui);
 	ui_draw_backdrop(ui, tooltip);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
@@ -161,16 +161,18 @@ static void chr_map_view_content(ViewFrameData *frame)
 	rect_f32 atlas = rect_f32_align(content, v2(CHR_MAP_TEXTURE_WIDTH * scale, CHR_MAP_TEXTURE_HEIGHT * scale), v2(0.5f, 0.5f));
 	rect_f32 image_rect = { atlas.x, atlas.y, atlas.w, CHR_MAP_PATTERN_HEIGHT * scale };
 	rect_f32 sprite_rect = { atlas.x, image_rect.y + image_rect.h, atlas.w, CHR_MAP_SPRITE_HEIGHT * scale };
-	ui_draw_image(frame->ui, (UI_ImageParams) {
+	ui_draw_image(frame->ui, (Draw_TextureParams) {
 		.rect = rect_f32_round_out(image_rect),
 		.texture = frame->chr_texture,
 		.region = { 0, 0, CHR_MAP_TEXTURE_WIDTH, CHR_MAP_PATTERN_HEIGHT },
+		.tint = COLOR_WHITE,
 	});
 	ui_draw_rect(frame->ui, rect_f32_round_out(sprite_rect), frame->ui->theme.slider_track);
-	ui_draw_image(frame->ui, (UI_ImageParams) {
+	ui_draw_image(frame->ui, (Draw_TextureParams) {
 		.rect = rect_f32_round_out(sprite_rect),
 		.texture = frame->chr_texture,
 		.region = { 0, CHR_MAP_PATTERN_HEIGHT, CHR_MAP_TEXTURE_WIDTH, CHR_MAP_SPRITE_HEIGHT },
+		.tint = COLOR_WHITE,
 	});
 	ui_draw_rect_outline(frame->ui, rect_f32_round_out(image_rect), 1.f, frame->ui->theme.panel_outline);
 	ui_draw_rect_outline(frame->ui, rect_f32_round_out(sprite_rect), 1.f, frame->ui->theme.panel_outline);

@@ -2,6 +2,7 @@
 #define GRAPHICS_H
 
 #include "color.h"
+#include "text.h"
 typedef enum
 {
 	GFX_BLENDER_NONE = 0,
@@ -70,6 +71,7 @@ typedef struct Draw_Context Draw_Context;
 typedef struct GFX_Renderer GFX_Renderer;
 typedef struct GFX_Window GFX_Window;
 typedef struct OS_Window OS_Window;
+typedef struct Text_GFX Text_GFX;
 
 typedef struct
 {
@@ -290,6 +292,72 @@ Draw_LuminanceParams;
 
 typedef struct
 {
+	Text_DrawRun run;
+	vec2 position;
+	Color_SRGBA color;
+}
+Draw_TextParams;
+
+typedef struct
+{
+	rect_f32 rect;
+	f32 strength;
+}
+Draw_InsetShadowParams;
+
+typedef struct
+{
+	rect_f32 rect;
+	f32 corner_radius;
+	f32 distortion;
+	f32 distortion_width;
+	f32 saturation;
+	Color_SRGBA tint;
+	f32 grain;
+	f32 highlight;
+	f32 shadow;
+}
+Draw_BackdropParams;
+
+typedef enum
+{
+	DRAW_LAYER_CONTENT,
+	DRAW_LAYER_HEADER,
+	DRAW_LAYER_OVERLAY,
+	DRAW_LAYER_COUNT,
+}
+Draw_LayerKind;
+
+typedef enum
+{
+	DRAW_COMMAND_RECT,
+	DRAW_COMMAND_IMAGE,
+	DRAW_COMMAND_TEXT,
+	DRAW_COMMAND_INSET_SHADOW,
+	DRAW_COMMAND_BACKDROP,
+}
+Draw_CommandKind;
+
+typedef struct Draw_Command Draw_Command;
+struct Draw_Command
+{
+	Draw_Command *next;
+	Draw_CommandKind kind;
+	f32 emission;
+	b32 has_clip;
+	rect_f32 clip;
+	union
+	{
+		Draw_RectParams rect;
+		Draw_TextureParams image;
+		Draw_TextParams text;
+		Draw_InsetShadowParams inset_shadow;
+		Draw_BackdropParams backdrop;
+	};
+};
+
+typedef struct
+{
 	GFX_Texture *output;
 	rect_i32 viewport;
 	b32 clear;
@@ -315,6 +383,21 @@ void draw_texture_copy(Draw_Context *draw, GFX_Texture *texture);
 void draw_barrel(Draw_Context *draw, Draw_BarrelParams params);
 void draw_blit(Draw_Context *draw, GFX_Texture *texture);
 void draw_mask_rects(Draw_Context *draw, Draw_MaskRectsParams params);
+
+void draw_list_push_layer(Draw_Context *draw, Draw_LayerKind layer);
+void draw_list_pop_layer(Draw_Context *draw);
+void draw_list_push_clip(Draw_Context *draw, rect_f32 clip);
+void draw_list_pop_clip(Draw_Context *draw);
+void draw_list_push_unclipped(Draw_Context *draw);
+void draw_list_pop_unclipped(Draw_Context *draw);
+void draw_list_push_emission(Draw_Context *draw, f32 emission);
+void draw_list_pop_emission(Draw_Context *draw);
+Draw_Command *draw_list_rect(Draw_Context *draw, Draw_RectParams params);
+void draw_list_image(Draw_Context *draw, Draw_TextureParams params);
+void draw_list_text(Draw_Context *draw, Draw_TextParams params);
+void draw_list_inset_shadow(Draw_Context *draw, Draw_InsetShadowParams params);
+void draw_list_backdrop(Draw_Context *draw, Draw_BackdropParams params);
+void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, rect_f32 output_rect);
 
 GFX_Renderer *gfx_renderer_create(Arena *owner);
 GFX_Window *gfx_window_create(Arena *owner, GFX_Renderer *renderer, OS_Window *window);

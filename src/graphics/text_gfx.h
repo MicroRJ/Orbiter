@@ -1,6 +1,9 @@
 #ifndef TEXT_GFX_H
 #define TEXT_GFX_H
 
+#include "graphics.h"
+#include "text.h"
+
 typedef struct Text_GFX Text_GFX;
 
 Text_GFX *text_gfx_create(Arena *owner, GFX_Renderer *renderer, Text_Context *text);

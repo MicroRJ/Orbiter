@@ -9,7 +9,7 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, String title)
 
 	ui_draw_inset_shadow(ui, result.rect, 0.25f);
 	rect_f32 header = rect_f32_inset(rect_f32_slice(&result.rect, AXIS_Y, height + 24.f), 12.f);
-	ui_push_layer(ui, UI_LAYER_HEADER);
+	ui_push_layer(ui, DRAW_LAYER_HEADER);
 	ui_draw_backdrop(ui, header);
 	UI_TextStyle style = ui->theme.code;
 	style.color = ui->theme.text_vibrant;

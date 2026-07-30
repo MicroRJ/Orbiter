@@ -1091,8 +1091,6 @@ static void app_resize_graphics_outputs(vec2i size)
 	gfx_window_resize(app.gfx_window, size);
 }
 
-static void app_draw_ui_layer(UI_LayerKind layer_kind, GFX_Texture *backdrop_texture, b32 emission_only);
-
 // Render passes
 
 static GFX_Texture *app_acquire_pass_output(vec2i size, GFX_Sampler sampler, const char *label)
@@ -1110,24 +1108,6 @@ static GFX_Texture *app_acquire_pass_output(vec2i size, GFX_Sampler sampler, con
 static GFX_Texture *app_acquire_hdr_pass_output(GFX_Texture *input, const char *label)
 {
 	return app_acquire_pass_output(gfx_texture_size(input), GRAPHICS_SAMPLER_POINT, label);
-}
-
-static GFX_Texture *app_copy_pass(GFX_Texture *input, vec2i output_size, const char *label)
-{
-	GFX_Texture *output = app_acquire_pass_output(output_size, GRAPHICS_SAMPLER_LINEAR, label);
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = output });
-	draw_texture_copy(app.draw, input);
-	gfx_end_pass(app.draw);
-	return output;
-}
-
-static GFX_Texture *app_gaussian_blur_pass(GFX_Texture *input, vec2 direction, f32 sigma, const char *label)
-{
-	GFX_Texture *output = app_acquire_pass_output(gfx_texture_size(input), GRAPHICS_SAMPLER_LINEAR, label);
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
-	draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) { .texture = input, .direction = direction, .sigma = sigma });
-	gfx_end_pass(app.draw);
-	return output;
 }
 
 static GFX_Texture *app_crt_barrel_pass(GFX_Texture *input)
@@ -1157,51 +1137,6 @@ static GFX_Texture *app_crt_scanlines_pass(GFX_Texture *input)
 	return output;
 }
 
-static GFX_Texture *app_backdrop_blur_pass(GFX_Texture *frame_texture)
-{
-	prof_add_metric(PROF_METRIC_UI_BACKDROP_BLURS, 1);
-	vec2i size = gfx_texture_size(frame_texture);
-	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
-	GFX_Texture *blurred = app_copy_pass(frame_texture, blur_size, "backdrop downsample");
-
-	for (u32 round = 0; round < 2; ++round)
-	{
-		blurred = app_gaussian_blur_pass(blurred, v2(1.f, 0.f), 3.f, "backdrop blur horizontal");
-		blurred = app_gaussian_blur_pass(blurred, v2(0.f, 1.f), 3.f, "backdrop blur vertical");
-	}
-	return blurred;
-}
-
-static void app_ui_bloom_pass(UI_LayerKind layer_kind, GFX_Texture *frame_texture, rect_f32 window_rect)
-{
-	if (!ui_frame(app.ui)->layers[layer_kind].has_emission) {
-		return;
-	}
-	prof_add_metric(PROF_METRIC_UI_BLOOM_LAYERS, 1);
-
-	vec2i size = gfx_texture_size(frame_texture);
-	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
-	GFX_Texture *emission = app_acquire_pass_output(size, GRAPHICS_SAMPLER_LINEAR, "UI emission");
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = emission, .clear = true, .clear_color = COLOR_TRANSPARENT });
-	app_draw_ui_layer(layer_kind, 0, true);
-	gfx_end_pass(app.draw);
-
-	GFX_Texture *bloom = app_copy_pass(emission, blur_size, "UI emission downsample");
-	bloom = app_gaussian_blur_pass(bloom, v2(1.f, 0.f), 5.f, "UI bloom horizontal");
-	bloom = app_gaussian_blur_pass(bloom, v2(0.f, 1.f), 5.f, "UI bloom vertical");
-
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = frame_texture });
-	draw_image(app.draw, (Draw_TextureParams) {
-		.rect = window_rect,
-		.texture = bloom,
-		.region = rect_i32_from_size(gfx_texture_size(bloom)),
-		.tint = color_srgba(0xB8B8B8),
-		.sampler = GRAPHICS_SAMPLER_LINEAR,
-		.blender = GFX_BLENDER_ADDITIVE,
-	});
-	gfx_end_pass(app.draw);
-}
-
 static void app_draw_exclusive_ppu(GFX_Texture *frame_texture, rect_f32 window_rect)
 {
 	vec2 presentation_size = v2(4.f, 3.f);
@@ -1223,110 +1158,6 @@ static void app_draw_exclusive_ppu(GFX_Texture *frame_texture, rect_f32 window_r
 		.sampler = GRAPHICS_SAMPLER_POINT,
 	});
 	gfx_end_pass(app.draw);
-}
-
-static Color_SRGBA app_emission_color(Color_SRGBA color, f32 emission)
-{
-	color.r = color_encode_srgb_channel(color_decode_srgb_channel(color.r) * emission);
-	color.g = color_encode_srgb_channel(color_decode_srgb_channel(color.g) * emission);
-	color.b = color_encode_srgb_channel(color_decode_srgb_channel(color.b) * emission);
-	return color;
-}
-
-static void app_draw_ui_layer(UI_LayerKind layer_kind, GFX_Texture *backdrop_texture, b32 emission_only)
-{
-	const UI_Layer *layer = &ui_frame(app.ui)->layers[layer_kind];
-	u32 replay_count = 0;
-	PROF_BLOCK("ui layer playback") for (UI_DrawCommand *command = layer->first; command; command = command->next)
-	{
-		replay_count++;
-		if (emission_only && command->emission <= 0.f) {
-			continue;
-		}
-		if (command->has_clip) {
-			draw_push_clip(app.draw, command->clip);
-		}
-
-		switch (command->kind)
-		{
-			case UI_DRAW_COMMAND_RECT:
-			{
-				draw_rect(app.draw, (Draw_RectParams) {
-					.rect = command->rect.rect,
-					.color = emission_only ? app_emission_color(command->rect.color, command->emission) : command->rect.color,
-					.corner_radii.top_left = command->rect.roundness,
-					.corner_radii.top_right = command->rect.roundness,
-					.corner_radii.bot_left = command->rect.roundness,
-					.corner_radii.bot_right = command->rect.roundness,
-					.edge_softness = command->rect.edge_softness,
-				});
-			} break;
-			case UI_DRAW_COMMAND_IMAGE:
-			{
-				const UI_ImageParams *params = &command->image.params;
-				draw_image(app.draw, (Draw_TextureParams) {
-					.rect = params->rect,
-					.texture = params->texture,
-					.region = params->region,
-					.tint = emission_only ? app_emission_color(COLOR_WHITE, command->emission) : COLOR_WHITE,
-					.sampler = params->sampler,
-					.blender = params->blender,
-					.shader = params->shader,
-				});
-			} break;
-			case UI_DRAW_COMMAND_TEXT:
-			{
-				text_gfx_draw_run(app.text_gfx, app.draw, command->text.run,
-				command->text.position, emission_only ? app_emission_color(command->text.color, command->emission) : command->text.color);
-			} break;
-			case UI_DRAW_COMMAND_INSET_SHADOW:
-			{
-				if (!emission_only) {
-					draw_inset_shadow(app.draw, command->inset_shadow.rect, command->inset_shadow.strength);
-				}
-			} break;
-			case UI_DRAW_COMMAND_BACKDROP:
-			{
-				if (emission_only) {
-					break;
-				}
-				Assert(backdrop_texture);
-				draw_glass(app.draw, (Draw_GlassParams) {
-					.texture = backdrop_texture,
-					.rect = command->backdrop.rect,
-					.corner_radius = command->backdrop.corner_radius,
-					.distortion = command->backdrop.distortion,
-					.distortion_width = command->backdrop.distortion_width,
-					.saturation = command->backdrop.saturation,
-					.tint = command->backdrop.tint,
-					.grain = command->backdrop.grain,
-					.highlight = command->backdrop.highlight,
-					.shadow = command->backdrop.shadow,
-				});
-			} break;
-			default: Assert(!"invalid UI draw command");
-		}
-
-		if (command->has_clip) {
-			draw_pop_clip(app.draw);
-		}
-	}
-	prof_add_metric(PROF_METRIC_UI_COMMAND_REPLAYS, replay_count);
-}
-
-static void app_compose_ui_layers(GFX_Texture *frame_texture, rect_f32 window_rect)
-{
-	const UI_Frame *ui = ui_frame(app.ui);
-	for (u32 layer_index = 0; layer_index < UI_LAYER_COUNT; ++layer_index)
-	{
-		UI_LayerKind layer_kind = (UI_LayerKind)layer_index;
-		const UI_Layer *layer = &ui->layers[layer_index];
-		GFX_Texture *backdrop = layer->has_backdrops ? app_backdrop_blur_pass(frame_texture) : 0;
-		gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = frame_texture });
-		app_draw_ui_layer(layer_kind, backdrop, false);
-		gfx_end_pass(app.draw);
-		app_ui_bloom_pass(layer_kind, frame_texture, window_rect);
-	}
 }
 
 static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
@@ -1357,13 +1188,15 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 	app_draw_shell(shell);
 	gfx_end_pass(app.draw);
 
-	PROF_BLOCK("ui composition") app_compose_ui_layers(frame_texture, window_rect);
+	draw_compose(app.draw, app.text_gfx, frame_texture, window_rect);
 }
 
 static void app_draw(void)
 {
 	rect_f32 window_rect = rect_f32_from_size(v2_from_v2i(app.os_window->size));
 	app_update_fps();
+	app_resize_graphics_outputs(app.os_window->size);
+	gfx_begin_frame(app.draw);
 	ui_begin_frame(app.ui);
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
 	app_handle_window_commands();
@@ -1371,8 +1204,6 @@ static void app_draw(void)
 	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) if(debugger_undo_snapshot(app.debugger)) audio_stream_discard(app.audio);
 	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) if(debugger_redo_snapshot(app.debugger)) audio_stream_discard(app.audio);
 
-	app_resize_graphics_outputs(app.os_window->size);
-	gfx_begin_frame(app.draw);
 	GFX_Texture *frame_texture = app_acquire_pass_output(app.os_window->size, GRAPHICS_SAMPLER_POINT, "application frame");
 
 	if (app.exclusive_ppu_mode) {
@@ -1511,7 +1342,7 @@ static void app_init(void)
 	app.draw = draw_create(&app.arena, app.renderer);
 	app.text = text_create(&app.arena);
 	app.text_gfx = text_gfx_create(&app.arena, app.renderer, app.text);
-	app.ui = ui_create(&app.arena, app.os_window, app.text, theme);
+	app.ui = ui_create(&app.arena, app.os_window, app.text, app.draw, theme);
 	app.panels = panels_create(&app.arena);
 	app.crt_enabled = true;
 	app.debugger = debugger_create(&app.arena, audio_info.sample_rate);

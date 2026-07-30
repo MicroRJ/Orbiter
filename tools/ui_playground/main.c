@@ -357,56 +357,6 @@ static void playground_draw_tree(Arena *arena, Draw_Context *draw, Text_Context 
 	}
 }
 
-static void playground_draw_ui_frame(Draw_Context *draw, Text_GFX *text_gfx, UI_Context *ui)
-{
-	const UI_Frame *frame = ui_frame(ui);
-	for (u32 layer_index = 0; layer_index < UI_LAYER_COUNT; layer_index ++)
-	{
-		for (UI_DrawCommand *command = frame->layers[layer_index].first; command; command = command->next)
-		{
-			if (command->has_clip) {
-				draw_push_clip(draw, command->clip);
-			}
-			switch (command->kind)
-			{
-				case UI_DRAW_COMMAND_RECT:
-				draw_rect(draw, (Draw_RectParams) {
-					.rect = command->rect.rect,
-					.color = command->rect.color,
-					.corner_radii = { command->rect.roundness, command->rect.roundness, command->rect.roundness, command->rect.roundness },
-					.edge_softness = command->rect.edge_softness,
-				});
-				break;
-				case UI_DRAW_COMMAND_IMAGE:
-				draw_image(draw, (Draw_TextureParams) {
-					.rect = command->image.params.rect,
-					.texture = command->image.params.texture,
-					.region = command->image.params.region,
-					.tint = COLOR_WHITE,
-					.sampler = command->image.params.sampler,
-					.blender = command->image.params.blender,
-					.shader = command->image.params.shader,
-				});
-				break;
-				case UI_DRAW_COMMAND_TEXT:
-					text_gfx_draw_run(text_gfx, draw, command->text.run, command->text.position, command->text.color);
-					break;
-				case UI_DRAW_COMMAND_INSET_SHADOW:
-					draw_inset_shadow(draw, command->inset_shadow.rect, command->inset_shadow.strength);
-					break;
-				case UI_DRAW_COMMAND_BACKDROP:
-					Assert(!"the playground does not provide a backdrop texture");
-					break;
-				default:
-					Assert(!"invalid UI draw command");
-			}
-			if (command->has_clip) {
-				draw_pop_clip(draw);
-			}
-		}
-	}
-}
-
 static b32 playground_near(f32 a, f32 b)
 {
 	return fabsf(a - b) < 0.01f;
@@ -545,7 +495,7 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(112, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, (UI_Theme) {});
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = playground_fill_desc();
 		root_desc.axis = AXIS_X;
@@ -585,7 +535,7 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(112, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, (UI_Theme) {});
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
 
 		ui_begin_frame(ui);
 		UI_Box *root = 0;
@@ -667,7 +617,7 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100), .mouse_position = v2i(10, 10) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, (UI_Theme) {});
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
 		UI_Box *root = 0;
 		UI_Box *box = 0;
 
@@ -792,7 +742,7 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(300, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, (UI_Theme) {});
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
 		ui_begin_frame(ui);
 		ui_build_begin(ui, 1, LIT("root"), ui_box_desc());
 		UI_BoxTableColumn columns[] = {
@@ -945,7 +895,7 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, (UI_Theme) {});
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_box_desc();
 		ui_build_begin(ui, 1, LIT("root"), root_desc);
@@ -968,7 +918,7 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, (UI_Theme) {});
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_box_desc();
 		ui_build_begin(ui, 1, LIT("root"), root_desc);
@@ -1063,7 +1013,7 @@ static int playground_run_window(void)
 	Draw_Context *draw = draw_create(&arena, renderer);
 	Text_Context *text = text_create(&arena);
 	Text_GFX *text_gfx = text_gfx_create(&arena, renderer, text);
-	UI_Context *ui = ui_create(&arena, window, text, ui_default_theme(font));
+	UI_Context *ui = ui_create(&arena, window, text, draw, ui_default_theme(font));
 	text_preload_ascii(text, font, 14);
 	text_preload_ascii(text, font, 16);
 
@@ -1117,6 +1067,7 @@ static int playground_run_window(void)
 			active_scrollbar = UI_ID_NONE;
 		}
 
+		gfx_begin_frame(draw);
 		ui_begin_frame(ui);
 		ARENA_SCOPE(&frame_arena)
 		{
@@ -1246,7 +1197,6 @@ static int playground_run_window(void)
 				active_scrollbar = UI_ID_NONE;
 			}
 
-			gfx_begin_frame(draw);
 			gfx_begin_pass(draw, (GFX_PassDesc) {
 				.output = gfx_window_texture(gfx_window),
 				.clear = true,
@@ -1254,9 +1204,7 @@ static int playground_run_window(void)
 			});
 			playground_draw_tree(&frame_arena, draw, text, text_gfx, font, scene.root, hot, selected_id);
 			gfx_end_pass(draw);
-			gfx_begin_pass(draw, (GFX_PassDesc) { .output = gfx_window_texture(gfx_window) });
-			playground_draw_ui_frame(draw, text_gfx, ui);
-			gfx_end_pass(draw);
+			draw_compose(draw, text_gfx, gfx_window_texture(gfx_window), rect_f32_from_size(v2_from_v2i(window->size)));
 			text_gfx_sync(text_gfx);
 			gfx_end_frame(draw);
 			gfx_window_present(gfx_window);

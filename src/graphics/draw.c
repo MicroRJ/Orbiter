@@ -1,6 +1,7 @@
 #include "base.h"
 #include "graphics_internal.h"
 #include "os_graphical.h"
+#include "text_gfx.h"
 
 enum
 {
@@ -8,6 +9,9 @@ enum
 	DRAW_BATCH_ARENA_CAPACITY = MB(4),
 	DRAW_INSTANCE_ARENA_CAPACITY = MB(60),
 	DRAW_CLIP_STACK_CAPACITY = 64,
+	DRAW_LIST_LAYER_STACK_CAPACITY = 8,
+	DRAW_LIST_CLIP_STACK_CAPACITY = 16,
+	DRAW_LIST_EMISSION_STACK_CAPACITY = 8,
 };
 
 typedef struct
@@ -24,12 +28,29 @@ typedef struct
 }
 Draw_BatchMetrics;
 
+typedef struct
+{
+	Draw_Command *first;
+	Draw_Command *last;
+	u32 command_count;
+	b32 has_backdrops;
+	b32 has_emission;
+}
+Draw_Layer;
+
+typedef struct
+{
+	Draw_Layer layers[DRAW_LAYER_COUNT];
+}
+Draw_Frame;
+
 struct Draw_Context
 {
 	GFX_Renderer *renderer;
 	Arena pass_arena;
 	Arena batch_arena;
 	Arena instance_arena;
+	Arena command_arena;
 
 	GFX_Pass *passes;
 	u32 pass_count;
@@ -50,6 +71,19 @@ struct Draw_Context
 	rect_i32 clip_stack[DRAW_CLIP_STACK_CAPACITY];
 	u32 clip_depth;
 	Draw_BatchMetrics batch_metrics;
+
+	Draw_Frame frame;
+	Draw_LayerKind layer;
+	Draw_LayerKind layer_stack[DRAW_LIST_LAYER_STACK_CAPACITY];
+	u32 layer_stack_count;
+	rect_f32 list_clip_stack[DRAW_LIST_CLIP_STACK_CAPACITY];
+	u32 list_clip_stack_count;
+	u32 unclipped_scope_count;
+	f32 emission;
+	f32 emission_stack[DRAW_LIST_EMISSION_STACK_CAPACITY];
+	u32 emission_stack_count;
+	b32 commands_composed;
+
 	b32 frame_active;
 	b32 pass_active;
 };
@@ -201,6 +235,7 @@ Draw_Context *draw_create(Arena *owner, GFX_Renderer *renderer)
 	draw->pass_arena = arena_create(DRAW_PASS_ARENA_CAPACITY, "draw pass arena");
 	draw->batch_arena = arena_create(DRAW_BATCH_ARENA_CAPACITY, "draw batch arena");
 	draw->instance_arena = arena_create(DRAW_INSTANCE_ARENA_CAPACITY, "draw instance arena");
+	draw->command_arena = arena_create(0, "draw command arena");
 	return draw;
 }
 
@@ -213,6 +248,7 @@ void gfx_begin_frame(Draw_Context *draw)
 	arena_reset(&draw->pass_arena);
 	arena_reset(&draw->batch_arena);
 	arena_reset(&draw->instance_arena);
+	arena_reset(&draw->command_arena);
 	draw->passes = arena_base(&draw->pass_arena);
 	draw->pass_count = 0;
 	draw->batches = arena_base(&draw->batch_arena);
@@ -221,6 +257,14 @@ void gfx_begin_frame(Draw_Context *draw)
 	draw->instance_count = 0;
 	draw->active_batch_offset = 0;
 	draw->batch_metrics = (Draw_BatchMetrics) { 0 };
+	draw->frame = (Draw_Frame) { 0 };
+	draw->layer = DRAW_LAYER_CONTENT;
+	draw->layer_stack_count = 0;
+	draw->list_clip_stack_count = 0;
+	draw->unclipped_scope_count = 0;
+	draw->emission = 0.f;
+	draw->emission_stack_count = 0;
+	draw->commands_composed = false;
 	draw->frame_active = true;
 }
 
@@ -269,6 +313,15 @@ void gfx_end_frame(Draw_Context *draw)
 	Assert(draw);
 	Assert(draw->frame_active);
 	Assert(!draw->pass_active);
+	Assert(draw->layer_stack_count == 0);
+	Assert(draw->list_clip_stack_count == 0);
+	Assert(draw->unclipped_scope_count == 0);
+	Assert(draw->emission_stack_count == 0);
+	u32 command_count = 0;
+	for (u32 layer_index = 0; layer_index < DRAW_LAYER_COUNT; ++layer_index) {
+		command_count += draw->frame.layers[layer_index].command_count;
+	}
+	Assert(draw->commands_composed || command_count == 0);
 	GFX_DrawData data = {
 		.passes = draw->passes,
 		.pass_count = draw->pass_count,
@@ -669,4 +722,330 @@ void draw_mask_rects(Draw_Context *draw, Draw_MaskRectsParams params)
 		draw__set_all_colors(&instance, color);
 		draw__push_instance(draw, instance);
 	}
+}
+
+// Deferred draw list
+
+static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kind, b32 inherit_clip)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(!draw->commands_composed);
+	Assert(draw->layer >= 0 && draw->layer < DRAW_LAYER_COUNT);
+	Draw_Command *command = arena_push_zero(&draw->command_arena, sizeof(*command));
+	command->kind = kind;
+	command->emission = draw->emission;
+	prof_add_metric(PROF_METRIC_DRAW_COMMANDS, 1);
+	prof_add_metric(PROF_METRIC_DRAW_COMMAND_BYTES, sizeof(*command));
+	switch (kind)
+	{
+		case DRAW_COMMAND_RECT:         prof_add_metric(PROF_METRIC_DRAW_RECT_COMMANDS, 1); break;
+		case DRAW_COMMAND_IMAGE:        prof_add_metric(PROF_METRIC_DRAW_IMAGE_COMMANDS, 1); break;
+		case DRAW_COMMAND_TEXT:         prof_add_metric(PROF_METRIC_DRAW_TEXT_COMMANDS, 1); break;
+		case DRAW_COMMAND_INSET_SHADOW:
+		case DRAW_COMMAND_BACKDROP:     prof_add_metric(PROF_METRIC_DRAW_EFFECT_COMMANDS, 1); break;
+		default: Assert(!"invalid draw command");
+	}
+	if (command->emission > 0.f) {
+		prof_add_metric(PROF_METRIC_DRAW_EMISSIVE_COMMANDS, 1);
+	}
+	if (inherit_clip && draw->list_clip_stack_count && !draw->unclipped_scope_count)
+	{
+		command->has_clip = true;
+		command->clip = draw->list_clip_stack[draw->list_clip_stack_count - 1];
+		prof_add_metric(PROF_METRIC_DRAW_CLIPPED_COMMANDS, 1);
+	}
+	Draw_Layer *layer = &draw->frame.layers[draw->layer];
+	layer->has_emission |= command->emission > 0.f;
+	if (layer->last) {
+		layer->last->next = command;
+	} else {
+		layer->first = command;
+	}
+	layer->last = command;
+	layer->command_count += 1;
+	return command;
+}
+
+void draw_list_push_layer(Draw_Context *draw, Draw_LayerKind layer)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(layer >= 0 && layer < DRAW_LAYER_COUNT);
+	Assert(draw->layer_stack_count < ArrayCount(draw->layer_stack));
+	draw->layer_stack[draw->layer_stack_count++] = draw->layer;
+	draw->layer = layer;
+}
+
+void draw_list_pop_layer(Draw_Context *draw)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(draw->layer_stack_count > 0);
+	draw->layer = draw->layer_stack[--draw->layer_stack_count];
+}
+
+void draw_list_push_clip(Draw_Context *draw, rect_f32 clip)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(draw->list_clip_stack_count < ArrayCount(draw->list_clip_stack));
+	if (draw->list_clip_stack_count)
+	{
+		rect_i32 parent = rect_i32_from_f32(draw->list_clip_stack[draw->list_clip_stack_count - 1]);
+		rect_i32 child = rect_i32_from_f32(clip);
+		clip = rect_f32_from_i32(rect_i32_intersect(parent, child));
+	}
+	draw->list_clip_stack[draw->list_clip_stack_count++] = clip;
+}
+
+void draw_list_pop_clip(Draw_Context *draw)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(draw->list_clip_stack_count > 0);
+	draw->list_clip_stack_count -= 1;
+}
+
+void draw_list_push_unclipped(Draw_Context *draw)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	draw->unclipped_scope_count += 1;
+}
+
+void draw_list_pop_unclipped(Draw_Context *draw)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(draw->unclipped_scope_count > 0);
+	draw->unclipped_scope_count -= 1;
+}
+
+void draw_list_push_emission(Draw_Context *draw, f32 emission)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(draw->emission_stack_count < ArrayCount(draw->emission_stack));
+	draw->emission_stack[draw->emission_stack_count++] = draw->emission;
+	draw->emission = emission;
+}
+
+void draw_list_pop_emission(Draw_Context *draw)
+{
+	Assert(draw);
+	Assert(draw->frame_active);
+	Assert(draw->emission_stack_count > 0);
+	draw->emission = draw->emission_stack[--draw->emission_stack_count];
+}
+
+Draw_Command *draw_list_rect(Draw_Context *draw, Draw_RectParams params)
+{
+	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_RECT, true);
+	command->rect = params;
+	return command;
+}
+
+void draw_list_image(Draw_Context *draw, Draw_TextureParams params)
+{
+	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_IMAGE, true);
+	command->image = params;
+}
+
+void draw_list_text(Draw_Context *draw, Draw_TextParams params)
+{
+	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_TEXT, true);
+	command->text = params;
+}
+
+void draw_list_inset_shadow(Draw_Context *draw, Draw_InsetShadowParams params)
+{
+	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_INSET_SHADOW, true);
+	command->inset_shadow = params;
+}
+
+void draw_list_backdrop(Draw_Context *draw, Draw_BackdropParams params)
+{
+	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_BACKDROP, false);
+	command->backdrop = params;
+	draw->frame.layers[draw->layer].has_backdrops = true;
+}
+
+// Composition
+
+static GFX_Texture *draw__acquire_pass_output(Draw_Context *draw, vec2i size, GFX_Sampler sampler, const char *label)
+{
+	return gfx_acquire_transient_texture(draw->renderer, (GFX_TextureDesc) {
+		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
+		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
+		.format = GRAPHICS_FORMAT_RGBA_F32,
+		.size = size,
+		.sampler = sampler,
+		.label = label,
+	});
+}
+
+static GFX_Texture *draw__copy_pass(Draw_Context *draw, GFX_Texture *input, vec2i output_size, const char *label)
+{
+	GFX_Texture *output = draw__acquire_pass_output(draw, output_size, GRAPHICS_SAMPLER_LINEAR, label);
+	gfx_begin_pass(draw, (GFX_PassDesc) { .output = output });
+	draw_texture_copy(draw, input);
+	gfx_end_pass(draw);
+	return output;
+}
+
+static GFX_Texture *draw__gaussian_blur_pass(Draw_Context *draw, GFX_Texture *input, vec2 direction, f32 sigma, const char *label)
+{
+	GFX_Texture *output = draw__acquire_pass_output(draw, gfx_texture_size(input), GRAPHICS_SAMPLER_LINEAR, label);
+	gfx_begin_pass(draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
+	draw_gaussian_blur(draw, (Draw_GaussianBlurParams) { .texture = input, .direction = direction, .sigma = sigma });
+	gfx_end_pass(draw);
+	return output;
+}
+
+static GFX_Texture *draw__backdrop_blur_pass(Draw_Context *draw, GFX_Texture *frame_texture)
+{
+	prof_add_metric(PROF_METRIC_DRAW_BACKDROP_BLURS, 1);
+	vec2i size = gfx_texture_size(frame_texture);
+	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
+	GFX_Texture *blurred = draw__copy_pass(draw, frame_texture, blur_size, "backdrop downsample");
+
+	for (u32 round = 0; round < 2; ++round)
+	{
+		blurred = draw__gaussian_blur_pass(draw, blurred, v2(1.f, 0.f), 3.f, "backdrop blur horizontal");
+		blurred = draw__gaussian_blur_pass(draw, blurred, v2(0.f, 1.f), 3.f, "backdrop blur vertical");
+	}
+	return blurred;
+}
+
+static Color_SRGBA draw__emission_color(Color_SRGBA color, f32 emission)
+{
+	color.r = color_encode_srgb_channel(color_decode_srgb_channel(color.r) * emission);
+	color.g = color_encode_srgb_channel(color_decode_srgb_channel(color.g) * emission);
+	color.b = color_encode_srgb_channel(color_decode_srgb_channel(color.b) * emission);
+	return color;
+}
+
+static void draw__replay_layer(Draw_Context *draw, Text_GFX *text_gfx, Draw_LayerKind layer_kind, GFX_Texture *backdrop_texture, b32 emission_only)
+{
+	const Draw_Layer *layer = &draw->frame.layers[layer_kind];
+	u32 replay_count = 0;
+	PROF_BLOCK("draw layer playback") for (Draw_Command *command = layer->first; command; command = command->next)
+	{
+		replay_count++;
+		if (emission_only && command->emission <= 0.f) {
+			continue;
+		}
+		if (command->has_clip) {
+			draw_push_clip(draw, command->clip);
+		}
+
+		switch (command->kind)
+		{
+			case DRAW_COMMAND_RECT:
+			{
+				Draw_RectParams params = command->rect;
+				if (emission_only) params.color = draw__emission_color(params.color, command->emission);
+				draw_rect(draw, params);
+			} break;
+			case DRAW_COMMAND_IMAGE:
+			{
+				Draw_TextureParams params = command->image;
+				if (emission_only) params.tint = draw__emission_color(COLOR_WHITE, command->emission);
+				draw_image(draw, params);
+			} break;
+			case DRAW_COMMAND_TEXT:
+			{
+				Assert(text_gfx);
+				text_gfx_draw_run(text_gfx, draw, command->text.run, command->text.position,
+					emission_only ? draw__emission_color(command->text.color, command->emission) : command->text.color);
+			} break;
+			case DRAW_COMMAND_INSET_SHADOW:
+			{
+				if (!emission_only) draw_inset_shadow(draw, command->inset_shadow.rect, command->inset_shadow.strength);
+			} break;
+			case DRAW_COMMAND_BACKDROP:
+			{
+				if (emission_only) break;
+				Assert(backdrop_texture);
+				draw_glass(draw, (Draw_GlassParams) {
+					.texture = backdrop_texture,
+					.rect = command->backdrop.rect,
+					.corner_radius = command->backdrop.corner_radius,
+					.distortion = command->backdrop.distortion,
+					.distortion_width = command->backdrop.distortion_width,
+					.saturation = command->backdrop.saturation,
+					.tint = command->backdrop.tint,
+					.grain = command->backdrop.grain,
+					.highlight = command->backdrop.highlight,
+					.shadow = command->backdrop.shadow,
+				});
+			} break;
+			default: Assert(!"invalid draw command");
+		}
+
+		if (command->has_clip) {
+			draw_pop_clip(draw);
+		}
+	}
+	prof_add_metric(PROF_METRIC_DRAW_COMMAND_REPLAYS, replay_count);
+}
+
+static void draw__bloom_pass(Draw_Context *draw, Text_GFX *text_gfx, Draw_LayerKind layer_kind, GFX_Texture *frame_texture, rect_f32 output_rect)
+{
+	if (!draw->frame.layers[layer_kind].has_emission) {
+		return;
+	}
+	prof_add_metric(PROF_METRIC_DRAW_BLOOM_LAYERS, 1);
+
+	vec2i size = gfx_texture_size(frame_texture);
+	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
+	GFX_Texture *emission = draw__acquire_pass_output(draw, size, GRAPHICS_SAMPLER_LINEAR, "draw emission");
+	gfx_begin_pass(draw, (GFX_PassDesc) { .output = emission, .clear = true, .clear_color = COLOR_TRANSPARENT });
+	draw__replay_layer(draw, text_gfx, layer_kind, 0, true);
+	gfx_end_pass(draw);
+
+	GFX_Texture *bloom = draw__copy_pass(draw, emission, blur_size, "draw emission downsample");
+	bloom = draw__gaussian_blur_pass(draw, bloom, v2(1.f, 0.f), 5.f, "draw bloom horizontal");
+	bloom = draw__gaussian_blur_pass(draw, bloom, v2(0.f, 1.f), 5.f, "draw bloom vertical");
+
+	gfx_begin_pass(draw, (GFX_PassDesc) { .output = frame_texture });
+	draw_image(draw, (Draw_TextureParams) {
+		.rect = output_rect,
+		.texture = bloom,
+		.region = rect_i32_from_size(gfx_texture_size(bloom)),
+		.tint = color_srgba(0xB8B8B8),
+		.sampler = GRAPHICS_SAMPLER_LINEAR,
+		.blender = GFX_BLENDER_ADDITIVE,
+	});
+	gfx_end_pass(draw);
+}
+
+void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, rect_f32 output_rect)
+{
+	Assert(draw);
+	Assert(output);
+	Assert(draw->frame_active);
+	Assert(!draw->pass_active);
+	Assert(!draw->commands_composed);
+	Assert(draw->layer_stack_count == 0);
+	Assert(draw->list_clip_stack_count == 0);
+	Assert(draw->unclipped_scope_count == 0);
+	Assert(draw->emission_stack_count == 0);
+
+	PROF_BLOCK("draw composition")
+	{
+		for (u32 layer_index = 0; layer_index < DRAW_LAYER_COUNT; ++layer_index)
+		{
+			Draw_LayerKind layer_kind = (Draw_LayerKind)layer_index;
+			const Draw_Layer *layer = &draw->frame.layers[layer_index];
+			GFX_Texture *backdrop = layer->has_backdrops ? draw__backdrop_blur_pass(draw, output) : 0;
+			gfx_begin_pass(draw, (GFX_PassDesc) { .output = output });
+			draw__replay_layer(draw, text_gfx, layer_kind, backdrop, false);
+			gfx_end_pass(draw);
+			draw__bloom_pass(draw, text_gfx, layer_kind, output, output_rect);
+		}
+	}
+
+	draw->commands_composed = true;
 }
