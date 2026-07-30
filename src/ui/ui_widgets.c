@@ -186,16 +186,7 @@ UI_Response ui_button(UI_BoxBuilder *builder, UI_Key key, String text)
 
 typedef struct
 {
-	f32 offset;
-	f32 target;
-	UI_ScrollGeometry geometry;
-}
-UI_ScrollState;
-
-typedef struct
-{
 	UI_Scroll *scroll;
-	UI_ScrollState *state;
 	b32 bootstrap;
 }
 UI_ScrollLayoutData;
@@ -234,8 +225,8 @@ static void ui_scroll__finish_layout(UI_Box *box)
 {
 	UI_ScrollLayoutData *layout = box->content;
 	UI_Scroll *scroll = layout->scroll;
-	UI_ScrollState *state = layout->state;
 	UI_Box *viewport = scroll->viewport;
+	UI_BoxState *state = viewport->state;
 	AXIS axis = scroll->axis;
 
 	if (layout->bootstrap)
@@ -244,21 +235,10 @@ static void ui_scroll__finish_layout(UI_Box *box)
 		ui_box_relayout(scroll->track);
 	}
 
-	state->offset = viewport->scroll_offset.xy[axis];
-	state->target = CLAMP(state->target, viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis]);
-	state->geometry = (UI_ScrollGeometry) {
-		.viewport = viewport->viewport,
-		.track = scroll->track->rect,
-		.track_viewport = scroll->track->viewport,
-		.thumb = scroll->thumb->rect,
-		.content_size = viewport->content_size,
-		.scroll_min = viewport->scroll_min,
-		.scroll_max = viewport->scroll_max,
-		.frame_index = box->ui->frame_index,
-		.layout_generation = box->ui->layout_generation,
-	};
-	scroll->offset = state->offset;
-	scroll->target = state->target;
+	scroll->offset = viewport->scroll_offset.xy[axis];
+	scroll->target = CLAMP(scroll->target, viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis]);
+	state->view_offset.xy[axis] = scroll->offset;
+	state->view_target.xy[axis] = scroll->target;
 }
 
 static const UI_BoxOps ui_scroll__root_ops = {
@@ -284,13 +264,6 @@ UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, UI_Key key, AXIS axis)
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_VISIBLE;
 	scroll->root = ui_box_begin_desc(builder, key, LIT("scroll"), root_desc);
 
-	UI_ScrollState *state = ui_state_get(builder->ui, scroll->root->id, sizeof(*state));
-	scroll->persistent = state;
-	scroll->offset = state->offset;
-	scroll->target = state->target;
-	scroll->previous = state->geometry;
-	scroll->has_previous = state->geometry.frame_index + 1 == builder->ui->frame_index && state->geometry.layout_generation == builder->ui->layout_generation;
-
 	ui_push(builder);
 	builder->desc = ui_box_desc();
 	return scroll;
@@ -299,13 +272,23 @@ UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, UI_Key key, AXIS axis)
 void ui_scroll_reset(UI_Scroll *scroll)
 {
 	Assert(scroll);
-	Assert(scroll->persistent);
-	memory_zero(scroll->persistent, sizeof(UI_ScrollState));
+	scroll->reset = true;
 	scroll->has_previous = false;
 	scroll->offset = 0.f;
 	scroll->target = 0.f;
-	scroll->previous = (UI_ScrollGeometry) {};
 	scroll->builder->ui->active = UI_ID_NONE;
+	if (scroll->viewport)
+	{
+		UI_BoxState *viewport_state = scroll->viewport->state;
+		viewport_state->view_offset.xy[scroll->axis] = 0.f;
+		viewport_state->view_target.xy[scroll->axis] = 0.f;
+		scroll->viewport->scroll_offset.xy[scroll->axis] = 0.f;
+		if (scroll->track && scroll->thumb && scroll->space_before && scroll->space_after)
+		{
+			UI_BoxState *track_state = scroll->track->state;
+			ui_scroll__size_bar(scroll, track_state->viewport.wh[scroll->axis], viewport_state->viewport.wh[scroll->axis], Max(viewport_state->content_size.xy[scroll->axis], viewport_state->viewport.wh[scroll->axis]), viewport_state->scroll_min.xy[scroll->axis], viewport_state->scroll_max.xy[scroll->axis], 0.f);
+		}
+	}
 }
 
 void ui_scroll_end(UI_Scroll *scroll)
@@ -313,7 +296,6 @@ void ui_scroll_end(UI_Scroll *scroll)
 	Assert(scroll);
 	UI_BoxBuilder *builder = scroll->builder;
 	UI_Context *ui = builder->ui;
-	UI_ScrollState *state = scroll->persistent;
 	AXIS axis = scroll->axis;
 	AXIS perp_axis = !axis;
 	Assert(builder->parent == scroll->root);
@@ -326,59 +308,6 @@ void ui_scroll_end(UI_Scroll *scroll)
 	scroll->viewport->desc.min_size.xy[perp_axis] = 0.f;
 	scroll->viewport->desc.max_size.xy[perp_axis] = UI_BOX_INFINITY;
 	scroll->viewport->desc.overflow[axis] = UI_BOX_OVERFLOW_SCROLL;
-
-	UI_Id track_id = ui_id_child(scroll->root->id, UI_SCROLL_TRACK_KEY);
-	UI_Id thumb_id = ui_id_child(track_id, UI_SCROLL_THUMB_KEY);
-	if (!scroll->has_previous && (ui_id_equal(ui->active, track_id) || ui_id_equal(ui->active, thumb_id))) {
-		ui->active = UI_ID_NONE;
-	}
-
-	if (scroll->has_previous)
-	{
-		UI_ScrollGeometry *previous = &scroll->previous;
-		f32 scroll_min = previous->scroll_min.xy[axis];
-		f32 scroll_max = previous->scroll_max.xy[axis];
-		f32 max_scroll = scroll_max - scroll_min;
-		i32 wheel = ui->window->mouse_wheel.xy[axis];
-		if (wheel && !ui->mouse_wheel_consumed && rect_f32_contains(previous->viewport, ui->mouse))
-		{
-			state->target -= wheel * 48.f;
-			ui->mouse_wheel_consumed = true;
-		}
-
-		f32 travel = Max(0.f, previous->track_viewport.wh[axis] - previous->thumb.wh[axis]);
-		rect_f32 thumb_hit = previous->thumb;
-		thumb_hit.xy[perp_axis] = previous->track.xy[perp_axis];
-		thumb_hit.wh[perp_axis] = previous->track.wh[perp_axis];
-		UI_Response thumb_response = ui_interact(ui, thumb_id, thumb_hit);
-		if (thumb_response.pressed) {
-			ui->active_start_value = state->offset;
-		}
-		if (thumb_response.held && travel > 0.f && max_scroll > 0.f)
-		{
-			state->offset = CLAMP(ui->active_start_value + thumb_response.drag_delta.xy[axis] * max_scroll / travel, scroll_min, scroll_max);
-			state->target = state->offset;
-		}
-
-		if (!thumb_response.hovered && !ui_is_active(ui, thumb_id))
-		{
-			UI_Response track_response = ui_interact(ui, track_id, previous->track);
-			if (track_response.pressed && max_scroll > 0.f)
-			{
-				f32 direction = ui->mouse.xy[axis] < previous->thumb.xy[axis] ? -1.f : 1.f;
-				state->target += direction * previous->viewport.wh[axis] * 0.85f;
-			}
-		}
-
-		state->target = CLAMP(state->target, scroll_min, scroll_max);
-		if (!ui_is_active(ui, thumb_id)) {
-			state->offset = ui_scroll__smooth(state->offset, state->target, ui->frame_elapsed);
-		}
-		state->offset = CLAMP(state->offset, scroll_min, scroll_max);
-	}
-	scroll->offset = state->offset;
-	scroll->target = state->target;
-	scroll->viewport->scroll_offset.xy[axis] = state->offset;
 
 	UI_BoxDesc track = ui_box_desc();
 	track.axis = axis;
@@ -413,15 +342,71 @@ void ui_scroll_end(UI_Scroll *scroll)
 	};
 	scroll->space_after->paint = (UI_BoxPaintDesc) {};
 
+	UI_BoxState *viewport_state = scroll->viewport->state;
+	UI_BoxState *track_state = scroll->track->state;
+	UI_BoxState *thumb_state = scroll->thumb->state;
+	Assert(viewport_state);
+	Assert(track_state);
+	Assert(thumb_state);
+
+	scroll->has_previous = scroll->viewport->has_previous && scroll->track->has_previous && scroll->thumb->has_previous;
+	scroll->offset = viewport_state->view_offset.xy[axis];
+	scroll->target = viewport_state->view_target.xy[axis];
+	if (scroll->reset)
+	{
+		viewport_state->view_offset.xy[axis] = 0.f;
+		viewport_state->view_target.xy[axis] = 0.f;
+		scroll->viewport->scroll_offset.xy[axis] = 0.f;
+		scroll->has_previous = false;
+		scroll->offset = 0.f;
+		scroll->target = 0.f;
+	}
+
 	if (scroll->has_previous)
 	{
-		UI_ScrollGeometry *previous = &scroll->previous;
-		ui_scroll__size_bar(scroll, previous->track_viewport.wh[axis], previous->viewport.wh[axis], Max(previous->content_size.xy[axis], previous->viewport.wh[axis]), previous->scroll_min.xy[axis], previous->scroll_max.xy[axis], state->offset);
+		f32 scroll_min = viewport_state->scroll_min.xy[axis];
+		f32 scroll_max = viewport_state->scroll_max.xy[axis];
+		f32 max_scroll = scroll_max - scroll_min;
+		i32 wheel = ui->window->mouse_wheel.xy[axis];
+		if (wheel && !ui->mouse_wheel_consumed && rect_f32_contains(viewport_state->hit_rect, ui->mouse))
+		{
+			scroll->target -= wheel * 48.f;
+			ui->mouse_wheel_consumed = true;
+		}
+
+		f32 travel = Max(0.f, track_state->viewport.wh[axis] - thumb_state->rect.wh[axis]);
+		UI_Response thumb_response = ui_signal_from_box(scroll->thumb);
+		if (thumb_response.pressed) {
+			ui->active_start_value = scroll->offset;
+		}
+		if (thumb_response.held && travel > 0.f && max_scroll > 0.f)
+		{
+			scroll->offset = CLAMP(ui->active_start_value + thumb_response.drag_delta.xy[axis] * max_scroll / travel, scroll_min, scroll_max);
+			scroll->target = scroll->offset;
+		}
+
+		if (!thumb_response.hovered && !ui_is_active(ui, scroll->thumb->id))
+		{
+			UI_Response track_response = ui_signal_from_box(scroll->track);
+			if (track_response.pressed && max_scroll > 0.f)
+			{
+				f32 direction = ui->mouse.xy[axis] < thumb_state->rect.xy[axis] ? -1.f : 1.f;
+				scroll->target += direction * viewport_state->viewport.wh[axis] * 0.85f;
+			}
+		}
+
+		scroll->target = CLAMP(scroll->target, scroll_min, scroll_max);
+		if (!ui_is_active(ui, scroll->thumb->id)) {
+			scroll->offset = ui_scroll__smooth(scroll->offset, scroll->target, ui->frame_elapsed);
+		}
+		scroll->offset = CLAMP(scroll->offset, scroll_min, scroll_max);
+		ui_scroll__size_bar(scroll, track_state->viewport.wh[axis], viewport_state->viewport.wh[axis], Max(viewport_state->content_size.xy[axis], viewport_state->viewport.wh[axis]), scroll_min, scroll_max, scroll->offset);
 	}
+	scroll->viewport->scroll_offset.xy[axis] = scroll->offset;
+	viewport_state->view_target.xy[axis] = scroll->target;
 
 	UI_ScrollLayoutData *layout = arena_push_zero(builder->arena, sizeof(*layout));
 	layout->scroll = scroll;
-	layout->state = state;
 	layout->bootstrap = !scroll->has_previous;
 	scroll->root->content = layout;
 	scroll->root->ops = &ui_scroll__root_ops;

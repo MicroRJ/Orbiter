@@ -20,20 +20,6 @@ void ui_box_paint(UI_Box *box);
 
 typedef struct
 {
-	rect_f32 viewport;
-	rect_f32 track;
-	rect_f32 track_viewport;
-	rect_f32 thumb;
-	vec2 content_size;
-	vec2 scroll_min;
-	vec2 scroll_max;
-	u64 frame_index;
-	u64 layout_generation;
-}
-UI_ScrollGeometry;
-
-typedef struct
-{
 	UI_BoxBuilder *builder;
 	UI_Box *root;
 	UI_Box *viewport;
@@ -43,10 +29,9 @@ typedef struct
 	UI_Box *space_after;
 	AXIS axis;
 	b32 has_previous;
+	b32 reset;
 	f32 offset;
 	f32 target;
-	UI_ScrollGeometry previous;
-	void *persistent;
 	u32 parent_count;
 	u32 desc_count;
 }

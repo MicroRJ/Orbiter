@@ -8,19 +8,9 @@
 
 enum
 {
-	UI_PERSISTENT_STATE_CAPACITY = 1024,
 	UI_BOX_STATE_SLOT_COUNT = 4096,
 };
 STATIC_ASSERT((UI_BOX_STATE_SLOT_COUNT & (UI_BOX_STATE_SLOT_COUNT - 1)) == 0);
-
-struct UI_PersistentState
-{
-	UI_Id id;
-	void *data;
-	u64 data_size;
-	u64 data_capacity;
-	u64 last_touched_frame;
-};
 
 static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer, UI_DrawCommandKind kind, b32 inherit_clip)
 {
@@ -168,8 +158,6 @@ UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
 	ui->text = text;
 	ui->frame_arena = arena_create(0, "UI frame arena");
 	ui->theme = theme;
-	ui->persistent_state_capacity = UI_PERSISTENT_STATE_CAPACITY;
-	ui->persistent_states = arena_push_zero(owner, ui->persistent_state_capacity * sizeof(*ui->persistent_states));
 	ui->box_state_slot_count = UI_BOX_STATE_SLOT_COUNT;
 	ui->box_state_slots = arena_push_zero(owner, ui->box_state_slot_count * sizeof(*ui->box_state_slots));
 	ui->layout_generation = 1;
@@ -208,69 +196,6 @@ void ui_begin_frame(UI_Context *ui)
 	ui->emission_stack_count = 0;
 	ui->mouse = v2_from_v2i(ui->window->mouse_position);
 	ui->hot = UI_ID_NONE;
-}
-
-void *ui_state_get(UI_Context *ui, UI_Id id, u64 size)
-{
-	Assert(ui);
-	Assert(id.value);
-	Assert(size);
-	Assert(ui->persistent_state_capacity);
-
-	UI_PersistentState *empty = 0;
-	UI_PersistentState *oldest = 0;
-	u32 mask = ui->persistent_state_capacity - 1;
-	u32 start = (u32)id.value & mask;
-	for (u32 probe = 0; probe < ui->persistent_state_capacity; probe++)
-	{
-		UI_PersistentState *state = &ui->persistent_states[(start + probe) & mask];
-		if (ui_id_equal(state->id, id))
-		{
-			Assert(state->data_size == size);
-			state->last_touched_frame = ui->frame_index;
-			return state->data;
-		}
-		if (!state->id.value && !empty) {
-			empty = state;
-		}
-		if (state->id.value && (!oldest || state->last_touched_frame < oldest->last_touched_frame)) {
-			oldest = state;
-		}
-	}
-
-	UI_PersistentState *state = empty ? empty : oldest;
-	Assert(state);
-	Assert(!state->id.value || state->last_touched_frame != ui->frame_index);
-	if (state->data_capacity < size)
-	{
-		state->data = arena_push_zero(ui->owner, size);
-		state->data_capacity = size;
-	}
-	else {
-		memory_zero(state->data, state->data_capacity);
-	}
-	state->id = id;
-	state->data_size = size;
-	state->last_touched_frame = ui->frame_index;
-	return state->data;
-}
-
-void ui_state_forget(UI_Context *ui, UI_Id id)
-{
-	Assert(ui);
-	Assert(id.value);
-	for (u32 state_index = 0; state_index < ui->persistent_state_capacity; state_index++)
-	{
-		UI_PersistentState *state = &ui->persistent_states[state_index];
-		if (!ui_id_equal(state->id, id)) continue;
-		if (state->data) {
-			memory_zero(state->data, state->data_capacity);
-		}
-		state->id = UI_ID_NONE;
-		state->data_size = 0;
-		state->last_touched_frame = 0;
-		break;
-	}
 }
 
 UI_BoxState *ui_box_state_get(UI_Context *ui, UI_Id id)

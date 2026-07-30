@@ -601,7 +601,7 @@ static int playground_run_tests(void)
 		ui->frame_elapsed = 0.055f;
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		CHECK(root->state == root_state && root->has_previous, "the next frame recovers the same box state and previous geometry");
-		CHECK(scroll->has_previous && playground_near(scroll->previous.scroll_max.y, 300.f), "the next scroll scope consumes geometry persisted by its key");
+		CHECK(scroll->has_previous && playground_near(scroll->viewport->state->scroll_max.y, 300.f), "the next scroll scope consumes geometry persisted by its boxes");
 		CHECK(playground_near(scroll->target, 48.f) && playground_near(scroll->offset, 24.f), "wheel input updates context-owned target and time-invariant offset before layout");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
@@ -626,6 +626,33 @@ static int playground_run_tests(void)
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		CHECK(playground_near(scroll->offset, 224.f), "thumb dragging maps mouse travel into the persistent logical range");
+		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
+		ui_end_frame(ui);
+
+		window.keys[OS_Key_MouseLeft] = 0;
+		ui_begin_frame(ui);
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		ui_scroll_reset(scroll);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(scroll->viewport->scroll_offset.y, 0.f) && playground_near(scroll->thumb->rect.y, scroll->track->viewport.y), "reset updates the current viewport and box scrollbar geometry");
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		CHECK(playground_near(scroll->offset, 0.f) && playground_near(scroll->target, 0.f), "reset persists through the viewport box state");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		ui_end_frame(ui);
+
+		window.mouse_position = v2i(106, 80);
+		window.keys[OS_Key_MouseLeft] = OS_KEY_PRESSED | OS_KEY_DOWN;
+		ui_begin_frame(ui);
+		ui->frame_elapsed = 0.f;
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		CHECK(ui_is_active(ui, scroll->track->id) && playground_near(scroll->target, 85.f), "the scrollbar track is an ordinary signaled box with page-step behavior");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);

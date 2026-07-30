@@ -827,7 +827,7 @@ void gfx_update_texture(GFX_Texture *pub, GFX_TextureUpdateParams p)
 	}
 }
 
-b32 graphics_texture_read(GFX_Texture *pub, void *data, u32 stride)
+b32 gfx_read_texture(GFX_Texture *pub, void *data, u32 stride)
 {
 	Assert(pub);
 	Assert(data);

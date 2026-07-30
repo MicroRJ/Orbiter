@@ -1063,7 +1063,7 @@ static void app_capture_gifs(GFX_Texture *frame_texture)
 		u32 pixel_count = size.x * size.y;
 		vec4 *linear = arena_push(&app.frame_arena, pixel_count * sizeof(*linear));
 		Color_RGBA8 *pixels = arena_push(&app.frame_arena, pixel_count * sizeof(*pixels));
-		if (!graphics_texture_read(frame_texture, linear, size.x * sizeof(*linear)))
+		if (!gfx_read_texture(frame_texture, linear, size.x * sizeof(*linear)))
 		{
 			LOG_ERROR("application GIF texture readback failed");
 			gif_recorder_end(&app.app_gif);

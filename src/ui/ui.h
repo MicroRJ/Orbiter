@@ -175,7 +175,6 @@ typedef struct
 }
 UI_Frame;
 
-typedef struct UI_PersistentState UI_PersistentState;
 typedef struct UI_Box UI_Box;
 typedef struct UI_BoxState UI_BoxState;
 typedef struct UI_Context UI_Context;
@@ -187,8 +186,6 @@ struct UI_Context
 	Arena      frame_arena;
 	UI_Frame   frame;
 	UI_Theme   theme;
-	UI_PersistentState *persistent_states;
-	u32        persistent_state_capacity;
 	UI_BoxState **box_state_slots;
 	UI_BoxState *free_box_states;
 	u32        box_state_slot_count;
@@ -256,15 +253,11 @@ UI_Table;
 
 UI_Palette ui_default_palette(void);
 UI_Theme ui_default_theme(Font_Handle code_font);
-UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
-	UI_Theme theme);
+UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text, UI_Theme theme);
 
 void ui_begin_frame(UI_Context *ui);
 void ui_end_frame(UI_Context *ui);
 const UI_Frame *ui_frame(const UI_Context *ui);
-// Context-lifetime widget state. A key must always request the same data size.
-void *ui_state_get(UI_Context *ui, UI_Id id, u64 size);
-void ui_state_forget(UI_Context *ui, UI_Id id);
 UI_BoxState *ui_box_state_get(UI_Context *ui, UI_Id id);
 void ui_box_state_forget(UI_Context *ui, UI_Id id);
 void ui_invalidate_layout(UI_Context *ui);

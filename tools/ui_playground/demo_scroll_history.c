@@ -76,7 +76,9 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	scroll->thumb->user = playground_visual(arena, color_srgba(0xC99CFF), false);
 	ui_pop(&builder);
 
-	UI_ScrollGeometry *previous = &scroll->previous;
+	UI_BoxState *viewport_previous = scroll->viewport->state;
+	UI_BoxState *track_previous = scroll->track->state;
+	UI_BoxState *thumb_previous = scroll->thumb->state;
 	b32 input_ready = scroll->has_previous;
 
 	UI_BoxDesc state_panel = playground_fill_desc();
@@ -94,12 +96,12 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_text_box_string_desc(&builder, 3, line, text, push_formatted(arena, "offset          %9.2f", scroll->offset));
 	ui_text_box_string_desc(&builder, 4, line, text, push_formatted(arena, "target          %9.2f", scroll->target));
 	ui_text_box_string_desc(&builder, 5, line, subtle, push_formatted(arena, "generation      %9llu", ui->layout_generation));
-	ui_text_box_string_desc(&builder, 6, line, subtle, push_formatted(arena, "cached gen      %9llu", previous->layout_generation));
-	ui_text_box_string_desc(&builder, 7, line, text, push_formatted(arena, "viewport h      %9.2f", previous->viewport.h));
-	ui_text_box_string_desc(&builder, 8, line, text, push_formatted(arena, "content h       %9.2f", previous->content_size.y));
-	ui_text_box_string_desc(&builder, 9, line, text, push_formatted(arena, "scroll range    %9.2f", previous->scroll_max.y - previous->scroll_min.y));
-	ui_text_box_string_desc(&builder, 10, line, text, push_formatted(arena, "track y / h  %7.2f / %7.2f", previous->track.y, previous->track.h));
-	ui_text_box_string_desc(&builder, 11, line, text, push_formatted(arena, "thumb y / h  %7.2f / %7.2f", previous->thumb.y, previous->thumb.h));
+	ui_text_box_string_desc(&builder, 6, line, subtle, push_formatted(arena, "cached gen      %9llu", viewport_previous->layout_generation));
+	ui_text_box_string_desc(&builder, 7, line, text, push_formatted(arena, "viewport h      %9.2f", viewport_previous->viewport.h));
+	ui_text_box_string_desc(&builder, 8, line, text, push_formatted(arena, "content h       %9.2f", viewport_previous->content_size.y));
+	ui_text_box_string_desc(&builder, 9, line, text, push_formatted(arena, "scroll range    %9.2f", viewport_previous->scroll_max.y - viewport_previous->scroll_min.y));
+	ui_text_box_string_desc(&builder, 10, line, text, push_formatted(arena, "track y / h  %7.2f / %7.2f", track_previous->rect.y, track_previous->rect.h));
+	ui_text_box_string_desc(&builder, 11, line, text, push_formatted(arena, "thumb y / h  %7.2f / %7.2f", thumb_previous->rect.y, thumb_previous->rect.h));
 
 	UI_BoxDesc divider = playground_fill_desc();
 	divider.size[AXIS_Y] = ui_box_pixels(2.f);
@@ -107,8 +109,8 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_text_box_string_desc(&builder, 13, line, title, LIT("FRAME PIPELINE"));
 
 	static const String pipeline[] = {
-		LIT("1  ui_scroll_begin finds context state"),
-		LIT("2  ui_scroll_end handles old geometry"),
+		LIT("1  boxes recover context-owned state"),
+		LIT("2  box signals handle old geometry"),
 		LIT("3  current box tree lays out once"),
 		LIT("4  layout commits geometry to context"),
 	};
