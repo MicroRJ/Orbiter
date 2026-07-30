@@ -496,6 +496,23 @@ static UI_Scroll *playground_build_test_scroll(Arena *arena, UI_Context *ui, UI_
 	return scroll;
 }
 
+static UI_Response playground_build_test_signal(Arena *arena, UI_Context *ui, UI_Box **root_out, UI_Box **box_out)
+{
+	UI_BoxDesc root_desc = playground_fill_desc();
+	root_desc.axis = AXIS_Y;
+	UI_BoxBuilder builder;
+	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, UI_KEY("test signal"), LIT("root"), root_desc);
+	UI_BoxDesc box_desc = ui_box_desc();
+	box_desc.size[AXIS_X] = ui_box_pixels(50.f);
+	box_desc.size[AXIS_Y] = ui_box_pixels(30.f);
+	UI_Box *box = ui_box_make_desc(&builder, UI_KEY("button"), LIT("button"), box_desc);
+	UI_Response response = ui_signal_from_box(box);
+	ui_box_builder_end(&builder);
+	*root_out = root;
+	*box_out = box;
+	return response;
+}
+
 static int playground_run_tests(void)
 {
 	Arena arena = arena_create(0, "UI playground tests");
@@ -610,6 +627,58 @@ static int playground_run_tests(void)
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		CHECK(playground_near(scroll->offset, 224.f), "thumb dragging maps mouse travel into the persistent logical range");
 		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	ARENA_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100), .mouse_position = v2i(10, 10) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, (UI_Theme) {});
+		UI_Box *root = 0;
+		UI_Box *box = 0;
+
+		ui_begin_frame(ui);
+		UI_Response response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(!response.hovered && !response.pressed && !response.held, "a new box does not interact through zero or uninitialized geometry");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(playground_near(box->state->hit_rect.w, 50.f) && playground_near(box->state->hit_rect.h, 30.f), "layout persists the box's clipped interaction rectangle");
+		ui_end_frame(ui);
+
+		window.keys[OS_Key_MouseLeft] = OS_KEY_PRESSED | OS_KEY_DOWN;
+		ui_begin_frame(ui);
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(response.hovered && response.pressed && response.held && ui_is_active(ui, box->id), "a box signal presses and exclusively captures through previous geometry");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		ui_end_frame(ui);
+
+		window.mouse_position = v2i(20, 15);
+		window.keys[OS_Key_MouseLeft] = OS_KEY_DOWN;
+		ui_begin_frame(ui);
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(response.hovered && response.held && !response.pressed && playground_near(response.drag_delta.x, 10.f) && playground_near(response.drag_delta.y, 5.f), "a captured box reports held state and drag displacement");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		ui_end_frame(ui);
+
+		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
+		ui_begin_frame(ui);
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(response.released && !response.held, "a captured box reports release before capture is cleared");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		ui_end_frame(ui);
+		CHECK(!ui->active.value, "mouse release clears the exclusive capture at frame end");
+
+		ui_invalidate_layout(ui);
+		window.keys[OS_Key_MouseLeft] = OS_KEY_PRESSED | OS_KEY_DOWN;
+		ui_begin_frame(ui);
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(!box->has_previous && !response.hovered && !response.pressed, "layout invalidation rejects stale box geometry for interaction");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
 	}

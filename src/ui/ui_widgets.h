@@ -14,6 +14,8 @@ UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc de
 UI_Box *ui_text_box_string_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String text);
 UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_text, String text);
 
+UI_Response ui_button(UI_BoxBuilder *builder, UI_Key key, String text);
+
 void ui_box_paint(UI_Box *box);
 
 typedef struct

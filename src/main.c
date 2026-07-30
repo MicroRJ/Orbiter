@@ -747,7 +747,7 @@ static void app_update_video_texture(void)
 	for (u32 index = 0; index < NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT; ++index) {
 		image.data[index] = app.published.palette[app.published.video[0][index] & 63];
 	}
-	graphics_texture_update(app.video_texture, (GFX_TextureUpdateParams) {
+	gfx_update_texture(app.video_texture, (GFX_TextureUpdateParams) {
 		.dest = v2i(0, 0),
 		.size = image.reso,
 		.stride = image.elem_stride * sizeof(*image.data),
@@ -794,7 +794,7 @@ static void app_update_chr_texture(void)
 			}
 		}
 	}
-	graphics_texture_update(app.chr_texture, (GFX_TextureUpdateParams) {
+	gfx_update_texture(app.chr_texture, (GFX_TextureUpdateParams) {
 		.dest = v2i(0, 0),
 		.size = image.reso,
 		.stride = image.elem_stride * sizeof(*image.data),

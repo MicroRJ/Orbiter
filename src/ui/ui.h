@@ -176,6 +176,7 @@ typedef struct
 UI_Frame;
 
 typedef struct UI_PersistentState UI_PersistentState;
+typedef struct UI_Box UI_Box;
 typedef struct UI_BoxState UI_BoxState;
 typedef struct UI_Context UI_Context;
 struct UI_Context
@@ -274,6 +275,7 @@ b32 ui_is_hot(UI_Context *ui, UI_Id id);
 b32 ui_is_active(UI_Context *ui, UI_Id id);
 
 UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect);
+UI_Response ui_signal_from_box(UI_Box *box);
 void ui_push_clip(UI_Context *ui, rect_f32 rect);
 void ui_pop_clip(UI_Context *ui);
 void ui_push_unclipped(UI_Context *ui);

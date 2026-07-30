@@ -148,6 +148,42 @@ UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, UI_Key key, UI_Box
 	return ui_box__make_text(builder, key, &desc, style, sizing_string, string);
 }
 
+UI_Response ui_button(UI_BoxBuilder *builder, UI_Key key, String text)
+{
+	Assert(builder);
+	Assert(builder->ui);
+
+	UI_TextStyle style = builder->ui->theme.code;
+	style.align = v2(0.5f, 0.5f);
+
+	UI_BoxDesc desc = ui_box_desc();
+	desc.horz_padd[0] = desc.horz_padd[1] = 10.f;
+	desc.vert_padd[0] = desc.vert_padd[1] = 6.f;
+	UI_Box *box = ui_text_box_string_desc(builder, key, desc, style, text);
+	UI_Response response = ui_signal_from_box(box);
+
+	UI_Palette *palette = &builder->ui->theme.palette;
+	box->paint = (UI_BoxPaintDesc) {
+		.flags = UI_BOX_DRAW_BACKGROUND | UI_BOX_DRAW_BORDER,
+		.background = palette->raised,
+		.border = palette->divider,
+		.border_width = 1.f,
+		.roundness = 3.f,
+		.edge_softness = 0.5f,
+	};
+	if (response.hovered)
+	{
+		box->paint.background = color_srgba_mix(palette->raised, palette->cyan, 0.20f);
+		box->paint.border = palette->cyan;
+	}
+	if (response.held)
+	{
+		box->paint.background = color_srgba_mix(palette->raised, palette->teal, 0.45f);
+		box->paint.border = palette->teal;
+	}
+	return response;
+}
+
 typedef struct
 {
 	f32 offset;

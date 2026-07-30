@@ -461,6 +461,14 @@ UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
 	return response;
 }
 
+UI_Response ui_signal_from_box(UI_Box *box)
+{
+	Assert(box);
+	Assert(box->ui);
+	if (!box->state || !box->has_previous) return (UI_Response) {};
+	return ui_interact(box->ui, box->id, box->state->hit_rect);
+}
+
 void ui_push_clip(UI_Context *ui, rect_f32 rect)
 {
 	Assert(ui);

@@ -777,14 +777,15 @@ void r_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
 	}
 }
 
-void graphics_texture_update(GFX_Texture *pub, GFX_TextureUpdateParams p)
+void gfx_update_texture(GFX_Texture *pub, GFX_TextureUpdateParams p)
 {
 	Assert(pub);
 	GFX_Renderer *renderer = pub->renderer;
 	Assert(pub->format != GRAPHICS_FORMAT_NONE);
 	Assert(p.data);
 	Assert(pub != g.state.output);
-	Assert(pub != g.state.texture);
+	// TODO(RJ) look into whether this causes contention for our cases
+	// Assert(pub != g.state.texture);
 	Assert(p.dest.x >= 0 && p.dest.y >= 0);
 	Assert(p.size.x > 0 && p.size.y > 0);
 	Assert(p.dest.x + p.size.x <= pub->reso.x);
@@ -803,13 +804,10 @@ void graphics_texture_update(GFX_Texture *pub, GFX_TextureUpdateParams p)
 		Assert(p.dest.x == 0 && p.dest.y == 0);
 		Assert(p.size.x == pub->reso.x && p.size.y == pub->reso.y);
 		D3D11_MAPPED_SUBRESOURCE mapped = { 0 };
-		HRESULT hr = ID3D11DeviceContext_Map(g.context, res, 0,
-			D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+		HRESULT hr = ID3D11DeviceContext_Map(g.context, res, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
 		Assert(SUCCEEDED(hr));
-		for (i32 row = 0; row < p.size.y; ++row)
-		{
-			memory_copy((u8 *)mapped.pData + row * mapped.RowPitch,
-				(u8 *)p.data + row * p.stride, row_size);
+		for (i32 row = 0; row < p.size.y; row ++) {
+			memory_copy((u8 *)mapped.pData + row * mapped.RowPitch, (u8 *)p.data + row * p.stride, row_size);
 		}
 		ID3D11DeviceContext_Unmap(g.context, res, 0);
 	}

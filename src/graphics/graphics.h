@@ -175,7 +175,7 @@ vec2i gfx_texture_size(const GFX_Texture *texture);
 
 // Rare-update textures accept partial updates. Per-frame textures use a mapped
 // discard upload and therefore require a full-texture replacement.
-void graphics_texture_update(GFX_Texture *texture, GFX_TextureUpdateParams desc);
+void gfx_update_texture(GFX_Texture *texture, GFX_TextureUpdateParams desc);
 // Copies the texture's native pixel format into caller memory. The destination
 // stride must hold one complete row.
 b32 graphics_texture_read(GFX_Texture *texture, void *data, u32 stride);

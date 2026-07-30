@@ -5,11 +5,22 @@ For the UI system we've settled on a model that closely follows that of RAD's de
 The idea is to create a transient Box tree each frame.
 
 The Box tree represents an abstract layout. At the end of the frame, we process this
-tree and generate hard geometry from it. The key, is remembering the geometry for the
-next frame. This is the essence of RAD's UI system.
-We separate build state from transient state, that is, the Box itself is treated as a
-collection of build parameters, and the relevant results are persisted from one frame
-to another.
+tree and generate hard geometry from it.
+The key, is remembering relevant build artifacts for the next frame.
+
+This is the essence of RAD's UI system.
+
+
+We're essentially turning this:
+
+	Box:compute_geometry()
+	ui_button(Box:get_rect(), ...)
+
+Into this:
+
+	ui_button(Box:get_rect(), ...)
+	Box:compute_geometry()
+
 
 Additionally, not only is a box a node in a layout tree, but also a graphical object.
 Each box contains basic paint information.

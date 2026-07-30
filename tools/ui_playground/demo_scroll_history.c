@@ -39,6 +39,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	UI_TextStyle status = title;
 	status.align.x = 1.f;
 	ui_text_box_string_desc(&builder, 4, header_text, status, LIT("CONTEXT-OWNED STATE"));
+	UI_Response reset_button = ui_button(&builder, UI_KEY("reset scroll"), LIT("RESET"));
 	ui_box_end(&builder);
 
 	UI_BoxDesc body = playground_fill_desc();
@@ -51,7 +52,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
 	ui_min_size(&builder, AXIS_X, 360.f);
 	UI_Scroll *scroll = ui_scroll_begin(&builder, 7100, AXIS_Y);
-	if (reset_scroll) ui_scroll_reset(scroll);
+	if (reset_scroll || reset_button.pressed) ui_scroll_reset(scroll);
 
 	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
 	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
