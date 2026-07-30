@@ -1408,7 +1408,7 @@ static void app_frame(void)
 	ARENA_SCOPE(&app.frame_arena)
 	{
 		prof_begin_frame();
-		PROF_BLOCK("main frame incl wait")
+		PROF_BLOCK("main frame")
 		{
 			AppInput input = app_translate_input_events_based_on_mode();
 			b32 app_consumed_input = app_handle_input(input);
@@ -1419,34 +1419,34 @@ static void app_frame(void)
 			// TODO(RJ) remove app debugger orchestration from the app itself, this
 			// is order sensitive, should be done by the debugger itself in one atomic
 			// step and the app just passes in options.
-			if (app.mode == APP_MODE_EMULATOR)
+			if (debugger_has_cartridge(app.debugger))
 			{
-				PROF_BLOCK("snapshot") debugger_capture_snapshot(app.debugger);
+				if (app.mode == APP_MODE_EMULATOR)
+				{
+					PROF_BLOCK("snapshot") debugger_capture_snapshot(app.debugger);
 
-				app_clear_debugger_input();
-				if (!app_consumed_input) app_update_debugger_input();
+					app_clear_debugger_input();
+					if (!app_consumed_input) app_update_debugger_input();
 
-				if (input.action == APP_ACTION_STEP) {
-					app.emulator_running = false;
-					PROF_BLOCK("emulation step") debugger_step(app.debugger);
-				}
-				else if (app.emulator_running) {
-					if (app.audio_backend_available && !app.apu_muted) {
-						PROF_BLOCK("emulation") app_run_with_audio();
-					} else {
-						PROF_BLOCK("emulation muted") app_run_without_audio();
+					if (input.action == APP_ACTION_STEP) {
+						app.emulator_running = false;
+						PROF_BLOCK("emulation step") debugger_step(app.debugger);
+					}
+					else if (app.emulator_running) {
+						if (app.audio_backend_available && !app.apu_muted) {
+							PROF_BLOCK("emulation") app_run_with_audio();
+						} else {
+							PROF_BLOCK("emulation muted") app_run_without_audio();
+						}
 					}
 				}
+				PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
+				PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
+				PROF_BLOCK("drain audio")        app_drain_audio();
+				PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
+				PROF_BLOCK("application")        app_publish();
 			}
 
-			// TODO(RJ) one atomic step
-			PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
-			PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
-
-
-			PROF_BLOCK("drain audio")        app_drain_audio();
-			PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
-			PROF_BLOCK("application")        app_publish();
 			PROF_BLOCK("application draw")   app_draw();
 			PROF_BLOCK("frame pacing")       app_pace_frame();
 		}
