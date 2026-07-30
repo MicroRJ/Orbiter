@@ -33,6 +33,13 @@ enum
 	UI_CODE_FONT_SIZE_MAX = 48,
 };
 
+enum
+{
+	UI_Z_CONTENT = 0,
+	UI_Z_HEADER = 100,
+	UI_Z_OVERLAY = 1000,
+};
+
 typedef struct
 {
 	Color_SRGBA void_background;
@@ -155,8 +162,8 @@ void ui_end_frame(UI_Context *ui);
 UI_BoxState *ui_box_state_get(UI_Context *ui, UI_Id id);
 void ui_box_state_forget(UI_Context *ui, UI_Id id);
 void ui_invalidate_layout(UI_Context *ui);
-void ui_push_layer(UI_Context *ui, Draw_LayerKind layer);
-void ui_pop_layer(UI_Context *ui);
+void ui_push_z(UI_Context *ui, i32 z);
+void ui_pop_z(UI_Context *ui);
 
 b32 ui_is_hot(UI_Context *ui, UI_Id id);
 b32 ui_is_active(UI_Context *ui, UI_Id id);

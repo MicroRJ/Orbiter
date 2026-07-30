@@ -3,6 +3,7 @@
 
 #include "color.h"
 #include "text.h"
+
 typedef enum
 {
 	GFX_BLENDER_NONE = 0,
@@ -321,15 +322,6 @@ Draw_BackdropParams;
 
 typedef enum
 {
-	DRAW_LAYER_CONTENT,
-	DRAW_LAYER_HEADER,
-	DRAW_LAYER_OVERLAY,
-	DRAW_LAYER_COUNT,
-}
-Draw_LayerKind;
-
-typedef enum
-{
 	DRAW_COMMAND_RECT,
 	DRAW_COMMAND_IMAGE,
 	DRAW_COMMAND_TEXT,
@@ -384,8 +376,8 @@ void draw_barrel(Draw_Context *draw, Draw_BarrelParams params);
 void draw_blit(Draw_Context *draw, GFX_Texture *texture);
 void draw_mask_rects(Draw_Context *draw, Draw_MaskRectsParams params);
 
-void draw_list_push_layer(Draw_Context *draw, Draw_LayerKind layer);
-void draw_list_pop_layer(Draw_Context *draw);
+void draw_list_push_z(Draw_Context *draw, i32 z);
+void draw_list_pop_z(Draw_Context *draw);
 void draw_list_push_clip(Draw_Context *draw, rect_f32 clip);
 void draw_list_pop_clip(Draw_Context *draw);
 void draw_list_push_unclipped(Draw_Context *draw);

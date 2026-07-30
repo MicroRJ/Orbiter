@@ -10,11 +10,6 @@ enum {
 	MMC1_LOAD_R,
 };
 
-NES_MAPPER_INIT_FUNC(mmc1_init) {
-	data->prg_bank_size = KiB(16);
-	return true;
-}
-
 NES_MAPPER_RSET_FUNC(mmc1_reset) {
 	nes_mapper_set_value(nes, MMC1_LOAD_R,    0x10);
 	nes_mapper_set_value(nes, MMC1_CONTROL_R, 0x0C);

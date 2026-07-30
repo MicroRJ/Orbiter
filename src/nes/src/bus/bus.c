@@ -3,13 +3,6 @@
 #include "../ppu/ppu.h"
 #include "../apu/apu.h"
 
-// address wiring
-
-NES_MAPPER_INIT_FUNC(none_init)  { return false; }
-NES_MAPPER_RSET_FUNC(none_reset) { return false; }
-NES_BusAccess none_cpu(NES_Emulator *nes, NES_BusAccess access) { return access; }
-NES_BusAccess none_ppu(NES_Emulator *nes, NES_BusAccess access) { return access; }
-
 static NES_BusAccess nes_cpu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 {
 	Assert(access.address <= MAX_VALUE_U16);

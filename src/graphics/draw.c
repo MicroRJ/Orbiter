@@ -9,7 +9,7 @@ enum
 	DRAW_BATCH_ARENA_CAPACITY = MB(4),
 	DRAW_INSTANCE_ARENA_CAPACITY = MB(60),
 	DRAW_CLIP_STACK_CAPACITY = 64,
-	DRAW_LIST_LAYER_STACK_CAPACITY = 8,
+	DRAW_LIST_Z_STACK_CAPACITY = 8,
 	DRAW_LIST_CLIP_STACK_CAPACITY = 16,
 	DRAW_LIST_EMISSION_STACK_CAPACITY = 8,
 };
@@ -28,19 +28,24 @@ typedef struct
 }
 Draw_BatchMetrics;
 
-typedef struct
+typedef struct Draw_Run Draw_Run;
+struct Draw_Run
 {
+	Draw_Run *next;
+	i32 z;
 	Draw_Command *first;
 	Draw_Command *last;
 	u32 command_count;
 	b32 has_backdrops;
 	b32 has_emission;
-}
-Draw_Layer;
+};
 
 typedef struct
 {
-	Draw_Layer layers[DRAW_LAYER_COUNT];
+	Draw_Run *first;
+	Draw_Run *last;
+	u32 run_count;
+	u32 command_count;
 }
 Draw_Frame;
 
@@ -73,9 +78,9 @@ struct Draw_Context
 	Draw_BatchMetrics batch_metrics;
 
 	Draw_Frame frame;
-	Draw_LayerKind layer;
-	Draw_LayerKind layer_stack[DRAW_LIST_LAYER_STACK_CAPACITY];
-	u32 layer_stack_count;
+	i32 z;
+	i32 z_stack[DRAW_LIST_Z_STACK_CAPACITY];
+	u32 z_stack_count;
 	rect_f32 list_clip_stack[DRAW_LIST_CLIP_STACK_CAPACITY];
 	u32 list_clip_stack_count;
 	u32 unclipped_scope_count;
@@ -258,8 +263,8 @@ void gfx_begin_frame(Draw_Context *draw)
 	draw->active_batch_offset = 0;
 	draw->batch_metrics = (Draw_BatchMetrics) { 0 };
 	draw->frame = (Draw_Frame) { 0 };
-	draw->layer = DRAW_LAYER_CONTENT;
-	draw->layer_stack_count = 0;
+	draw->z = 0;
+	draw->z_stack_count = 0;
 	draw->list_clip_stack_count = 0;
 	draw->unclipped_scope_count = 0;
 	draw->emission = 0.f;
@@ -313,15 +318,11 @@ void gfx_end_frame(Draw_Context *draw)
 	Assert(draw);
 	Assert(draw->frame_active);
 	Assert(!draw->pass_active);
-	Assert(draw->layer_stack_count == 0);
+	Assert(draw->z_stack_count == 0);
 	Assert(draw->list_clip_stack_count == 0);
 	Assert(draw->unclipped_scope_count == 0);
 	Assert(draw->emission_stack_count == 0);
-	u32 command_count = 0;
-	for (u32 layer_index = 0; layer_index < DRAW_LAYER_COUNT; ++layer_index) {
-		command_count += draw->frame.layers[layer_index].command_count;
-	}
-	Assert(draw->commands_composed || command_count == 0);
+	Assert(draw->commands_composed || draw->frame.command_count == 0);
 	GFX_DrawData data = {
 		.passes = draw->passes,
 		.pass_count = draw->pass_count,
@@ -731,7 +732,6 @@ static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kin
 	Assert(draw);
 	Assert(draw->frame_active);
 	Assert(!draw->commands_composed);
-	Assert(draw->layer >= 0 && draw->layer < DRAW_LAYER_COUNT);
 	Draw_Command *command = arena_push_zero(&draw->command_arena, sizeof(*command));
 	command->kind = kind;
 	command->emission = draw->emission;
@@ -755,34 +755,47 @@ static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kin
 		command->clip = draw->list_clip_stack[draw->list_clip_stack_count - 1];
 		prof_add_metric(PROF_METRIC_DRAW_CLIPPED_COMMANDS, 1);
 	}
-	Draw_Layer *layer = &draw->frame.layers[draw->layer];
-	layer->has_emission |= command->emission > 0.f;
-	if (layer->last) {
-		layer->last->next = command;
-	} else {
-		layer->first = command;
+	Draw_Run *run = draw->frame.last;
+	if (!run || run->z != draw->z)
+	{
+		run = arena_push_zero(&draw->command_arena, sizeof(*run));
+		run->z = draw->z;
+		draw->frame.run_count++;
+		if (draw->frame.last) {
+			draw->frame.last->next = run;
+		} else {
+			draw->frame.first = run;
+		}
+		draw->frame.last = run;
 	}
-	layer->last = command;
-	layer->command_count += 1;
+	run->has_backdrops |= kind == DRAW_COMMAND_BACKDROP;
+	run->has_emission |= command->emission > 0.f;
+	if (run->last) {
+		run->last->next = command;
+	} else {
+		run->first = command;
+	}
+	run->last = command;
+	run->command_count += 1;
+	draw->frame.command_count += 1;
 	return command;
 }
 
-void draw_list_push_layer(Draw_Context *draw, Draw_LayerKind layer)
+void draw_list_push_z(Draw_Context *draw, i32 z)
 {
 	Assert(draw);
 	Assert(draw->frame_active);
-	Assert(layer >= 0 && layer < DRAW_LAYER_COUNT);
-	Assert(draw->layer_stack_count < ArrayCount(draw->layer_stack));
-	draw->layer_stack[draw->layer_stack_count++] = draw->layer;
-	draw->layer = layer;
+	Assert(draw->z_stack_count < ArrayCount(draw->z_stack));
+	draw->z_stack[draw->z_stack_count++] = draw->z;
+	draw->z = z;
 }
 
-void draw_list_pop_layer(Draw_Context *draw)
+void draw_list_pop_z(Draw_Context *draw)
 {
 	Assert(draw);
 	Assert(draw->frame_active);
-	Assert(draw->layer_stack_count > 0);
-	draw->layer = draw->layer_stack[--draw->layer_stack_count];
+	Assert(draw->z_stack_count > 0);
+	draw->z = draw->z_stack[--draw->z_stack_count];
 }
 
 void draw_list_push_clip(Draw_Context *draw, rect_f32 clip)
@@ -868,7 +881,6 @@ void draw_list_backdrop(Draw_Context *draw, Draw_BackdropParams params)
 {
 	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_BACKDROP, false);
 	command->backdrop = params;
-	draw->frame.layers[draw->layer].has_backdrops = true;
 }
 
 // Composition
@@ -926,83 +938,101 @@ static Color_SRGBA draw__emission_color(Color_SRGBA color, f32 emission)
 	return color;
 }
 
-static void draw__replay_layer(Draw_Context *draw, Text_GFX *text_gfx, Draw_LayerKind layer_kind, GFX_Texture *backdrop_texture, b32 emission_only)
+static void draw__sort_runs_by_z(Draw_Run **runs, u32 run_count)
 {
-	const Draw_Layer *layer = &draw->frame.layers[layer_kind];
-	u32 replay_count = 0;
-	PROF_BLOCK("draw layer playback") for (Draw_Command *command = layer->first; command; command = command->next)
+	for (u32 index = 1; index < run_count; ++index)
 	{
-		replay_count++;
-		if (emission_only && command->emission <= 0.f) {
-			continue;
-		}
-		if (command->has_clip) {
-			draw_push_clip(draw, command->clip);
-		}
-
-		switch (command->kind)
+		Draw_Run *run = runs[index];
+		u32 insert_index = index;
+		while (insert_index && runs[insert_index - 1]->z > run->z)
 		{
-			case DRAW_COMMAND_RECT:
-			{
-				Draw_RectParams params = command->rect;
-				if (emission_only) params.color = draw__emission_color(params.color, command->emission);
-				draw_rect(draw, params);
-			} break;
-			case DRAW_COMMAND_IMAGE:
-			{
-				Draw_TextureParams params = command->image;
-				if (emission_only) params.tint = draw__emission_color(COLOR_WHITE, command->emission);
-				draw_image(draw, params);
-			} break;
-			case DRAW_COMMAND_TEXT:
-			{
-				Assert(text_gfx);
-				text_gfx_draw_run(text_gfx, draw, command->text.run, command->text.position,
-					emission_only ? draw__emission_color(command->text.color, command->emission) : command->text.color);
-			} break;
-			case DRAW_COMMAND_INSET_SHADOW:
-			{
-				if (!emission_only) draw_inset_shadow(draw, command->inset_shadow.rect, command->inset_shadow.strength);
-			} break;
-			case DRAW_COMMAND_BACKDROP:
-			{
-				if (emission_only) break;
-				Assert(backdrop_texture);
-				draw_glass(draw, (Draw_GlassParams) {
-					.texture = backdrop_texture,
-					.rect = command->backdrop.rect,
-					.corner_radius = command->backdrop.corner_radius,
-					.distortion = command->backdrop.distortion,
-					.distortion_width = command->backdrop.distortion_width,
-					.saturation = command->backdrop.saturation,
-					.tint = command->backdrop.tint,
-					.grain = command->backdrop.grain,
-					.highlight = command->backdrop.highlight,
-					.shadow = command->backdrop.shadow,
-				});
-			} break;
-			default: Assert(!"invalid draw command");
+			runs[insert_index] = runs[insert_index - 1];
+			insert_index--;
 		}
+		runs[insert_index] = run;
+	}
+}
 
-		if (command->has_clip) {
-			draw_pop_clip(draw);
+static void draw__replay_runs(Draw_Context *draw, Text_GFX *text_gfx, Draw_Run **runs, u32 run_count, GFX_Texture *backdrop_texture, b32 emission_only)
+{
+	u32 replay_count = 0;
+	PROF_BLOCK("draw run playback")
+	for (u32 run_index = 0; run_index < run_count; ++run_index)
+	{
+		for (Draw_Command *command = runs[run_index]->first; command; command = command->next)
+		{
+			replay_count++;
+			if (emission_only && command->emission <= 0.f) {
+				continue;
+			}
+			if (command->has_clip) {
+				draw_push_clip(draw, command->clip);
+			}
+
+			switch (command->kind)
+			{
+				case DRAW_COMMAND_RECT:
+				{
+					Draw_RectParams params = command->rect;
+					if (emission_only) params.color = draw__emission_color(params.color, command->emission);
+					draw_rect(draw, params);
+				} break;
+				case DRAW_COMMAND_IMAGE:
+				{
+					Draw_TextureParams params = command->image;
+					if (emission_only) params.tint = draw__emission_color(COLOR_WHITE, command->emission);
+					draw_image(draw, params);
+				} break;
+				case DRAW_COMMAND_TEXT:
+				{
+					Assert(text_gfx);
+					text_gfx_draw_run(text_gfx, draw, command->text.run, command->text.position,
+						emission_only ? draw__emission_color(command->text.color, command->emission) : command->text.color);
+				} break;
+				case DRAW_COMMAND_INSET_SHADOW:
+				{
+					if (!emission_only) draw_inset_shadow(draw, command->inset_shadow.rect, command->inset_shadow.strength);
+				} break;
+				case DRAW_COMMAND_BACKDROP:
+				{
+					if (emission_only) break;
+					Assert(backdrop_texture);
+					draw_glass(draw, (Draw_GlassParams) {
+						.texture = backdrop_texture,
+						.rect = command->backdrop.rect,
+						.corner_radius = command->backdrop.corner_radius,
+						.distortion = command->backdrop.distortion,
+						.distortion_width = command->backdrop.distortion_width,
+						.saturation = command->backdrop.saturation,
+						.tint = command->backdrop.tint,
+						.grain = command->backdrop.grain,
+						.highlight = command->backdrop.highlight,
+						.shadow = command->backdrop.shadow,
+					});
+				} break;
+				default: Assert(!"invalid draw command");
+			}
+
+			if (command->has_clip) {
+				draw_pop_clip(draw);
+			}
 		}
 	}
 	prof_add_metric(PROF_METRIC_DRAW_COMMAND_REPLAYS, replay_count);
 }
 
-static void draw__bloom_pass(Draw_Context *draw, Text_GFX *text_gfx, Draw_LayerKind layer_kind, GFX_Texture *frame_texture, rect_f32 output_rect)
+static void draw__bloom_pass(Draw_Context *draw, Text_GFX *text_gfx, Draw_Run **runs, u32 run_count, b32 has_emission, GFX_Texture *frame_texture, rect_f32 output_rect)
 {
-	if (!draw->frame.layers[layer_kind].has_emission) {
+	if (!has_emission) {
 		return;
 	}
-	prof_add_metric(PROF_METRIC_DRAW_BLOOM_LAYERS, 1);
+	prof_add_metric(PROF_METRIC_DRAW_BLOOM_SLICES, 1);
 
 	vec2i size = gfx_texture_size(frame_texture);
 	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
 	GFX_Texture *emission = draw__acquire_pass_output(draw, size, GRAPHICS_SAMPLER_LINEAR, "draw emission");
 	gfx_begin_pass(draw, (GFX_PassDesc) { .output = emission, .clear = true, .clear_color = COLOR_TRANSPARENT });
-	draw__replay_layer(draw, text_gfx, layer_kind, 0, true);
+	draw__replay_runs(draw, text_gfx, runs, run_count, 0, true);
 	gfx_end_pass(draw);
 
 	GFX_Texture *bloom = draw__copy_pass(draw, emission, blur_size, "draw emission downsample");
@@ -1028,22 +1058,41 @@ void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, r
 	Assert(draw->frame_active);
 	Assert(!draw->pass_active);
 	Assert(!draw->commands_composed);
-	Assert(draw->layer_stack_count == 0);
+	Assert(draw->z_stack_count == 0);
 	Assert(draw->list_clip_stack_count == 0);
 	Assert(draw->unclipped_scope_count == 0);
 	Assert(draw->emission_stack_count == 0);
 
 	PROF_BLOCK("draw composition")
 	{
-		for (u32 layer_index = 0; layer_index < DRAW_LAYER_COUNT; ++layer_index)
+		u32 run_count = draw->frame.run_count;
+		Draw_Run **runs = run_count ? arena_push(&draw->command_arena, sizeof(*runs) * run_count) : 0;
+		u32 run_index = 0;
+		for (Draw_Run *run = draw->frame.first; run; run = run->next) {
+			runs[run_index++] = run;
+		}
+		Assert(run_index == run_count);
+		PROF_BLOCK("draw__sort_runs_by_z") draw__sort_runs_by_z(runs, run_count);
+
+		for (u32 slice_begin = 0; slice_begin < run_count;)
 		{
-			Draw_LayerKind layer_kind = (Draw_LayerKind)layer_index;
-			const Draw_Layer *layer = &draw->frame.layers[layer_index];
-			GFX_Texture *backdrop = layer->has_backdrops ? draw__backdrop_blur_pass(draw, output) : 0;
+			u32 slice_end = slice_begin;
+			b32 has_backdrops = false;
+			b32 has_emission = false;
+			while (slice_end < run_count && runs[slice_end]->z == runs[slice_begin]->z)
+			{
+				has_backdrops |= runs[slice_end]->has_backdrops;
+				has_emission |= runs[slice_end]->has_emission;
+				slice_end++;
+			}
+
+			u32 slice_run_count = slice_end - slice_begin;
+			GFX_Texture *backdrop = has_backdrops ? draw__backdrop_blur_pass(draw, output) : 0;
 			gfx_begin_pass(draw, (GFX_PassDesc) { .output = output });
-			draw__replay_layer(draw, text_gfx, layer_kind, backdrop, false);
+			draw__replay_runs(draw, text_gfx, runs + slice_begin, slice_run_count, backdrop, false);
 			gfx_end_pass(draw);
-			draw__bloom_pass(draw, text_gfx, layer_kind, output, output_rect);
+			draw__bloom_pass(draw, text_gfx, runs + slice_begin, slice_run_count, has_emission, output, output_rect);
+			slice_begin = slice_end;
 		}
 	}
 

@@ -20,7 +20,7 @@ _(METRIC_DRAW_CLIPPED_COMMANDS   ,   "draw_clipped_commands"      ) \
 _(METRIC_DRAW_EMISSIVE_COMMANDS  ,  "draw_emissive_commands"      ) \
 _(METRIC_DRAW_COMMAND_REPLAYS    ,    "draw_command_replays"      ) \
 _(METRIC_DRAW_BACKDROP_BLURS     ,     "draw_backdrop_blurs"      ) \
-_(METRIC_DRAW_BLOOM_LAYERS       ,       "draw_bloom_layers"      ) \
+_(METRIC_DRAW_BLOOM_SLICES       ,       "draw_bloom_slices"      ) \
 _(METRIC_DRAW_PASSES             ,              "draw_passes"     ) \
 _(METRIC_DRAW_BATCHES            ,             "draw_batches"     ) \
 _(METRIC_DRAW_CALLS              ,               "draw_calls"     ) \

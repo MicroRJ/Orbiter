@@ -40,8 +40,6 @@ typedef struct
 }
 NES_MappedRead;
 
-NES_BusAccess none_cpu(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess none_ppu(NES_Emulator *nes, NES_BusAccess access);
 NES_BusAccess oam_mem(NES_Emulator *nes, NES_BusAccess access);
 NES_BusAccess pram_mem(NES_Emulator *nes, NES_BusAccess access);
 NES_BusAccess vram_mem(NES_Emulator *nes, NES_BusAccess access);

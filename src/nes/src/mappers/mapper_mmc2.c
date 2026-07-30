@@ -13,10 +13,6 @@ enum {
 	MIRRORING,
 };
 
-NES_MAPPER_INIT_FUNC(mmc2_init) {
-	return true;
-}
-
 NES_MAPPER_RSET_FUNC(mmc2_reset) {
 	nes_mapper_set_value(nes, LATCH0, 0xFE);
 	nes_mapper_set_value(nes, LATCH1, 0xFE);

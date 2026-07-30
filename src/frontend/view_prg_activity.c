@@ -213,7 +213,7 @@ static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGri
 	};
 	tooltip.x = CLAMP(tooltip.x, frame->rect.x, Max(frame->rect.x, frame->rect.x + frame->rect.w - tooltip.w));
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
-	ui_push_layer(ui, DRAW_LAYER_OVERLAY);
+	ui_push_z(ui, UI_Z_OVERLAY);
 	ui_push_unclipped(ui);
 	ui_draw_backdrop(ui, tooltip);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
@@ -223,7 +223,7 @@ static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGri
 		text.y += line_height;
 	}
 	ui_pop_unclipped(ui);
-	ui_pop_layer(ui);
+	ui_pop_z(ui);
 }
 
 static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *grid, const Debugger *debugger, const Program *program, b32 include_prg_ram)

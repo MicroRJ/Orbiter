@@ -11,22 +11,18 @@
 
 static const NES_MapperClass nes_mapper_classes[] =
 {
-	{ "NROM",    nrom_init,  nrom_reset,  nrom_cpu,  nrom_ppu },
-	{ "MMC1",    mmc1_init,  mmc1_reset,  mmc1_cpu,  mmc1_ppu },
-	{ "UxROM",  uxrom_init, uxrom_reset, uxrom_cpu, uxrom_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "MMC2",    mmc2_init,  mmc2_reset,  mmc2_cpu,  mmc2_ppu },
+	{ "NROM",     nrom_reset,  nrom_cpu,  nrom_ppu },
+	{ "MMC1",     mmc1_reset,  mmc1_cpu,  mmc1_ppu },
+	{ "UxROM",   uxrom_reset, uxrom_cpu, uxrom_ppu },
+	{ "UNKNOWN",           0,         0,         0 },
+	{ "UNKNOWN",           0,         0,         0 },
+	{ "UNKNOWN",           0,         0,         0 },
+	{ "UNKNOWN",           0,         0,         0 },
+	{ "UNKNOWN",           0,         0,         0 },
+	{ "UNKNOWN",           0,         0,         0 },
+	{ "MMC2",     mmc2_reset,  mmc2_cpu,  mmc2_ppu },
 };
 
-static const NES_MapperClass nes_no_mapper =
-{
-	"NONE", none_init, none_reset, none_cpu, none_ppu,
-};
 
 void nes_mapper_set_value(NES_Emulator *core, u32 index, u8 value)
 {
@@ -59,17 +55,14 @@ static void nes_zero_runtime(NES_Emulator *core)
 	nes_reset_audio(core);
 }
 
-static b32 nes_instantiate_cartridge(NES_Emulator *core)
+static void nes_emulator_activate_mapper(NES_Emulator *core)
 {
-	core->mapper = nes_no_mapper;
-	u32 mapper_number = core->core.mapper_number.number;
-	if (mapper_number >= ArrayCount(nes_mapper_classes)) return false;
-
-	NES_MapperClass mapper = nes_mapper_classes[mapper_number];
-	NES_MapperInitParams params = { .num_prg_banks = core->core.num_prg_banks };
-	b32 success = mapper.init(core, &params);
-	if (success) core->mapper = mapper;
-	return success;
+	u32 number = core->core.mapper_number.number;
+	Assert(number < ArrayCount(nes_mapper_classes));
+	Assert(nes_mapper_classes[number].reset);
+	Assert(nes_mapper_classes[number].cpu_bus);
+	Assert(nes_mapper_classes[number].ppu_bus);
+	core->mapper = nes_mapper_classes[number];
 }
 
 static b32 nes_saved_state_valid(const NES_Emulator *core)
@@ -116,7 +109,6 @@ static b32 nes_saved_state_valid(const NES_Emulator *core)
 NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc)
 {
 	NES_Emulator *core = arena_push_zero(arena, sizeof(*core));
-	core->mapper = nes_no_mapper;
 	core->audio_sample_rate = desc.audio_sample_rate ? desc.audio_sample_rate : 48000;
 	core->instruction_trace_enabled = desc.enable_instruction_trace;
 	return core;
@@ -124,7 +116,7 @@ NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc)
 
 b32 nes_emulator_has_cartridge(const NES_Emulator *core)
 {
-	return core->mapper.cpu_bus != none_cpu;
+	return core->mapper.reset != 0;
 }
 
 u32 nes_emulator_prg_rom_size(const NES_Emulator *core)
@@ -268,9 +260,10 @@ b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state)
 
 	b32 success = serialize_read_record(state, nes_state_record_map(), NES_RECORD_EMULATOR, candidate);
 	if (success) success = nes_saved_state_valid(candidate);
-	if (success) success = nes_instantiate_cartridge(candidate);
+
 	if (success)
 	{
+		nes_emulator_activate_mapper(candidate);
 		candidate->scheduler_clock = 0;
 		*core = *candidate;
 	}
@@ -279,32 +272,29 @@ b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state)
 }
 
 // Todo, this should be transactional!
-b32 nes_emulator_load_cartridge(NES_Emulator *emulator, NES_CartridgeDesc cartridge)
+b32 nes_emulator_load_cartridge(NES_Emulator *emulator, NES_CartridgeDesc cart)
 {
-	if (!cartridge.prg_rom.data || !cartridge.prg_rom.size ||
-		cartridge.prg_rom.size > NES_MAX_PRG_ROM_SIZE ||
-		cartridge.prg_rom.size % KiB(16) ||
-		cartridge.chr_rom.size > NES_MAX_CHR_ROM_SIZE ||
-		cartridge.chr_rom.size % KiB(8) ||
-		(cartridge.chr_rom.size && !cartridge.chr_rom.data) ||
-		cartridge.mapper >= ArrayCount(nes_mapper_classes))
-	{
-		return false;
-	}
+	if (cart.prg_rom.data == 0)                            return false;
+	if (cart.prg_rom.size == 0)                            return false;
+	if (cart.prg_rom.size > NES_MAX_PRG_ROM_SIZE)          return false;
+	if (cart.prg_rom.size % KiB(16))                       return false;
+	if (cart.chr_rom.size > NES_MAX_CHR_ROM_SIZE)          return false;
+	if (cart.chr_rom.size % KiB(8))                        return false;
+	if (cart.chr_rom.size && !cart.chr_rom.data)           return false;
+	if (cart.mapper >= ArrayCount(nes_mapper_classes))     return false;
+	if (!nes_mapper_classes[cart.mapper].reset)            return false;
 
 	nes_reset_audio(emulator);
 	nes_zero_machine(emulator);
-	memory_copy(emulator->core.prg_rom, cartridge.prg_rom.data, cartridge.prg_rom.size);
-	memory_copy(emulator->core.chr_rom, cartridge.chr_rom.data, cartridge.chr_rom.size);
-	emulator->core.num_prg_banks = cartridge.prg_rom.size / KiB(16);
-	emulator->core.num_chr_banks = cartridge.chr_rom.size / KiB(8);
-	emulator->core.prg_rom_size = cartridge.prg_rom.size;
-	emulator->core.chr_rom_size = cartridge.chr_rom.size;
-	emulator->core.mapper_number.number = cartridge.mapper;
-	emulator->core.vmirror = cartridge.vertical_mirroring;
-	if (!nes_instantiate_cartridge(emulator)) {
-		return false;
-	}
+	memory_copy(emulator->core.prg_rom, cart.prg_rom.data, cart.prg_rom.size);
+	memory_copy(emulator->core.chr_rom, cart.chr_rom.data, cart.chr_rom.size);
+	emulator->core.num_prg_banks = cart.prg_rom.size / KiB(16);
+	emulator->core.num_chr_banks = cart.chr_rom.size / KiB(8);
+	emulator->core.prg_rom_size = cart.prg_rom.size;
+	emulator->core.chr_rom_size = cart.chr_rom.size;
+	emulator->core.mapper_number.number = cart.mapper;
+	emulator->core.vmirror = cart.vertical_mirroring;
+	nes_emulator_activate_mapper(emulator);
 	nes_emulator_reset(emulator);
 	return true;
 }

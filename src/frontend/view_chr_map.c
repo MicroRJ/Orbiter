@@ -82,7 +82,7 @@ static void chr_map_draw_tooltip(ViewFrameData *frame, rect_f32 image_rect)
 	rect_f32 tooltip = { ui->mouse.x + 14.f, ui->mouse.y + 18.f, 260.f, style.size * 2.f + padding * 2.f + 4.f };
 	tooltip.x = CLAMP(tooltip.x, frame->rect.x, Max(frame->rect.x, frame->rect.x + frame->rect.w - tooltip.w));
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
-	ui_push_layer(ui, DRAW_LAYER_OVERLAY);
+	ui_push_z(ui, UI_Z_OVERLAY);
 	ui_push_unclipped(ui);
 	ui_draw_backdrop(ui, tooltip);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
@@ -90,7 +90,7 @@ static void chr_map_draw_tooltip(ViewFrameData *frame, rect_f32 image_rect)
 	text.y += style.size + 4.f;
 	ui_draw_text(ui, text, style, line1);
 	ui_pop_unclipped(ui);
-	ui_pop_layer(ui);
+	ui_pop_z(ui);
 }
 
 static void chr_map_draw_sprite_tooltip(ViewFrameData *frame, rect_f32 atlas, rect_f32 sprite_rect)
@@ -130,7 +130,7 @@ static void chr_map_draw_sprite_tooltip(ViewFrameData *frame, rect_f32 atlas, re
 	rect_f32 tooltip = { ui->mouse.x + 14.f, ui->mouse.y + 18.f, 330.f, style.size * 3.f + padding * 2.f + 8.f };
 	tooltip.x = CLAMP(tooltip.x, frame->rect.x, Max(frame->rect.x, frame->rect.x + frame->rect.w - tooltip.w));
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
-	ui_push_layer(ui, DRAW_LAYER_OVERLAY);
+	ui_push_z(ui, UI_Z_OVERLAY);
 	ui_push_unclipped(ui);
 	ui_draw_backdrop(ui, tooltip);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
@@ -140,7 +140,7 @@ static void chr_map_draw_sprite_tooltip(ViewFrameData *frame, rect_f32 atlas, re
 	text.y += style.size + 4.f;
 	ui_draw_text(ui, text, style, line2);
 	ui_pop_unclipped(ui);
-	ui_pop_layer(ui);
+	ui_pop_z(ui);
 }
 
 static void chr_map_view_content(ViewFrameData *frame)

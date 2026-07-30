@@ -2,23 +2,19 @@
 #include "mapper.h"
 #include "../emulator_internal.h"
 
-NES_MAPPER_INIT_FUNC(uxrom_init) {
-	return true;
-}
 NES_MAPPER_RSET_FUNC(uxrom_reset) {
 	return true;
 }
 
-NES_BusAccess uxrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
+NES_BusAccess uxrom_ppu(NES_Emulator *emulator, NES_BusAccess access) {
 	switch (access.address >> 12) {
 		case 0: case 1: {
-			access = chr_ram_mem(nes, access);
+			access = chr_ram_mem(emulator, access);
 		} break;
 		case 2: {
-			b32 v = nes->core.vmirror;
-			access.address = access.address & 0x3FF |
-				(access.address >> !v & 0x400);
-			access = vram_mem(nes, access);
+			b32 v = emulator->core.vmirror;
+			access.address = access.address & 0x3FF | (access.address >> !v & 0x400);
+			access = vram_mem(emulator, access);
 		} break;
 	}
 	return access;

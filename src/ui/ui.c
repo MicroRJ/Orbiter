@@ -241,18 +241,18 @@ void ui_end_frame(UI_Context *ui)
 	}
 }
 
-void ui_push_layer(UI_Context *ui, Draw_LayerKind layer)
+void ui_push_z(UI_Context *ui, i32 z)
 {
 	Assert(ui);
 	Assert(ui->draw);
-	draw_list_push_layer(ui->draw, layer);
+	draw_list_push_z(ui->draw, z);
 }
 
-void ui_pop_layer(UI_Context *ui)
+void ui_pop_z(UI_Context *ui)
 {
 	Assert(ui);
 	Assert(ui->draw);
-	draw_list_pop_layer(ui->draw);
+	draw_list_pop_z(ui->draw);
 }
 
 UI_Id ui_id_from_ptr(const void *pointer)
