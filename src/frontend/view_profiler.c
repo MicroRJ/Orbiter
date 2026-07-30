@@ -1,9 +1,6 @@
 #include "ui_widgets.h"
 #include "views.h"
 
-static const u64 PROFILER_TIMING_SCROLLBAR_ID = 0x50524F4654494D45ull;
-static const u64 PROFILER_METRIC_SCROLLBAR_ID = 0x50524F464D455452ull;
-
 typedef struct
 {
 	String name;
@@ -232,38 +229,15 @@ static UI_Box *profiler_build_metric_table(UI_Context *ui, const Prof_Frame *sna
 	return ui_box_table_end(&table);
 }
 
-static void profiler_scroll_table(ViewFrameData *frame, UI_Box *table, f32 *scroll, u64 scrollbar_key)
-{
-	*scroll = table->scroll_offset.y;
-	if (rect_f32_contains(table->viewport, frame->ui->mouse) && frame->ui->window->mouse_wheel.y) {
-		*scroll = CLAMP(*scroll - frame->ui->window->mouse_wheel.y * 48.f, table->scroll_min.y, table->scroll_max.y);
-	}
-	rect_f32 track = {
-		.x = table->viewport.x + table->viewport.w,
-		.y = table->viewport.y,
-		.w = 12.f,
-		.h = table->viewport.h,
-	};
-	f32 laid_out_scroll = table->scroll_offset.y;
-	ui_push_layer(frame->ui, UI_LAYER_HEADER);
-	ui_scrollbar(frame->ui, ui_id_child(table->id, scrollbar_key), track, table->viewport.h, scroll, table->content_size.y);
-	ui_pop_layer(frame->ui);
-	if (fabsf(*scroll - laid_out_scroll) > 0.001f)
-	{
-		table->scroll_offset.y = *scroll;
-		ui_box_relayout(table);
-		*scroll = table->scroll_offset.y;
-	}
-}
-
 static void profiler_view_content(ViewFrameData *frame)
 {
 	UI_Context *ui = frame->ui;
+	ProfilerViewState *state = &frame->view->profiler;
 	rect_f32 layout = rect_f32_inset(frame->rect, 12.f);
 	f32 row_height = ui->theme.code.size + 4.f;
 	f32 graph_height = Min(280.f, Max(128.f, layout.h * 0.64f));
 	rect_f32 graph = rect_f32_slice(&layout, AXIS_Y, graph_height);
-	const Prof_Frame *snapshot = profiler_draw_graph(frame, graph, &frame->view->profiler);
+	const Prof_Frame *snapshot = profiler_draw_graph(frame, graph, state);
 	rect_f32 selection = rect_f32_slice(&layout, AXIS_Y, row_height);
 	UI_TextStyle selection_style = ui->theme.code;
 	selection_style.color = ui->theme.text_neutral;
@@ -278,17 +252,27 @@ static void profiler_view_content(ViewFrameData *frame)
 	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
 	UI_Box *root = ui_build_begin(ui, ui_key_child(UI_KEY("profiler tables"), frame->view->id), LIT("profiler tables"), root_desc);
-	UI_Box *timing_table = profiler_build_time_table(ui, snapshot, row_height);
-	UI_Box *metric_table = profiler_build_metric_table(ui, snapshot, row_height);
+
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_Y, ui_box_fill(1.f));
+	UI_Scroll *timing_scroll = ui_scroll_begin(ui, 1, AXIS_Y);
+	profiler_build_time_table(ui, snapshot, row_height);
+	ui_scroll_end(timing_scroll);
+	ui_pop(ui);
+
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_Y, ui_box_fill(1.f));
+	UI_Scroll *metric_scroll = ui_scroll_begin(ui, 2, AXIS_Y);
+	profiler_build_metric_table(ui, snapshot, row_height);
+	ui_scroll_end(metric_scroll);
+	ui_pop(ui);
+
 	ui_build_end(ui);
 
-	ProfilerViewState *state = &frame->view->profiler;
-	timing_table->scroll_offset.y = state->timing_scroll;
-	metric_table->scroll_offset.y = state->metric_scroll;
 	ui_box_measure(root, (UI_BoxConstraints) { .min = layout.size, .max = layout.size });
 	ui_box_layout(root, layout);
-	profiler_scroll_table(frame, timing_table, &state->timing_scroll, PROFILER_TIMING_SCROLLBAR_ID);
-	profiler_scroll_table(frame, metric_table, &state->metric_scroll, PROFILER_METRIC_SCROLLBAR_ID);
 	frame->draw_box_tree(root);
 }
 
