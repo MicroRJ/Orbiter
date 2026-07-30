@@ -48,12 +48,15 @@ PRGActivityViewState;
 
 typedef struct
 {
-	i64 right_frame_index;
-	f32 frame_stride;
+	f64 offset;
+	f64 target_offset;
+	f32 bar_width;
+	u64 first_visible_frame;
+	u64 visible_frame_count;
 	b32 following;
 	b32 initialized;
 }
-ProfilerViewState;
+Profiler_View_State;
 
 typedef struct
 {
@@ -88,16 +91,17 @@ typedef struct
 }
 FrontendPalette;
 
-typedef struct PanelViewData PanelViewData;
-struct PanelViewData
+// Todo, eventually remove this, just make this a pointer that the view allocates ...
+typedef struct DF_PanelViewData DF_PanelViewData;
+struct DF_PanelViewData
 {
-	u64 id;
+	u64        id;
 	ViewType kind;
 	union
 	{
 		ViewState program;
 		PRGActivityViewState prg_activity;
-		ProfilerViewState profiler;
+		Profiler_View_State profiler;
 	};
 };
 
@@ -117,7 +121,7 @@ FrontendPublication;
 
 typedef struct
 {
-	PanelViewData *view;
+	DF_PanelViewData *view;
 	Debugger      *debugger;
 	UI_Context    *ui;
 	Arena         *scratch;

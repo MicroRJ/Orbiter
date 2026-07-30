@@ -42,7 +42,7 @@ static void ui_box__paint_text(UI_Box *box)
 	ui_pop_clip(box->ui);
 }
 
-static const UI_BoxOps ui_box__text_ops = {
+static const UI_BoxHooks ui_box__text_ops = {
 	.measure = ui_box__measure_text,
 	.paint = ui_box__paint_text,
 };
@@ -234,7 +234,7 @@ static void ui_scroll__prepare_track(UI_Box *box)
 	ui_scroll__size_bar(scroll, box->viewport.wh[axis], viewport->viewport.wh[axis], Max(viewport->content_size.xy[axis], viewport->viewport.wh[axis]), viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis], scroll->offset);
 }
 
-static const UI_BoxOps ui_scroll__track_ops = {
+static const UI_BoxHooks ui_scroll__track_ops = {
 	.prepare_layout = ui_scroll__prepare_track,
 };
 
@@ -508,7 +508,7 @@ static void ui_box__prepare_table_layout(UI_Box *box)
 	}
 }
 
-static const UI_BoxOps ui_box__table_ops = {
+static const UI_BoxHooks ui_box__table_ops = {
 	.measure_children = ui_box__measure_table,
 	.prepare_layout = ui_box__prepare_table_layout,
 };

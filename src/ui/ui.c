@@ -368,11 +368,10 @@ UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
 	OS_KeyState mouse = ui->window->keys[OS_Key_MouseLeft];
 	UI_Response response = {};
 	response.hovered = rect_f32_contains(rect, ui->mouse);
-	if (response.hovered)
-	{
+	if (response.hovered) {
 		ui->hot = id;
 	}
-	if (response.hovered && (mouse & OS_KEY_PRESSED) && !ui->active.value)
+	if (!ui->active.value && response.hovered && (mouse & OS_KEY_PRESSED))
 	{
 		ui->active = id;
 		ui->active_press_mouse = ui->mouse;

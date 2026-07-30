@@ -1,12 +1,12 @@
 
-#define TIMELINE_SIZE (1024*16)
-#define TIMELINE_MASK (TIMELINE_SIZE - 1)
+#define PROF_TIMELINE_MASK (PROF_TIMELINE_CAPACITY - 1)
 
 struct
 {
 	u32         id;
-	Prof_Frame  timeline[TIMELINE_SIZE];
+	Prof_Frame  timeline[PROF_TIMELINE_CAPACITY];
 	u64         timeline_index;
+	Prof_Frame  frame;
 }
 thread_decl Prof;
 
@@ -17,49 +17,44 @@ static f64 prof_seconds_now(void)
 	return frequency ? platform_counter() / (f64)frequency : 0.0;
 }
 
-i64 prof_timeline_index() {
+u64 prof_timeline_cursor() {
 	return Prof.timeline_index;
 }
 
-Prof_Frame *prof_timeline_frame(i64 index) {
-	if (index < 0) index += Prof.timeline_index + 1;
-	return & Prof.timeline[index & TIMELINE_MASK];
-}
-
-Prof_Frame *prof_frame() {
-	return & Prof.timeline[Prof.timeline_index & TIMELINE_MASK];
+const Prof_Frame *prof_timeline_frame(u64 index) {
+	return & Prof.timeline[index & PROF_TIMELINE_MASK];
 }
 
 void prof_begin_frame() {
-	memory_zero(prof_frame(), sizeof(* prof_frame()));
-	prof_frame()->id = Prof.timeline_index;
-	prof_frame()->time.seconds -= prof_seconds_now();
+	memory_zero(& Prof.frame, sizeof(Prof.frame));
+	Prof.frame.id = Prof.timeline_index;
+	Prof.frame.time.seconds -= prof_seconds_now();
 }
 
 void prof_close_frame()
 {
-	prof_frame()->time.seconds += prof_seconds_now();
-	Prof.timeline_index ++;
+	Prof.frame.time.seconds += prof_seconds_now();
+	Prof.timeline[Prof.timeline_index ++ & PROF_TIMELINE_MASK] = Prof.frame;
 }
 
 void prof_add_metric(Prof_Metric metric, i64 size) {
-	prof_frame()->metrics.fields[metric] += size;
+	Prof.frame.metrics.fields[metric] += size;
 }
 
 void prof_begin_scope(Prof_Scope *scope, String name) {
 	Assert(name.data);
 	Assert(name.size);
 	if (scope->id == 0) {
-		Assert(Prof.id < ArrayCount(prof_frame()->fields));
+		Assert(Prof.id < ArrayCount(Prof.frame.fields));
 		scope->id = ++ Prof.id;
 	}
-	prof_frame()->nfields = Max(prof_frame()->nfields, scope->id);
-	prof_frame()->fields[scope->id - 1].freq ++;
-	prof_frame()->fields[scope->id - 1].name = name;
-	prof_frame()->fields[scope->id - 1].time.seconds -= prof_seconds_now();
+	Prof.frame.nfields = Max(Prof.frame.nfields, scope->id);
+	Prof.frame.fields[scope->id - 1].freq ++;
+	Prof.frame.fields[scope->id - 1].name = name;
+	Prof.frame.fields[scope->id - 1].time.seconds -= prof_seconds_now();
 }
 
 void prof_close_scope(Prof_Scope *scope) {
 	Assert(scope->id > 0);
-	prof_frame()->fields[scope->id - 1].time.seconds += prof_seconds_now();
+	Prof.frame.fields[scope->id - 1].time.seconds += prof_seconds_now();
 }

@@ -27,7 +27,7 @@ struct Panel
 	PanelType kind;
 	AXIS axis;
 	f32 ratio;
-	PanelViewData *view;
+	DF_PanelViewData *view;
 	Panel *next_free;
 };
 

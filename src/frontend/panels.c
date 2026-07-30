@@ -10,7 +10,7 @@ LayoutParser;
 struct PanelViewAllocation
 {
 	PanelViewAllocation *next_free;
-	PanelViewData view;
+	DF_PanelViewData view;
 };
 
 static const char *view_type_names[VIEW_COUNT] = {
@@ -55,7 +55,7 @@ Panel *panel_new(Panels *panels, Panel *parent, PanelType kind)
 	return panel;
 }
 
-static PanelViewData *panel_view_new(Panels *panels, ViewType kind)
+static DF_PanelViewData *panel_view_new(Panels *panels, ViewType kind)
 {
 	PanelViewAllocation *allocation = panels->free_views;
 	if (allocation) {
@@ -69,7 +69,7 @@ static PanelViewData *panel_view_new(Panels *panels, ViewType kind)
 	return &allocation->view;
 }
 
-static void panel_view_free(Panels *panels, PanelViewData *view)
+static void panel_view_free(Panels *panels, DF_PanelViewData *view)
 {
 	if (!view) return;
 	PanelViewAllocation *allocation = (PanelViewAllocation *)((u8 *)view - offsetof(PanelViewAllocation, view));
@@ -130,7 +130,7 @@ void panel_split(Panels *panels, Panel *panel, AXIS axis, f32 ratio)
 	Assert(panel->kind != PANEL_SPLIT);
 
 	PanelType previous_kind = panel->kind;
-	PanelViewData *previous_view = panel->view;
+	DF_PanelViewData *previous_view = panel->view;
 
 	// The old implementation copied the complete panel node here. That duplicated
 	// its identity and intrusive-list links and left the child pointing at the old

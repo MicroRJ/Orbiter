@@ -420,7 +420,7 @@ static vec2 playground_test_measure_counted(UI_Box *box, UI_BoxConstraints const
 	return v2(70.f, 10.f);
 }
 
-static const UI_BoxOps playground_test_counted_ops = {
+static const UI_BoxHooks playground_test_counted_ops = {
 	.measure = playground_test_measure_counted,
 };
 

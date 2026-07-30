@@ -128,7 +128,7 @@ typedef struct
 	UI_BoxFinishLayout *finish_layout;
 	UI_BoxPaint *paint;
 }
-UI_BoxOps;
+UI_BoxHooks;
 
 typedef struct
 {
@@ -201,7 +201,7 @@ struct UI_Box
 	virtual_list;
 	u32 virtual_index;
 	UI_Context *ui;
-	const UI_BoxOps *ops;
+	const UI_BoxHooks *ops;
 	void *content;
 	void *user;
 };

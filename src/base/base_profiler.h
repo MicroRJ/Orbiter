@@ -88,11 +88,15 @@ typedef struct
 }
 Prof_Frame;
 
+// Roughly 4.5 minutes before circling back.
+#define PROF_TIMELINE_CAPACITY (64 * 256)
+STATIC_ASSERT(!(PROF_TIMELINE_CAPACITY & (PROF_TIMELINE_CAPACITY - 1)));
+
+
 void prof_begin_frame();
 void prof_close_frame();
-i64 prof_timeline_index();
-Prof_Frame *prof_timeline_frame(i64 index);
-Prof_Frame *prof_frame();
+u64 prof_timeline_cursor();
+const Prof_Frame *prof_timeline_frame(u64 index);
 void prof_begin_scope(Prof_Scope *scope, String name);
 void prof_close_scope(Prof_Scope *scope);
 
