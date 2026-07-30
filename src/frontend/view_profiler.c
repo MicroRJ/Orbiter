@@ -8,6 +8,13 @@ typedef struct
 }
 ProfilerGraphPhase;
 
+typedef struct
+{
+	ProfilerViewState state;
+	i64 oldest_frame;
+}
+ProfilerGraphBoxData;
+
 static f64 profiler_scope_seconds(const Prof_Frame *frame, String name)
 {
 	for (u32 index = 0; index < frame->nfields; ++index) {
@@ -16,27 +23,45 @@ static f64 profiler_scope_seconds(const Prof_Frame *frame, String name)
 	return 0.0;
 }
 
-static const Prof_Frame *profiler_draw_graph(ViewFrameData *frame, rect_f32 rect, ProfilerViewState *state)
+static void profiler_graph_frame_range(ProfilerViewState *state, i64 *oldest_frame, i64 *newest_frame)
 {
-	UI_Context *ui = frame->ui;
-	ui_draw_rect(ui, rect, ui->theme.slider_track);
-
-	f32 scale_ms = 64.f;
 	if (!state->initialized)
 	{
 		state->frame_stride = 5.f;
 		state->following = true;
 		state->initialized = true;
 	}
-	i64 newest_frame = prof_timeline_index() - 1;
-	i64 oldest_frame = Max(0, newest_frame - 1023);
-	if (state->following) state->right_frame_index = newest_frame;
-	state->right_frame_index = CLAMP(state->right_frame_index, oldest_frame, newest_frame);
+	*newest_frame = prof_timeline_index() - 1;
+	*oldest_frame = Max(0, *newest_frame - 1023);
+	if (state->following) state->right_frame_index = *newest_frame;
+	state->right_frame_index = CLAMP(state->right_frame_index, *oldest_frame, *newest_frame);
+}
 
-	b32 hovered = rect_f32_contains(rect, ui->mouse);
+static i32 profiler_graph_hovered_index(rect_f32 rect, ProfilerViewState *state, i64 oldest_frame, vec2 mouse)
+{
+	f32 gap = 1.f;
+	f32 bar_width = Max(1.f, state->frame_stride - gap);
+	i32 visible_count = Min((i32)(state->right_frame_index - oldest_frame + 1), (i32)(rect.w / state->frame_stride + 0.5f));
+	f32 start_draw_x = rect.x + rect.w - bar_width;
+	for (i32 index = 0; index < visible_count; ++index)
+	{
+		f32 x = start_draw_x - index * state->frame_stride;
+		if (rect_f32_contains((rect_f32) { x - gap * 0.5f, rect.y, bar_width + gap, rect.h }, mouse)) return index;
+	}
+	return -1;
+}
+
+static const Prof_Frame *profiler_graph_snapshot(UI_Box *box, ProfilerViewState *state, ProfilerGraphBoxData *data)
+{
+	UI_Context *ui = box->ui;
+	i64 oldest_frame;
+	i64 newest_frame;
+	profiler_graph_frame_range(state, &oldest_frame, &newest_frame);
+	UI_Response response = ui_signal_from_box(box);
+	rect_f32 rect = box->state->rect;
 	i32 wheel = ui->window->mouse_wheel.y;
 	b32 control = ui->window->keys[OS_Key_LeftControl] & OS_KEY_DOWN || ui->window->keys[OS_Key_RightControl] & OS_KEY_DOWN;
-	if (hovered && wheel)
+	if (response.hovered && wheel)
 	{
 		if (control)
 		{
@@ -51,11 +76,26 @@ static const Prof_Frame *profiler_draw_graph(ViewFrameData *frame, rect_f32 rect
 			state->following = state->right_frame_index == newest_frame;
 		}
 	}
-	if (hovered && ui->window->keys[OS_Key_MouseLeft] & OS_KEY_PRESSED) {
+	if (response.pressed)
+	{
 		state->following = true;
 		state->right_frame_index = newest_frame;
 	}
+	i32 hovered_index = response.hovered ? profiler_graph_hovered_index(box->state->rect, state, oldest_frame, ui->mouse) : -1;
+	i64 selected_frame = state->right_frame_index - Max(hovered_index, 0);
+	data->state = *state;
+	data->oldest_frame = oldest_frame;
+	return prof_timeline_frame(selected_frame);
+}
 
+static void profiler_graph_box_paint(UI_Box *box)
+{
+	UI_Context *ui = box->ui;
+	ProfilerGraphBoxData *data = box->content;
+	const ProfilerViewState *state = &data->state;
+	rect_f32 rect = box->rect;
+	i64 oldest_frame = data->oldest_frame;
+	f32 scale_ms = 64.f;
 	f32 gap = 1.f;
 	f32 bar_width = Max(1.f, state->frame_stride - gap);
 	i32 visible_count = Min((i32)(state->right_frame_index - oldest_frame + 1), (i32)(rect.w / state->frame_stride + 0.5f));
@@ -71,7 +111,6 @@ static const Prof_Frame *profiler_draw_graph(ViewFrameData *frame, rect_f32 rect
 		{ LIT("present wait"),       color_srgba_mix(ui->theme.palette.amber, ui->theme.palette.background, 0.35f) },
 		{ LIT("frame pacing"),       ui->theme.palette.amber },
 	};
-	i32 hovered_index = -1;
 	ui_push_clip(ui, rect);
 
 	for (i32 index = 0; index < visible_count; ++index)
@@ -96,21 +135,40 @@ static const Prof_Frame *profiler_draw_graph(ViewFrameData *frame, rect_f32 rect
 		f32 total_height = rect.h * CLAMP((f32)(snapshot->time.seconds * 1000.0 / scale_ms), 0.f, 1.f);
 		rect_f32 total = { x, rect.y + rect.h - total_height, bar_width, total_height };
 		ui_draw_rect_outline(ui, total, 1.f, color_with_alpha(ui->theme.text_neutral, 0.65f));
-		if (rect_f32_contains((rect_f32) { x - gap * 0.5f, rect.y, bar_width + gap, rect.h }, ui->mouse)) {
-			hovered_index = index;
-		}
 	}
 
 	f32 budget_y = rect.y + rect.h - rect.h * (16.f / scale_ms);
 	ui_draw_rect(ui, (rect_f32) { rect.x, budget_y, rect.w, 1.f }, ui->theme.text_neutral);
-	i64 selected_frame = state->right_frame_index - Max(hovered_index, 0);
 	UI_TextStyle label_style = ui->theme.code;
 	label_style.color = ui->theme.text_neutral;
-	String graph_label = push_formatted(frame->scratch, "FRAME PHASES  %i MS / 16 MS BUDGET  %s  WHEEL SCROLLS  CTRL+WHEEL ZOOMS  CLICK: LIVE", (i32)scale_ms, state->following ? "LIVE" : "HISTORY");
+	String graph_label = push_formatted(&ui->frame_arena, "FRAME PHASES  %i MS / 16 MS BUDGET  %s  WHEEL SCROLLS  CTRL+WHEEL ZOOMS  CLICK: LIVE", (i32)scale_ms, state->following ? "LIVE" : "HISTORY");
 	ui_draw_text(ui, rect_f32_inset(rect, 4.f), label_style, graph_label);
 	ui_pop_clip(ui);
+}
 
-	return prof_timeline_frame(selected_frame);
+static const UI_BoxOps profiler_graph_box_ops = {
+	.paint = profiler_graph_box_paint,
+};
+
+// Note, now we build the profiler box and return the selected frame
+static const Prof_Frame *profiler_build_graph(UI_Context *ui, ProfilerViewState *state)
+{
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_Y, ui_box_flex(0.f, 1.f));
+	ui_min_size(ui, AXIS_Y, 128.f);
+	ui_max_size(ui, AXIS_Y, 280.f);
+	UI_Box *box = ui_box_make(ui, 1, LIT("profiler graph"));
+	ui_pop(ui);
+	box->intrinsic_size.y = 280.f;
+	box->paint = (UI_BoxPaintDesc) {
+		.flags = UI_BOX_DRAW_BACKGROUND,
+		.background = ui->theme.slider_track,
+	};
+	ProfilerGraphBoxData *data = arena_push_zero(&ui->frame_arena, sizeof(*data));
+	box->ops = &profiler_graph_box_ops;
+	box->content = data;
+	return profiler_graph_snapshot(box, state, data);
 }
 
 static Color_SRGBA profiler_color_for_frame_pct(const UI_Theme *theme, Color_SRGBA low, f64 frame_pct)
@@ -233,25 +291,37 @@ static void profiler_view_content(ViewFrameData *frame)
 {
 	UI_Context *ui = frame->ui;
 	ProfilerViewState *state = &frame->view->profiler;
-	rect_f32 layout = rect_f32_inset(frame->rect, 12.f);
 	f32 row_height = ui->theme.code.size + 4.f;
-	f32 graph_height = Min(280.f, Max(128.f, layout.h * 0.64f));
-	rect_f32 graph = rect_f32_slice(&layout, AXIS_Y, graph_height);
-	const Prof_Frame *snapshot = profiler_draw_graph(frame, graph, state);
-	rect_f32 selection = rect_f32_slice(&layout, AXIS_Y, row_height);
-	UI_TextStyle selection_style = ui->theme.code;
-	selection_style.color = ui->theme.text_neutral;
-	ui_draw_text(ui, selection, selection_style, push_formatted(frame->scratch, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
-
 	Assert(frame->draw_box_tree);
 	UI_BoxDesc root_desc = ui_box_desc();
-	root_desc.axis = AXIS_X;
+	root_desc.axis = AXIS_Y;
 	root_desc.size[AXIS_X] = ui_box_fill(1.f);
 	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
-	root_desc.gap = 12.f;
+	root_desc.horz_padd[0] = root_desc.horz_padd[1] = 12.f;
+	root_desc.vert_padd[0] = root_desc.vert_padd[1] = 12.f;
 	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
-	UI_Box *root = ui_build_begin(ui, ui_key_child(UI_KEY("profiler tables"), frame->view->id), LIT("profiler tables"), root_desc);
+	UI_Box *root = ui_build_begin(ui, ui_key_child(UI_KEY("profiler"), frame->view->id), LIT("profiler"), root_desc);
+
+	const Prof_Frame *snapshot = profiler_build_graph(ui, state);
+
+	UI_TextStyle selection_style = ui->theme.code;
+	selection_style.color = ui->theme.text_neutral;
+	UI_BoxDesc selection_desc = ui_box_desc();
+	selection_desc.size[AXIS_X] = ui_box_fill(1.f);
+	selection_desc.size[AXIS_Y] = ui_box_pixels(row_height);
+	ui_text_box_string_desc(ui, 2, selection_desc, selection_style, push_formatted(&ui->frame_arena, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
+
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_Y, ui_box_fill(1.f));
+	ui_min_size(ui, AXIS_Y, row_height * 5.f);
+	ui_axis(ui, AXIS_X);
+	ui_gap(ui, 12.f);
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+	ui_box_begin(ui, 3, LIT("profiler tables"));
+	ui_pop(ui);
 
 	ui_push(ui);
 	ui_size(ui, AXIS_X, ui_box_fill(1.f));
@@ -269,10 +339,11 @@ static void profiler_view_content(ViewFrameData *frame)
 	ui_scroll_end(metric_scroll);
 	ui_pop(ui);
 
+	ui_box_end(ui);
 	ui_build_end(ui);
 
-	ui_box_measure(root, (UI_BoxConstraints) { .min = layout.size, .max = layout.size });
-	ui_box_layout(root, layout);
+	ui_box_measure(root, (UI_BoxConstraints) { .min = frame->rect.size, .max = frame->rect.size });
+	ui_box_layout(root, frame->rect);
 	frame->draw_box_tree(root);
 }
 

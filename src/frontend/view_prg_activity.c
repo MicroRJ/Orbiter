@@ -13,38 +13,53 @@ typedef struct
 	rect_f32 rect;
 	u32 cell_size;
 	u32 rom_cell_count;
-	u32 ram_cell_count;
-	u32 cells_per_bank;
-	u32 rom_bank_count;
-	u32 block_count;
-	u32 block_columns;
-	u32 block_rows;
-	u32 cell_columns;
-	u32 cell_rows;
+	u32 cells_per_page;
+	u32 rom_page_count;
+	u32 page_count;
+	vec2i page_grid;
+	vec2i page_cells;
 	f32 cell_extent;
 	f32 cell_gap;
-	f32 bank_gap;
+	f32 page_gap;
 }
 PRGActivityGrid;
 
-static rect_f32 prg_activity_cell_rect(const PRGActivityGrid *grid, u32 cell_index)
+typedef struct
+{
+	u32 page;
+	u32 local;
+}
+PRGActivityCellLocation;
+
+static PRGActivityCellLocation prg_activity_cell_location(const PRGActivityGrid *grid, u32 cell_index)
 {
 	b32 ram = cell_index >= grid->rom_cell_count;
 	u32 device_cell = ram ? cell_index - grid->rom_cell_count : cell_index;
-	u32 block = (ram ? grid->rom_bank_count : 0) + device_cell / grid->cells_per_bank;
-	u32 local = device_cell % grid->cells_per_bank;
-	u32 block_column = block % grid->block_columns;
-	u32 block_row = block / grid->block_columns;
-	u32 cell_column = local % grid->cell_columns;
-	u32 cell_row = local / grid->cell_columns;
-	f32 block_width = grid->cell_columns * grid->cell_extent + (grid->cell_columns - 1) * grid->cell_gap;
-	f32 block_height = grid->cell_rows * grid->cell_extent + (grid->cell_rows - 1) * grid->cell_gap;
+	return (PRGActivityCellLocation) {
+		.page = (ram ? grid->rom_page_count : 0) + device_cell / grid->cells_per_page,
+		.local = device_cell % grid->cells_per_page,
+	};
+}
+
+static rect_f32 prg_activity_cell_rect_from_location(const PRGActivityGrid *grid, PRGActivityCellLocation location)
+{
+	u32 page_column = location.page % grid->page_grid.x;
+	u32 page_row = location.page / grid->page_grid.x;
+	u32 cell_column = location.local % grid->page_cells.x;
+	u32 cell_row = location.local / grid->page_cells.x;
+	f32 page_width = grid->page_cells.x * grid->cell_extent + (grid->page_cells.x - 1) * grid->cell_gap;
+	f32 page_height = grid->page_cells.y * grid->cell_extent + (grid->page_cells.y - 1) * grid->cell_gap;
 	return (rect_f32) {
-		.x = grid->rect.x + block_column * (block_width + grid->bank_gap) + cell_column * (grid->cell_extent + grid->cell_gap),
-		.y = grid->rect.y + block_row * (block_height + grid->bank_gap) + cell_row * (grid->cell_extent + grid->cell_gap),
+		.x = grid->rect.x + page_column * (page_width + grid->page_gap) + cell_column * (grid->cell_extent + grid->cell_gap),
+		.y = grid->rect.y + page_row * (page_height + grid->page_gap) + cell_row * (grid->cell_extent + grid->cell_gap),
 		.w = grid->cell_extent,
 		.h = grid->cell_extent,
 	};
+}
+
+static rect_f32 prg_activity_cell_rect(const PRGActivityGrid *grid, u32 cell_index)
+{
+	return prg_activity_cell_rect_from_location(grid, prg_activity_cell_location(grid, cell_index));
 }
 
 static vec2 prg_activity_cell_center(const PRGActivityGrid *grid, u32 cell_index)
@@ -134,70 +149,42 @@ static vec2i rectangle_dimensions_from_area(u32 area)
 	return dimen;
 }
 
-static PRGActivityGrid prg_activity_grid(rect_f32 available, u32 rom_size, u32 ram_size, u32 bank_size, u32 cell_size)
+static vec2i grid_dimensions_for_rectangles(u32 rectangle_count, vec2i rectangle)
 {
-	PRGActivityGrid best = {};
-	best.cell_size = cell_size;
-	best.rom_cell_count = (rom_size + cell_size - 1) / cell_size;
-	best.ram_cell_count = (ram_size + cell_size - 1) / cell_size;
-	best.cells_per_bank = Max(1u, (bank_size + cell_size - 1) / cell_size);
-	best.rom_bank_count = (best.rom_cell_count + best.cells_per_bank - 1) / best.cells_per_bank;
-	u32 ram_bank_count = (best.ram_cell_count + best.cells_per_bank - 1) / best.cells_per_bank;
-	best.block_count = best.rom_bank_count + ram_bank_count;
-	f32 available_aspect = available.h > 0.f ? available.w / available.h : 1.f;
-	f32 best_error = 3.402823466e+38F;
-	for (u32 cell_rows = 1; cell_rows <= best.cells_per_bank; ++cell_rows)
-	{
-		if (best.cells_per_bank % cell_rows) {
-			continue;
-		}
-		u32 cell_columns = best.cells_per_bank / cell_rows;
-		for (u32 block_columns = 1; block_columns <= best.block_count; ++block_columns)
-		{
-			u32 block_rows = (best.block_count + block_columns - 1) / block_columns;
-			f32 aspect = (f32)(block_columns * cell_columns) / (block_rows * cell_rows);
-			f32 error = fabsf(logf(aspect / Max(available_aspect, 0.01f)));
-			if (error < best_error)
-			{
-				best.cell_columns = cell_columns;
-				best.cell_rows = cell_rows;
-				best.block_columns = block_columns;
-				best.block_rows = block_rows;
-				best_error = error;
-			}
-		}
-	}
-	best.cell_gap = 1.f;
-	best.bank_gap = 5.f;
-	u32 total_cell_columns = best.block_columns * best.cell_columns;
-	u32 total_cell_rows = best.block_rows * best.cell_rows;
-	f32 horizontal_gaps = best.block_columns * (best.cell_columns - 1) * best.cell_gap + (best.block_columns - 1) * best.bank_gap;
-	f32 vertical_gaps = best.block_rows * (best.cell_rows - 1) * best.cell_gap + (best.block_rows - 1) * best.bank_gap;
-	best.cell_extent = Max(0.f, Min((available.w - horizontal_gaps) / total_cell_columns, (available.h - vertical_gaps) / total_cell_rows));
-	f32 width = total_cell_columns * best.cell_extent + horizontal_gaps;
-	f32 height = total_cell_rows * best.cell_extent + vertical_gaps;
-	best.rect = rect_f32_align(available, v2(width, height), v2(0.5f, 0.5f));
-	return best;
+	Assert(rectangle_count && rectangle.x > 0 && rectangle.y > 0);
+	u32 square_extent = (u32)ceilf(sqrtf((f32)rectangle_count * rectangle.x * rectangle.y));
+	u32 columns = Min(rectangle_count, (square_extent + rectangle.x - 1) / rectangle.x);
+	return (vec2i) { columns, (rectangle_count + columns - 1) / columns };
 }
 
-static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGrid *grid, u32 cell_count, const Program *program, u32 program_size)
+static PRGActivityGrid prg_activity_grid(rect_f32 available, u32 rom_size, u32 ram_size, u32 cell_size)
+{
+	Assert(cell_size && cell_size <= CPU_MAPPING_CHUNK_SIZE && (CPU_MAPPING_CHUNK_SIZE % cell_size) == 0);
+	PRGActivityGrid grid = {};
+	grid.cell_size = cell_size;
+	grid.rom_cell_count = (rom_size + cell_size - 1) / cell_size;
+	grid.cells_per_page = CPU_MAPPING_CHUNK_SIZE / cell_size;
+	grid.rom_page_count = (rom_size + CPU_MAPPING_CHUNK_SIZE - 1) / CPU_MAPPING_CHUNK_SIZE;
+	u32 ram_page_count = (ram_size + CPU_MAPPING_CHUNK_SIZE - 1) / CPU_MAPPING_CHUNK_SIZE;
+	grid.page_count = grid.rom_page_count + ram_page_count;
+	grid.page_cells = rectangle_dimensions_from_area(grid.cells_per_page);
+	grid.page_grid = grid_dimensions_for_rectangles(grid.page_count, grid.page_cells);
+	grid.cell_gap = 1.f;
+	grid.page_gap = 5.f;
+	u32 total_cell_columns = grid.page_grid.x * grid.page_cells.x;
+	u32 total_cell_rows = grid.page_grid.y * grid.page_cells.y;
+	f32 horizontal_gaps = grid.page_grid.x * (grid.page_cells.x - 1) * grid.cell_gap + (grid.page_grid.x - 1) * grid.page_gap;
+	f32 vertical_gaps = grid.page_grid.y * (grid.page_cells.y - 1) * grid.cell_gap + (grid.page_grid.y - 1) * grid.page_gap;
+	grid.cell_extent = Max(0.f, Min((available.w - horizontal_gaps) / total_cell_columns, (available.h - vertical_gaps) / total_cell_rows));
+	f32 width = total_cell_columns * grid.cell_extent + horizontal_gaps;
+	f32 height = total_cell_rows * grid.cell_extent + vertical_gaps;
+	grid.rect = rect_f32_align(available, v2(width, height), v2(0.5f, 0.5f));
+	return grid;
+}
+
+static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGrid *grid, u32 cell_index, rect_f32 selected_cell, const Program *program, u32 program_size)
 {
 	UI_Context *ui = frame->ui;
-	if (!rect_f32_contains(grid->rect, ui->mouse)) {
-		return;
-	}
-	u32 cell_index = MAX_VALUE_U32;
-	rect_f32 selected_cell = {};
-	for (u32 index = 0; index < cell_count; ++index)
-	{
-		rect_f32 cell = prg_activity_cell_rect(grid, index);
-		if (rect_f32_contains(rect_f32_inset(cell, grid->cell_gap * -0.5f), ui->mouse))
-		{
-			cell_index = index;
-			selected_cell = cell;
-			break;
-		}
-	}
 	if (cell_index == MAX_VALUE_U32) {
 		return;
 	}
@@ -239,21 +226,20 @@ static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGri
 	ui_pop_layer(ui);
 }
 
-static b32 prg_activity_cell_is_mapped(const Debugger *debugger, const Program *program, b32 include_prg_ram, u32 cell_begin, u32 cell_end)
+static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *grid, const Debugger *debugger, const Program *program, b32 include_prg_ram)
 {
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk)
 	{
 		NES_MapAddr mapped = debugger_cpu_mapping_chunk(debugger, chunk);
-		u32 mapped_begin = 0;
-		if (!prg_activity_storage_offset(program, mapped, include_prg_ram, &mapped_begin)) {
-			continue;
+		u32 page = MAX_VALUE_U32;
+		if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < program->prg_rom_byte_count) {
+			page = mapped.offset / CPU_MAPPING_CHUNK_SIZE;
 		}
-		u32 mapped_end = mapped_begin + CPU_MAPPING_CHUNK_SIZE;
-		if (cell_begin < mapped_end && cell_end > mapped_begin) {
-			return true;
+		else if (include_prg_ram && mapped.device == NES_DEVICE_PRG_RAM && mapped.offset < program->prg_ram_byte_count) {
+			page = grid->rom_page_count + mapped.offset / CPU_MAPPING_CHUNK_SIZE;
 		}
+		if (page < grid->page_count) mapped_pages[page] = true;
 	}
-	return false;
 }
 
 static void prg_activity_draw_crawler(ViewFrameData *frame, const PRGActivityGrid *grid, u32 cell_count, u32 crawler_cell)
@@ -348,23 +334,32 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	ui_draw_text(ui, label, crawler_style, label_text);
 
 	u32 cell_count = (program_size + cell_size - 1) / cell_size;
-	u32 rom_cell_count = (program->prg_rom_byte_count + cell_size - 1) / cell_size;
 	u32 ram_size = include_prg_ram ? program->prg_ram_byte_count : 0;
-	u32 bank_size = Max((u32)CPU_MAPPING_CHUNK_SIZE, cell_size);
-	PRGActivityGrid grid = prg_activity_grid(layout, program->prg_rom_byte_count, ram_size, bank_size, cell_size);
+	PRGActivityGrid grid = prg_activity_grid(layout, program->prg_rom_byte_count, ram_size, cell_size);
+	b32 *mapped_pages = arena_push_zero(frame->scratch, sizeof(*mapped_pages) * grid.page_count);
+	prg_activity_mapped_pages(mapped_pages, &grid, debugger, program, include_prg_ram);
 	Color_SRGBA mapped_color = color_srgba_mix(ui->theme.slider_track, ui->theme.text_subtle, 0.05f);
+	u32 hovered_cell = MAX_VALUE_U32;
+	rect_f32 hovered_cell_rect = {};
+	b32 grid_hovered = rect_f32_contains(grid.rect, ui->mouse);
 	for (u32 cell_index = 0; cell_index < cell_count; ++cell_index)
 	{
-		rect_f32 cell = prg_activity_cell_rect(&grid, cell_index);
+		PRGActivityCellLocation location = prg_activity_cell_location(&grid, cell_index);
+		Assert(location.page < grid.page_count);
+		rect_f32 cell = prg_activity_cell_rect_from_location(&grid, location);
 		u32 cell_begin = cell_index * cell_size;
-		u32 cell_end = Min(cell_begin + cell_size, program_size);
-		Color_SRGBA color = prg_activity_cell_is_mapped(debugger, program, include_prg_ram, cell_begin, cell_end) ? mapped_color : ui->theme.slider_track;
+		Color_SRGBA color = mapped_pages[location.page] ? mapped_color : ui->theme.slider_track;
 		if (include_prg_ram && cell_begin >= program->prg_rom_byte_count) {
 			color = color_srgba_mix(color, ui->theme.program_bridge, 0.06f);
 		}
 		ui_draw_rect(ui, cell, color);
 		if (cell_index == active_cell && grid.cell_extent >= 4.f) {
 			ui_draw_rect_outline(ui, cell, 1.f, ui->theme.text_vibrant);
+		}
+		if (grid_hovered && hovered_cell == MAX_VALUE_U32 && rect_f32_contains(rect_f32_inset(cell, grid.cell_gap * -0.5f), ui->mouse))
+		{
+			hovered_cell = cell_index;
+			hovered_cell_rect = cell;
 		}
 	}
 	if (grid.cell_extent >= 1.f)
@@ -390,7 +385,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 		}
 	}
 	prg_activity_draw_crawler(frame, &grid, cell_count, crawler_cell);
-	prg_activity_draw_tooltip(frame, &grid, cell_count, program, program_size);
+	prg_activity_draw_tooltip(frame, &grid, hovered_cell, hovered_cell_rect, program, program_size);
 }
 
 void prg_activity_view_frame(ViewFrameData *frame)

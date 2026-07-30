@@ -401,8 +401,7 @@ void ui_push_clip(UI_Context *ui, rect_f32 rect)
 	Assert(ui->clip_stack_count < ArrayCount(ui->clip_stack));
 	if (ui->clip_stack_count)
 	{
-		rect_i32 parent = rect_i32_from_f32(
-			ui->clip_stack[ui->clip_stack_count - 1]);
+		rect_i32 parent = rect_i32_from_f32( ui->clip_stack[ui->clip_stack_count - 1]);
 		rect_i32 child = rect_i32_from_f32(rect);
 		rect = rect_f32_from_i32(rect_i32_intersect(parent, child));
 	}
