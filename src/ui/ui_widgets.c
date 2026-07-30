@@ -184,13 +184,6 @@ UI_Response ui_button(UI_BoxBuilder *builder, UI_Key key, String text)
 	return response;
 }
 
-typedef struct
-{
-	UI_Scroll *scroll;
-	b32 bootstrap;
-}
-UI_ScrollLayoutData;
-
 static const u64 UI_SCROLL_TRACK_KEY = 0x5343524F4C4C4241ull;
 static const u64 UI_SCROLL_SPACE_BEFORE_KEY = 1;
 static const u64 UI_SCROLL_THUMB_KEY = 2;
@@ -221,28 +214,24 @@ static void ui_scroll__size_bar(UI_Scroll *scroll, f32 track_extent, f32 viewpor
 	scroll->space_after->desc.size[axis] = ui_box_fill(Max(track_extent - thumb_offset - thumb_extent, 0.f));
 }
 
-static void ui_scroll__finish_layout(UI_Box *box)
+static void ui_scroll__prepare_track(UI_Box *box)
 {
-	UI_ScrollLayoutData *layout = box->content;
-	UI_Scroll *scroll = layout->scroll;
+	UI_Scroll *scroll = box->content;
+	Assert(scroll);
+	Assert(box == scroll->track);
 	UI_Box *viewport = scroll->viewport;
 	UI_BoxState *state = viewport->state;
 	AXIS axis = scroll->axis;
-
-	if (layout->bootstrap)
-	{
-		ui_scroll__size_bar(scroll, scroll->track->viewport.wh[axis], viewport->viewport.wh[axis], Max(viewport->content_size.xy[axis], viewport->viewport.wh[axis]), viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis], viewport->scroll_offset.xy[axis]);
-		ui_box_relayout(scroll->track);
-	}
 
 	scroll->offset = viewport->scroll_offset.xy[axis];
 	scroll->target = CLAMP(scroll->target, viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis]);
 	state->view_offset.xy[axis] = scroll->offset;
 	state->view_target.xy[axis] = scroll->target;
+	ui_scroll__size_bar(scroll, box->viewport.wh[axis], viewport->viewport.wh[axis], Max(viewport->content_size.xy[axis], viewport->viewport.wh[axis]), viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis], scroll->offset);
 }
 
-static const UI_BoxOps ui_scroll__root_ops = {
-	.finish_layout = ui_scroll__finish_layout,
+static const UI_BoxOps ui_scroll__track_ops = {
+	.prepare_layout = ui_scroll__prepare_track,
 };
 
 UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, UI_Key key, AXIS axis)
@@ -283,11 +272,6 @@ void ui_scroll_reset(UI_Scroll *scroll)
 		viewport_state->view_offset.xy[scroll->axis] = 0.f;
 		viewport_state->view_target.xy[scroll->axis] = 0.f;
 		scroll->viewport->scroll_offset.xy[scroll->axis] = 0.f;
-		if (scroll->track && scroll->thumb && scroll->space_before && scroll->space_after)
-		{
-			UI_BoxState *track_state = scroll->track->state;
-			ui_scroll__size_bar(scroll, track_state->viewport.wh[scroll->axis], viewport_state->viewport.wh[scroll->axis], Max(viewport_state->content_size.xy[scroll->axis], viewport_state->viewport.wh[scroll->axis]), viewport_state->scroll_min.xy[scroll->axis], viewport_state->scroll_max.xy[scroll->axis], 0.f);
-		}
 	}
 }
 
@@ -400,16 +384,12 @@ void ui_scroll_end(UI_Scroll *scroll)
 			scroll->offset = ui_scroll__smooth(scroll->offset, scroll->target, ui->frame_elapsed);
 		}
 		scroll->offset = CLAMP(scroll->offset, scroll_min, scroll_max);
-		ui_scroll__size_bar(scroll, track_state->viewport.wh[axis], viewport_state->viewport.wh[axis], Max(viewport_state->content_size.xy[axis], viewport_state->viewport.wh[axis]), scroll_min, scroll_max, scroll->offset);
 	}
 	scroll->viewport->scroll_offset.xy[axis] = scroll->offset;
 	viewport_state->view_target.xy[axis] = scroll->target;
 
-	UI_ScrollLayoutData *layout = arena_push_zero(builder->arena, sizeof(*layout));
-	layout->scroll = scroll;
-	layout->bootstrap = !scroll->has_previous;
-	scroll->root->content = layout;
-	scroll->root->ops = &ui_scroll__root_ops;
+	scroll->track->content = scroll;
+	scroll->track->ops = &ui_scroll__track_ops;
 
 	ui_box_end(builder);
 	ui_pop(builder);

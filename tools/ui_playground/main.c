@@ -591,8 +591,8 @@ static int playground_run_tests(void)
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		CHECK(playground_near(root_state->rect.w, 112.f) && playground_near(root_state->rect.h, 100.f), "layout commits finished box geometry into persistent state");
-		CHECK(!scroll->has_previous && playground_near(scroll->viewport->scroll_max.y, 300.f), "a new scroll scope bootstraps its geometry into context state");
-		CHECK(playground_near(scroll->thumb->rect.h, 25.f), "the bootstrap layout resolves the first scrollbar thumb");
+		CHECK(!scroll->has_previous && playground_near(scroll->viewport->scroll_max.y, 300.f), "a new scroll scope computes its geometry into box state");
+		CHECK(playground_near(scroll->thumb->rect.h, 25.f), "the first layout resolves the scrollbar thumb");
 		CHECK(scroll->track->paint.flags == UI_BOX_DRAW_BACKGROUND && scroll->thumb->paint.flags == UI_BOX_DRAW_BACKGROUND, "scrollbar track and thumb carry generic box appearance");
 		ui_end_frame(ui);
 
@@ -641,8 +641,10 @@ static int playground_run_tests(void)
 		ui_begin_frame(ui);
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		CHECK(playground_near(scroll->offset, 0.f) && playground_near(scroll->target, 0.f), "reset persists through the viewport box state");
+		scroll->viewport->children[0]->desc.size[AXIS_Y] = ui_box_pixels(800.f);
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(scroll->thumb->rect.h, 24.f), "track preparation sizes the thumb from current-frame content instead of cached geometry");
 		ui_end_frame(ui);
 
 		window.mouse_position = v2i(106, 80);
