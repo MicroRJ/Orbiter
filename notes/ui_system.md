@@ -41,14 +41,15 @@ RAD uses a linked list to build box children.
 
 For our builder I initially chose a flat ```**children``` array. The way we build it is by pushing boxes
 onto a designated stack in the builder, once you're done you pop the stack and get a copy of the
-boxes.
+boxes. This works great for parsers, so I thought it might work well here too.
+
 I think pretty much the only "advantage" this has, it's that it's just more convenient to deal
 in very narrow, internal cases (since user code doesn't typically access children).
 
 After experimenting with this, I now actually understand why LL's are the right move here.
 
 For instance, you can't create a box and add / remove children arbitrarily, you have to either comply
-with the stack system, or work around it. And most of it is complying.
+with a very strict, or work around it. And most of it is complying.
 
 - Ordering code in specific ways to work with the stack.
 - Literally not being able to do something and having to do some wacky stuff.

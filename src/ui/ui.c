@@ -16,8 +16,7 @@ static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer, UI_D
 {
 	Assert(ui);
 	Assert(layer >= 0 && layer < UI_LAYER_COUNT);
-	UI_DrawCommand *command = arena_push_zero(&ui->frame_arena,
-		sizeof(*command));
+	UI_DrawCommand *command = arena_push_zero(&ui->frame_arena, sizeof(*command));
 	command->kind = kind;
 	command->emission = ui->emission;
 	prof_add_metric(PROF_METRIC_UI_COMMANDS, 1);

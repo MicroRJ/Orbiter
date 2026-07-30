@@ -32,12 +32,6 @@ typedef struct
 }
 ViewState;
 
-typedef struct
-{
-	f32 scroll;
-}
-CPUViewState;
-
 enum
 {
 	CHR_MAP_TEXTURE_WIDTH = 256,
@@ -104,7 +98,6 @@ struct PanelViewData
 	union
 	{
 		ViewState program;
-		CPUViewState cpu;
 		PRGActivityViewState prg_activity;
 		ProfilerViewState profiler;
 	};

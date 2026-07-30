@@ -147,9 +147,9 @@ struct UI_BoxState
 
 struct UI_Box
 {
-	UI_Id id;
-	UI_Key key;
-	String name;
+	UI_Id           id;
+	UI_Key         key;
+	String        name;
 	UI_BoxState *state;
 	// The state contains geometry from the immediately preceding compatible layout.
 	b32 has_previous;
