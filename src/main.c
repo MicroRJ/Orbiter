@@ -887,8 +887,8 @@ static UI_Box *app_status_text(UI_Context *ui, u64 key, String text, UI_TextStyl
 static void app_draw_box_tree(UI_Box *box)
 {
 	ui_box_paint(box);
-	for (u32 child_index = 0; child_index < box->child_count; child_index ++) {
-		app_draw_box_tree(box->children[child_index]);
+	for (UI_Box *child = box->first; child; child = child->next) {
+		app_draw_box_tree(child);
 	}
 }
 

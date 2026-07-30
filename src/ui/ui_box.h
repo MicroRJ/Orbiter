@@ -8,7 +8,6 @@
 enum
 {
 	UI_BOX_MAX_DEPTH = 64,
-	UI_BOX_MAX_PENDING_CHILDREN = 4096,
 };
 
 #define UI_BOX_INFINITY 1000000000.f
@@ -156,7 +155,11 @@ struct UI_Box
 	b32 has_previous;
 	UI_BoxDesc desc;
 	UI_BoxPaintDesc paint;
-	UI_Box **children;
+	UI_Box *parent;
+	UI_Box *first;
+	UI_Box *last;
+	UI_Box *next;
+	UI_Box *prev;
 	u32 child_count;
 	vec2 intrinsic_size;
 	vec2 measured_size;
@@ -194,18 +197,15 @@ struct UI_BoxBuilder
 	UI_Context *ui;
 	UI_Box *root;
 	UI_Box *parent;
-	UI_Box *parent_stack[UI_BOX_MAX_DEPTH];
 	UI_Id parent_id_stack[UI_BOX_MAX_DEPTH];
 	UI_Id id;
 	UI_Id id_stack[UI_BOX_MAX_DEPTH];
-	UI_Box *child_stack[UI_BOX_MAX_PENDING_CHILDREN];
 	UI_BoxDesc desc;
 	UI_BoxDesc desc_stack[UI_BOX_MAX_DEPTH];
 	UI_BoxPaintDesc paint;
 	UI_BoxPaintDesc paint_stack[UI_BOX_MAX_DEPTH];
 	u32 parent_count;
 	u32 id_count;
-	u32 child_count;
 	u32 desc_count;
 };
 

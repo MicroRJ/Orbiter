@@ -292,7 +292,8 @@ void ui_scroll_end(UI_Scroll *scroll)
 	Assert(builder->desc_count == scroll->desc_count + 1);
 	Assert(scroll->root->child_count == 1);
 
-	scroll->viewport = builder->child_stack[builder->child_count - 1];
+	scroll->viewport = scroll->root->first;
+	Assert(scroll->viewport == scroll->root->last);
 	scroll->viewport->desc.size[perp_axis] = ui_box_fill(1.f);
 	scroll->viewport->desc.min_size.xy[perp_axis] = 0.f;
 	scroll->viewport->desc.max_size.xy[perp_axis] = UI_BOX_INFINITY;
@@ -422,17 +423,18 @@ static vec2 ui_box__measure_table(UI_Box *box, UI_BoxConstraints constraints)
 	Assert(table);
 	memory_zero(table->natural_widths, table->column_count * sizeof(*table->natural_widths));
 
-	for (u32 row_index = 0; row_index < box->child_count; row_index++)
+	for (UI_Box *row = box->first; row; row = row->next)
 	{
-		UI_Box *row = box->children[row_index];
 		Assert(row->child_count == table->column_count);
-		for (u32 column = 0; column < table->column_count; column++)
+		u32 column = 0;
+		for (UI_Box *cell = row->first; cell; cell = cell->next, column++)
 		{
-			UI_Box *cell = row->children[column];
+			Assert(column < table->column_count);
 			cell->desc.size[AXIS_X] = ui_box_content();
 			vec2 measured = ui_box_measure(cell, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, table->row_height) });
 			table->natural_widths[column] = Max(table->natural_widths[column], measured.x);
 		}
+		Assert(column == table->column_count);
 	}
 
 	f32 table_width = table->column_gap * Max((i32)table->column_count - 1, 0);
@@ -442,16 +444,17 @@ static vec2 ui_box__measure_table(UI_Box *box, UI_BoxConstraints constraints)
 		table->resolved_widths[column] = spec.kind == UI_BOX_TABLE_COLUMN_FIXED ? spec.value : table->natural_widths[column];
 		table_width += table->resolved_widths[column];
 	}
-	for (u32 row_index = 0; row_index < box->child_count; row_index++)
+	for (UI_Box *row = box->first; row; row = row->next)
 	{
-		UI_Box *row = box->children[row_index];
 		row->measured_size = row->arranged_size = v2(table_width, table->row_height);
-		for (u32 column = 0; column < table->column_count; column++)
+		u32 column = 0;
+		for (UI_Box *cell = row->first; cell; cell = cell->next, column++)
 		{
-			UI_Box *cell = row->children[column];
+			Assert(column < table->column_count);
 			cell->desc.size[AXIS_X] = ui_box_pixels(table->resolved_widths[column]);
 			cell->measured_size.x = cell->arranged_size.x = table->resolved_widths[column];
 		}
+		Assert(column == table->column_count);
 	}
 
 	f32 table_height = table->row_height * box->child_count + box->desc.gap * Max((i32)box->child_count - 1, 0);
@@ -491,16 +494,17 @@ static void ui_box__prepare_table_layout(UI_Box *box)
 	for (u32 column = 0; column < table->column_count; column++) {
 		table_width += table->resolved_widths[column];
 	}
-	for (u32 row_index = 0; row_index < box->child_count; row_index++)
+	for (UI_Box *row = box->first; row; row = row->next)
 	{
-		UI_Box *row = box->children[row_index];
 		row->measured_size.x = row->arranged_size.x = table_width;
-		for (u32 column = 0; column < table->column_count; column++)
+		u32 column = 0;
+		for (UI_Box *cell = row->first; cell; cell = cell->next, column++)
 		{
-			UI_Box *cell = row->children[column];
+			Assert(column < table->column_count);
 			cell->desc.size[AXIS_X] = ui_box_pixels(table->resolved_widths[column]);
 			cell->measured_size.x = cell->arranged_size.x = table->resolved_widths[column];
 		}
+		Assert(column == table->column_count);
 	}
 }
 

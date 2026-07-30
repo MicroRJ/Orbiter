@@ -352,8 +352,8 @@ static void playground_draw_tree(Arena *arena, Draw_Context *draw, Text_Context 
 
 	ui_box_paint(box);
 
-	for (u32 child_index = 0; child_index < box->child_count; ++child_index) {
-		playground_draw_tree(arena, draw, text, text_gfx, font, box->children[child_index], hot, selected_id);
+	for (UI_Box *child = box->first; child; child = child->next) {
+		playground_draw_tree(arena, draw, text, text_gfx, font, child, hot, selected_id);
 	}
 }
 
@@ -567,8 +567,8 @@ static int playground_run_tests(void)
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		playground_layout_scrollbar(&area);
 		PlaygroundScrollbar scrollbar = playground_scrollbar(&area);
-		CHECK(area.root->child_count == 2 && area.root->children[0] == viewport && area.root->children[1] == area.track, "scroll area composes the viewport and scrollbar as sibling boxes");
-		CHECK(area.track->child_count == 3 && area.track->children[1] == area.thumb, "scrollbar track and thumb are ordinary boxes");
+		CHECK(area.root->child_count == 2 && area.root->first == viewport && area.root->last == area.track && viewport->next == area.track, "scroll area composes the viewport and scrollbar as sibling boxes");
+		CHECK(area.track->child_count == 3 && area.track->first->next == area.thumb, "scrollbar track and thumb are ordinary boxes");
 		CHECK(playground_near(area.thumb->rect.h, 25.f) && playground_near(area.thumb->rect.y, 37.5f), "box scrollbar thumb maps the logical scroll range onto track travel");
 		CHECK(playground_near(scrollbar.max_scroll, 300.f) && playground_near(scrollbar.travel, 75.f), "box scrollbar reads its range from the scrollable viewport");
 
@@ -645,7 +645,7 @@ static int playground_run_tests(void)
 		ui_begin_frame(ui);
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		CHECK(playground_near(scroll->offset, 0.f) && playground_near(scroll->target, 0.f), "reset persists through the viewport box state");
-		scroll->viewport->children[0]->desc.size[AXIS_Y] = ui_box_pixels(800.f);
+		scroll->viewport->first->desc.size[AXIS_Y] = ui_box_pixels(800.f);
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		CHECK(playground_near(scroll->thumb->rect.h, 24.f), "track preparation sizes the thumb from current-frame content instead of cached geometry");
@@ -727,8 +727,8 @@ static int playground_run_tests(void)
 		ui_builder_box_end(&builder);
 		UI_Box *d = ui_builder_box_make_desc(&builder, 2, LIT("d"), desc);
 		ui_box_builder_end(&builder);
-		CHECK(root->child_count == 2 && root->children[0] == a && root->children[1] == d, "builder stores root children contiguously and in order");
-		CHECK(a->child_count == 2 && a->children[0] == b && a->children[1] == c, "builder stores nested children contiguously and in order");
+		CHECK(root->child_count == 2 && root->first == a && root->last == d && a->parent == root && d->parent == root && a->next == d && d->prev == a, "builder links root children in both directions and in order");
+		CHECK(a->child_count == 2 && a->first == b && a->last == c && b->parent == a && c->parent == a && b->next == c && c->prev == b, "builder links nested children in both directions and in order");
 		CHECK(root->id.value && ui_id_equal(a->id, ui_id_child(root->id, 1)) && ui_id_equal(b->id, ui_id_child(a->id, 1)), "box IDs derive from their structural parent and construction key");
 		CHECK(!ui_id_equal(b->id, d->id), "the same local key in a different structural scope produces a different ID");
 	}
@@ -834,8 +834,9 @@ static int playground_run_tests(void)
 		ui_build_end(ui);
 		ui_box_measure(table_box, (UI_BoxConstraints) { .max = v2(300.f, 100.f) });
 		ui_box_layout(table_box, (rect_f32) { 0.f, 0.f, 300.f, 42.f });
-		UI_Box *r1c1 = table_box->children[1]->children[1];
-		UI_Box *r1c2 = table_box->children[1]->children[2];
+		UI_Box *second_row = table_box->first->next;
+		UI_Box *r1c1 = second_row->first->next;
+		UI_Box *r1c2 = second_row->last;
 		CHECK(playground_near(r0c0->rect.w, 70.f) && playground_near(r1c0->rect.w, 70.f), "content table tracks use the widest cell subtree across rows");
 		CHECK(playground_near(r0c1->rect.w, 50.f) && playground_near(r1c1->rect.w, 50.f), "fixed table tracks remain aligned across rows");
 		CHECK(playground_near(r0c2->rect.w, 170.f) && playground_near(r1c2->rect.w, 170.f), "flex table tracks receive the remaining width");
@@ -848,7 +849,7 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		UI_Box *root = playground_test_row(&arena, 400.f, ui_box_flex(0.f, 3.f), 300.f, 0.f, UI_BOX_INFINITY, ui_box_flex(0.f, 1.f), 300.f, 0.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 150.f) && playground_near(root->children[1]->rect.w, 250.f), "negative space follows shrink weights");
+		CHECK(playground_near(root->first->rect.w, 150.f) && playground_near(root->last->rect.w, 250.f), "negative space follows shrink weights");
 	}
 
 	ARENA_SCOPE(&arena)
@@ -868,13 +869,13 @@ static int playground_run_tests(void)
 	ARENA_SCOPE(&arena)
 	{
 		UI_Box *root = playground_test_row(&arena, 300.f, ui_box_flex(0.f, 3.f), 300.f, 200.f, UI_BOX_INFINITY, ui_box_flex(0.f, 1.f), 300.f, 0.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 200.f) && playground_near(root->children[1]->rect.w, 100.f), "shrink deficit redistributes after a child reaches its minimum");
+		CHECK(playground_near(root->first->rect.w, 200.f) && playground_near(root->last->rect.w, 100.f), "shrink deficit redistributes after a child reaches its minimum");
 	}
 
 	ARENA_SCOPE(&arena)
 	{
 		UI_Box *root = playground_test_row(&arena, 400.f, ui_box_fill(1.f), 0.f, 0.f, 100.f, ui_box_fill(1.f), 0.f, 0.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 100.f) && playground_near(root->children[1]->rect.w, 300.f), "grow surplus redistributes after a child reaches its maximum");
+		CHECK(playground_near(root->first->rect.w, 100.f) && playground_near(root->last->rect.w, 300.f), "grow surplus redistributes after a child reaches its maximum");
 	}
 
 	ARENA_SCOPE(&arena)
@@ -898,13 +899,13 @@ static int playground_run_tests(void)
 		ui_box_builder_end(&builder);
 		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(400.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 400.f, 100.f });
-		CHECK(playground_near(root->children[1]->rect.w, 260.f), "margins and gaps are deducted before distributing free space");
+		CHECK(playground_near(root->last->rect.w, 260.f), "margins and gaps are deducted before distributing free space");
 	}
 
 	ARENA_SCOPE(&arena)
 	{
 		UI_Box *root = playground_test_row(&arena, 100.f, ui_box_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY, ui_box_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 80.f) && playground_near(root->children[1]->rect.w, 80.f), "unsatisfied deficit stops at child minimums without negative sizes");
+		CHECK(playground_near(root->first->rect.w, 80.f) && playground_near(root->last->rect.w, 80.f), "unsatisfied deficit stops at child minimums without negative sizes");
 	}
 
 	ARENA_SCOPE(&arena)
@@ -924,8 +925,8 @@ static int playground_run_tests(void)
 		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 100.f) });
 		ui_box_layout(list, rect_f32_from_size(list->measured_size));
 		CHECK(playground_near(list->measured_size.y, 42.f) && playground_near(list->content_size.y, 42.f), "a short virtual list wraps its logical items");
-		CHECK(list->child_count == 1 && list->children[0]->child_count == 1, "a virtual item materializes as an arbitrary box subtree");
-		CHECK(ui_id_equal(list->children[0]->id, ui_id_child(ui_id_child(list->id, 0), 1)), "a virtual item ID includes its logical item scope");
+		CHECK(list->child_count == 1 && list->first->child_count == 1, "a virtual item materializes as an arbitrary box subtree");
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 0), 1)), "a virtual item ID includes its logical item scope");
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
 	}
@@ -950,8 +951,8 @@ static int playground_run_tests(void)
 		CHECK(list->child_count == 4 && list->virtual_list.first_item == 0 && list->virtual_list.one_past_item == 4, "a virtual list materializes only visible and overscan items");
 		list->scroll_offset.y = 500.f;
 		ui_box_relayout(list);
-		CHECK(list->child_count == 6 && list->children[0]->virtual_index == 8 && list->children[5]->virtual_index == 13, "scrolling rematerializes the correct logical item range");
-		CHECK(ui_id_equal(list->children[0]->id, ui_id_child(ui_id_child(list->id, 8), 1)), "rematerialized virtual items retain deterministic IDs");
+		CHECK(list->child_count == 6 && list->first->virtual_index == 8 && list->last->virtual_index == 13 && !list->first->prev && !list->last->next, "scrolling rematerializes a valid linked range of logical items");
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 8), 1)), "rematerialized virtual items retain deterministic IDs");
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
 	}

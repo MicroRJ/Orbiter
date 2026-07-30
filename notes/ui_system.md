@@ -37,28 +37,26 @@ but extended to support shrinking weights as well as expansion weights.
 
 
 ### Box building
-RAD uses a linked list to build box children, this has the advantage that adding / removing children
-from a box is much easier and doesn't rely on context.
+RAD uses a linked list to build box children.
 
-For our builder I've chose a flat ```**children``` array. The way we build it is by pushing boxes
+For our builder I initially chose a flat ```**children``` array. The way we build it is by pushing boxes
 onto a designated stack in the builder, once you're done you pop the stack and get a copy of the
 boxes.
-I think pretty much the only real advantage this has it's that it's just more convenient to deal
-with in very narrow, internal cases (since user code doesn't typically access children).
+I think pretty much the only "advantage" this has, it's that it's just more convenient to deal
+in very narrow, internal cases (since user code doesn't typically access children).
 
-But it does introduce some real friction points.
+After experimenting with this, I now actually understand why LL's are the right move here.
 
-For instance, you can't create a box and add / remove children arbitrarily, you have to either
-work with the system, or give the box a new children array yourself.
+For instance, you can't create a box and add / remove children arbitrarily, you have to either comply
+with the stack system, or work around it. And most of it is complying.
 
-We're already seeing some of the early API being forced to be shaped in less straightforward was
-just to deal with this.
-
-And it introduces the notion of, it'll work if it happens to work.
-
-For instance, for virtual lists, we need to insert items into the list. It works because the hooks
-run when the virtual list is the parent. This type of code just become highly ambiguous and hard to
-deal with later.
+- Ordering code in specific ways to work with the stack.
+- Literally not being able to do something and having to do some wacky stuff.
+- Scrollbars needing awkward construction ordering.
+- Virtual lists rebuilding child arrays.
+- Builder stacks and child-array finalization.
+- Difficulty inserting decorators, overlays, or generated boxes.
+- General uncertainty about whether adding children later is valid.
 
 
 

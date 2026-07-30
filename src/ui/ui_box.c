@@ -75,15 +75,33 @@ static UI_Box *ui_box__allocate_box(UI_BoxBuilder *builder, UI_Id id, UI_Key key
 	return box;
 }
 
-static void ui_box__finish_children(UI_BoxBuilder *builder, UI_Box *parent)
+static void ui_box__append_child(UI_Box *parent, UI_Box *child)
 {
-	Assert(parent->child_count <= builder->child_count);
-	builder->child_count -= parent->child_count;
-	if (parent->child_count)
+	Assert(parent);
+	Assert(child);
+	Assert(!child->parent);
+	Assert(!child->next);
+	Assert(!child->prev);
+	child->parent = parent;
+	child->prev = parent->last;
+	if (parent->last) parent->last->next = child;
+	else parent->first = child;
+	parent->last = child;
+	parent->child_count++;
+}
+
+static void ui_box__clear_children(UI_Box *parent)
+{
+	for (UI_Box *child = parent->first, *next; child; child = next)
 	{
-		u64 size = sizeof(*parent->children) * parent->child_count;
-		parent->children = arena_push_copy(builder->arena, size, builder->child_stack + builder->child_count);
+		next = child->next;
+		child->parent = 0;
+		child->next = 0;
+		child->prev = 0;
 	}
+	parent->first = 0;
+	parent->last = 0;
+	parent->child_count = 0;
 }
 
 UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc)
@@ -105,15 +123,12 @@ UI_Box *ui_builder_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name
 {
 	Assert(builder);
 	Assert(builder->parent);
-	Assert(builder->child_count < ArrayCount(builder->child_stack));
 	UI_Id id = ui_id_child(builder->id, key);
-	u32 sibling_begin = builder->child_count - builder->parent->child_count;
-	for (u32 sibling_index = sibling_begin; sibling_index < builder->child_count; sibling_index ++) {
-		Assert(!ui_id_equal(builder->child_stack[sibling_index]->id, id));
+	for (UI_Box *sibling = builder->parent->first; sibling; sibling = sibling->next) {
+		Assert(!ui_id_equal(sibling->id, id));
 	}
 	UI_Box *box = ui_box__allocate_box(builder, id, key, name, desc);
-	builder->parent->child_count++;
-	builder->child_stack[builder->child_count++] = box;
+	ui_box__append_child(builder->parent, box);
 	return box;
 }
 
@@ -125,8 +140,7 @@ UI_Box *ui_builder_box_make(UI_BoxBuilder *builder, UI_Key key, String name)
 UI_Box *ui_builder_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
 {
 	UI_Box *box = ui_builder_box_make_desc(builder, key, name, desc);
-	Assert(builder->parent_count < ArrayCount(builder->parent_stack));
-	builder->parent_stack[builder->parent_count] = builder->parent;
+	Assert(builder->parent_count < ArrayCount(builder->parent_id_stack));
 	builder->parent_id_stack[builder->parent_count++] = builder->id;
 	builder->parent = box;
 	builder->id = box->id;
@@ -142,9 +156,8 @@ void ui_builder_box_end(UI_BoxBuilder *builder)
 {
 	Assert(builder);
 	Assert(builder->parent_count);
-	ui_box__finish_children(builder, builder->parent);
 	builder->parent_count--;
-	builder->parent = builder->parent_stack[builder->parent_count];
+	builder->parent = builder->parent->parent;
 	builder->id = builder->parent_id_stack[builder->parent_count];
 }
 
@@ -157,8 +170,6 @@ UI_Box *ui_box_builder_end(UI_BoxBuilder *builder)
 	Assert(builder->id_count == 0);
 	Assert(builder->desc_count == 0);
 	Assert(ui_id_equal(builder->id, builder->root->id));
-	ui_box__finish_children(builder, builder->root);
-	Assert(builder->child_count == 0);
 	return builder->root;
 }
 
@@ -197,10 +208,9 @@ UI_Box *ui_builder_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key
 	}
 	ui_builder_box_end(builder);
 	if (list.item_count) {
-		box->virtual_list.sizing_item = box->children[0];
+		box->virtual_list.sizing_item = box->first;
 	}
-	box->children = 0;
-	box->child_count = 0;
+	ui_box__clear_children(box);
 	return box;
 }
 
@@ -525,10 +535,8 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 		content = v2(0.f, 0.f);
 		content.xy[main_axis] = box->desc.gap * (box->child_count - 1);
 
-		for (u32 child_index = 0; child_index < box->child_count; child_index ++)
+		for (UI_Box *child = box->first; child; child = child->next)
 		{
-			UI_Box *child = box->children[child_index];
-
 			UI_BoxConstraints child_constraints = { .max = available, };
 			child_constraints.max.xy[main_axis] = UI_BOX_INFINITY;
 
@@ -570,9 +578,8 @@ static f32 ui_box__distribute(UI_Box *box, AXIS axis, f32 free_size)
 	for (u32 pass = 0; pass < box->child_count && fabsf(free_size) > 0.001f; pass ++)
 	{
 		f32 total_weight = 0.f;
-		for (u32 child_index = 0; child_index < box->child_count; child_index ++)
+		for (UI_Box *child = box->first; child; child = child->next)
 		{
-			UI_Box *child = box->children[child_index];
 			f32 size = child->arranged_size.xy[axis];
 			f32 weight = growing ? child->desc.size[axis].grow : child->desc.size[axis].shrink;
 			f32 bound = growing ? ui_box__local_max(child, axis) : ui_box__local_min(child, axis);
@@ -586,9 +593,8 @@ static f32 ui_box__distribute(UI_Box *box, AXIS axis, f32 free_size)
 
 		f32 unit = free_size / total_weight;
 		f32 correction = 0.f;
-		for (u32 child_index = 0; child_index < box->child_count; child_index ++)
+		for (UI_Box *child = box->first; child; child = child->next)
 		{
-			UI_Box *child = box->children[child_index];
 			f32 weight = growing ? child->desc.size[axis].grow : child->desc.size[axis].shrink;
 			if (weight <= 0.f) continue;
 			f32 prev = child->arranged_size.xy[axis];
@@ -671,8 +677,7 @@ static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 on
 	};
 	UI_BoxBuilder *previous_builder = box->ui->builder;
 	box->ui->builder = &builder;
-	box->children = 0;
-	box->child_count = 0;
+	ui_box__clear_children(box);
 	for (u32 item_index = first_item; item_index < one_past_item; item_index ++)
 	{
 		u32 child_count = box->child_count;
@@ -685,8 +690,9 @@ static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 on
 	}
 	ui_box_builder_end(&builder);
 	box->ui->builder = previous_builder;
-	for (u32 child_index = 0; child_index < box->child_count; child_index ++) {
-		box->children[child_index]->virtual_index = first_item + child_index;
+	u32 child_index = 0;
+	for (UI_Box *child = box->first; child; child = child->next) {
+		child->virtual_index = first_item + child_index++;
 	}
 	box->virtual_list.first_item = first_item;
 	box->virtual_list.one_past_item = one_past_item;
@@ -736,9 +742,8 @@ static void ui_box__layout_virtual_list(UI_Box *box, rect_f32 clip)
 	ui_box__materialize_virtual_list(box, first_item, one_past_item);
 
 	vec2 available = box->viewport.size;
-	for (u32 child_index = 0; child_index < box->child_count; child_index ++)
+	for (UI_Box *child = box->first; child; child = child->next)
 	{
-		UI_Box *child = box->children[child_index];
 		UI_BoxConstraints constraints = { .max = available };
 		constraints.max.xy[main_axis] = item_extent;
 		ui_box_measure(child, constraints);
@@ -800,9 +805,8 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 	AXIS perp_axis = !main_axis;
 	f32 occupied = box->desc.gap * (box->child_count - 1);
 
-	for (u32 child_index = 0; child_index < box->child_count; child_index ++)
+	for (UI_Box *child = box->first; child; child = child->next)
 	{
-		UI_Box *child = box->children[child_index];
 		child->arranged_size = child->measured_size;
 		occupied += child->arranged_size.xy[main_axis] + child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
 	}
@@ -813,9 +817,8 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 	}
 
 	box->content_size.xy[perp_axis] = 0.f;
-	for (u32 child_index = 0; child_index < box->child_count; child_index ++)
+	for (UI_Box *child = box->first; child; child = child->next)
 	{
-		UI_Box *child = box->children[child_index];
 		f32 perp_before = child->desc.margin[perp_axis][0];
 		f32 perp_after = child->desc.margin[perp_axis][1];
 		f32 perp_available = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
@@ -842,9 +845,8 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 	rect_f32 child_clip = ui_box__child_clip(box, clip);
 
 	f32 cursor = box->viewport.xy[main_axis] - box->scroll_offset.xy[main_axis];
-	for (u32 child_index = 0; child_index < box->child_count; child_index ++)
+	for (UI_Box *child = box->first; child; child = child->next)
 	{
-		UI_Box *child = box->children[child_index];
 		f32 main_before = child->desc.margin[main_axis][0];
 		f32 main_after = child->desc.margin[main_axis][1];
 		f32 perp_before = child->desc.margin[perp_axis][0];
@@ -879,9 +881,9 @@ UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)
 	if (!box || !rect_f32_contains(box->clip_rect, point)) {
 		return 0;
 	}
-	for (u32 child_index = box->child_count; child_index > 0; --child_index)
+	for (UI_Box *child = box->last; child; child = child->prev)
 	{
-		UI_Box *result = ui_box_find_deepest(box->children[child_index - 1], point);
+		UI_Box *result = ui_box_find_deepest(child, point);
 		if (result) {
 			return result;
 		}
