@@ -5,6 +5,20 @@
 #include "os_graphical.h"
 #include "ui.h"
 
+enum
+{
+	UI_PERSISTENT_STATE_CAPACITY = 1024,
+};
+
+struct UI_PersistentState
+{
+	UI_Id id;
+	void *data;
+	u64 data_size;
+	u64 data_capacity;
+	u64 last_touched_frame;
+};
+
 static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer, UI_DrawCommandKind kind, b32 inherit_clip)
 {
 	Assert(ui);
@@ -146,16 +160,39 @@ UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
 	Assert(window);
 	Assert(text);
 	UI_Context *ui = arena_push_zero(owner, sizeof(*ui));
+	ui->owner = owner;
 	ui->window = window;
 	ui->text = text;
 	ui->frame_arena = arena_create(0, "UI frame arena");
 	ui->theme = theme;
+	ui->persistent_state_capacity = UI_PERSISTENT_STATE_CAPACITY;
+	ui->persistent_states = arena_push_zero(owner, ui->persistent_state_capacity * sizeof(*ui->persistent_states));
+	ui->layout_generation = 1;
+	ui->previous_frame_time = seconds_now();
+	ui->previous_window_size = window->size;
 	return ui;
+}
+
+void ui_invalidate_layout(UI_Context *ui)
+{
+	Assert(ui);
+	ui->layout_generation++;
+	ui->active = UI_ID_NONE;
 }
 
 void ui_begin_frame(UI_Context *ui)
 {
 	Assert(ui);
+	Seconds frame_time = seconds_now();
+	ui->frame_elapsed = (f32)Max(frame_time.seconds - ui->previous_frame_time.seconds, 0.0);
+	ui->previous_frame_time = frame_time;
+	ui->frame_index++;
+	ui->mouse_wheel_consumed = false;
+	if (ui->window->size.x != ui->previous_window_size.x || ui->window->size.y != ui->previous_window_size.y)
+	{
+		ui->previous_window_size = ui->window->size;
+		ui_invalidate_layout(ui);
+	}
 	arena_reset(&ui->frame_arena);
 	ui->frame = (UI_Frame) { 0 };
 	ui->layer = UI_LAYER_CONTENT;
@@ -166,6 +203,69 @@ void ui_begin_frame(UI_Context *ui)
 	ui->emission_stack_count = 0;
 	ui->mouse = v2_from_v2i(ui->window->mouse_position);
 	ui->hot = UI_ID_NONE;
+}
+
+void *ui_state_get(UI_Context *ui, UI_Id id, u64 size)
+{
+	Assert(ui);
+	Assert(id.value);
+	Assert(size);
+	Assert(ui->persistent_state_capacity);
+
+	UI_PersistentState *empty = 0;
+	UI_PersistentState *oldest = 0;
+	u32 mask = ui->persistent_state_capacity - 1;
+	u32 start = (u32)id.value & mask;
+	for (u32 probe = 0; probe < ui->persistent_state_capacity; probe++)
+	{
+		UI_PersistentState *state = &ui->persistent_states[(start + probe) & mask];
+		if (ui_id_equal(state->id, id))
+		{
+			Assert(state->data_size == size);
+			state->last_touched_frame = ui->frame_index;
+			return state->data;
+		}
+		if (!state->id.value && !empty) {
+			empty = state;
+		}
+		if (state->id.value && (!oldest || state->last_touched_frame < oldest->last_touched_frame)) {
+			oldest = state;
+		}
+	}
+
+	UI_PersistentState *state = empty ? empty : oldest;
+	Assert(state);
+	Assert(!state->id.value || state->last_touched_frame != ui->frame_index);
+	if (state->data_capacity < size)
+	{
+		state->data = arena_push_zero(ui->owner, size);
+		state->data_capacity = size;
+	}
+	else {
+		memory_zero(state->data, state->data_capacity);
+	}
+	state->id = id;
+	state->data_size = size;
+	state->last_touched_frame = ui->frame_index;
+	return state->data;
+}
+
+void ui_state_forget(UI_Context *ui, UI_Id id)
+{
+	Assert(ui);
+	Assert(id.value);
+	for (u32 state_index = 0; state_index < ui->persistent_state_capacity; state_index++)
+	{
+		UI_PersistentState *state = &ui->persistent_states[state_index];
+		if (!ui_id_equal(state->id, id)) continue;
+		if (state->data) {
+			memory_zero(state->data, state->data_capacity);
+		}
+		state->id = UI_ID_NONE;
+		state->data_size = 0;
+		state->last_touched_frame = 0;
+		break;
+	}
 }
 
 void ui_end_frame(UI_Context *ui)
@@ -247,7 +347,7 @@ UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
 	{
 		ui->hot = id;
 	}
-	if (response.hovered && (mouse & OS_KEY_PRESSED))
+	if (response.hovered && (mouse & OS_KEY_PRESSED) && !ui->active.value)
 	{
 		ui->active = id;
 		ui->active_press_mouse = ui->mouse;

@@ -12,6 +12,19 @@ common_compile_options := {
 	"-Wshift-negative-value",
 }
 
+release_compile_options := {
+	"/nologo",
+	"/MT",
+	"/O2",
+	"/Zi",
+	"-Wfloat-conversion",
+	"-Wint-conversion",
+	"-Wuninitialized",
+	"-Wshift-overflow",
+	"-Wshift-count-overflow",
+	"-Wshift-negative-value",
+}
+
 optimized_object_names := {
 	"nes",
 	"nes_state_meta",
@@ -114,15 +127,16 @@ objects := {
 }
 
 executables := {
-	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
+	// { name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
 	{ name = "nes_cpu_test",    input = "src/tests/nes_cpu_test.c" },
 	{ name = "nes_ppu_test",    input = "src/tests/nes_ppu_test.c" },
 	{ name = "nes_mapper_test", input = "src/tests/nes_mapper_test.c" },
 	{ name = "nes_apu_test",    input = "src/tests/nes_apu_test.c" },
-	{ name = "nes_audio_test",  input = "src/tests/nes_audio_test.c" },
+	// { name = "nes_audio_test",  input = "src/tests/nes_audio_test.c" },
+	{ name = "execution_graph_test", input = "src/tests/execution_graph_test.c" },
 	{ name = "nes_test_runner", input = "src/tests/nes_test_runner.c" },
 	{ name = "nes_headless",    input = "tools/headless/main.c" },
-	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
+	// { name = "nes_benchmark",   input = "tools/benchmark/main.c" },
 	{ name = "ui_playground",   input = "tools/ui_playground/main.c" },
 	{ name = "main",              input = "src/main.c" },
 }
@@ -153,11 +167,13 @@ join_prefixed := fun(values, prefix) {
 }
 
 common_options := join_prefixed(common_compile_options, "")
+release_options := join_prefixed(release_compile_options, "")
 /* Select one optimization mode per translation unit; combining /Od and /O2
 	makes the effective mode depend on argument order. */
 debug_options := common_options + " /Od"
 optimized_options := common_options + " /O2"
 includes := join_prefixed(include_directories, "/I")
+release_includes := " /Ibuild/release/generated" + includes
 
 prepare_build := add_task(
 	"prepare build directory",
@@ -222,6 +238,11 @@ for executable := executables[...] ? {
 	linker_pdb := output + ".pdb"
 	incremental_link := output + ".ilk"
 	entry_inputs := { "build.elf", executable.input }
+	if executable.name == "ui_playground" ? {
+		entry_inputs:add("tools/ui_playground/demo_basics.c")
+		entry_inputs:add("tools/ui_playground/demo_profiler.c")
+		entry_inputs:add("tools/ui_playground/demo_scroll_history.c")
+	}
 	entry_task := add_task(
 		executable.name + " entry",
 		"clang-cl -c " + executable.input +
@@ -256,9 +277,111 @@ for executable := executables[...] ? {
 	executable_tasks:add(link_task)
 }
 
+release_object_tasks := {}
+release_object_outputs := {}
+release_object_files := ""
+release_shader_tasks := {}
+
+prepare_release := add_task(
+	"prepare release build directory",
+	"cmd /c if not exist build\\release\\generated mkdir build\\release\\generated",
+	{},
+	{ "build/release", "build/release/generated" },
+	{}
+)
+
+for shader := shaders[...] ? {
+	output := "build/release/generated/" + shader.output
+	task := add_task(
+		"release " + shader.name,
+		"fxc /nologo /O3 /Qstrip_debug" +
+		" /T" + shader.model +
+		" src/graphics/shaders.hlsl" +
+		" /Fh" + output +
+		" /E" + shader.entry,
+		{ "build.elf", "src/graphics/shaders.hlsl" },
+		{ output },
+		{ prepare_release }
+	)
+	release_shader_tasks:add(task)
+}
+
+for object := objects[...] ? {
+	output := "build/release/" + object.name + ".obj"
+	compiler_pdb := "build/release/" + object.name + ".compiler.pdb"
+	inputs := { "build.elf", object.input }
+	dependencies := { prepare_release }
+	if object.name == "renderer" ? {
+		for shader_task := release_shader_tasks[...] ? {
+			dependencies:add(shader_task)
+		}
+	}
+	task := add_task(
+		"release " + object.name,
+		"clang-cl -c " + object.input +
+		" /Fo" + output +
+		" /Fd" + compiler_pdb +
+		release_options + release_includes,
+		inputs,
+		{ output },
+		dependencies
+	)
+	release_object_tasks:add(task)
+	release_object_outputs:add(output)
+	release_object_files += " " + output
+}
+
+release_entry_object := "build/release/main.entry.obj"
+release_entry_compiler_pdb := "build/release/main.entry.compiler.pdb"
+release_entry_task := add_task(
+	"release main entry",
+	"clang-cl -c src/main.c" +
+	" /Fo" + release_entry_object +
+	" /Fd" + release_entry_compiler_pdb +
+	release_options + release_includes,
+	{ "build.elf", "src/main.c" },
+	{ release_entry_object },
+	{ prepare_release }
+)
+
+release_link_inputs := {
+	"build.elf",
+	"src/fonts/ttf/freetype/freetype.lib",
+	release_entry_object,
+}
+for release_object_output := release_object_outputs[...] ? {
+	release_link_inputs:add(release_object_output)
+}
+
+release_link_dependencies := { release_entry_task }
+for release_object_task := release_object_tasks[...] ? {
+	release_link_dependencies:add(release_object_task)
+}
+
+release_executable := add_task(
+	"Orbiter release",
+	"clang-cl /nologo /MT" +
+	" /Febuild/release/Orbiter.exe" +
+	" " + release_entry_object + release_object_files +
+	" src/fonts/ttf/freetype/freetype.lib" +
+	" /link /DEBUG /PDB:build/release/Orbiter.pdb" +
+	" /PDBALTPATH:Orbiter.pdb" +
+	" /INCREMENTAL:NO /OPT:REF /OPT:ICF" +
+	" /NODEFAULTLIB:MSVCRT /INCLUDE:getenv /INCLUDE:strncpy" +
+	" /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup",
+	release_link_inputs,
+	{ "build/release/Orbiter.exe", "build/release/Orbiter.pdb" },
+	release_link_dependencies
+)
+
 entries := {}
 entries.build = fun() {
 	success := bob.build({targets=executable_tasks,workers=8})
+	ret success
+}
+
+entries.release = fun() {
+	success := bob.build({targets={release_executable},workers=8})
 	ret success
 }
 

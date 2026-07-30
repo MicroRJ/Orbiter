@@ -1,5 +1,6 @@
 .vs/
 /build/
+/dist/
 *.exe
 !/tools/bob/bob.exe
 *.ilk

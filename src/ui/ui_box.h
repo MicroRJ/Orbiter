@@ -2,6 +2,7 @@
 #define UI_BOX_H
 
 #include "base.h"
+#include "color.h"
 #include "ui_id.h"
 
 enum
@@ -67,6 +68,25 @@ typedef struct
 }
 UI_BoxDesc;
 
+typedef u32 UI_BoxDrawFlags;
+enum
+{
+	UI_BOX_DRAW_BACKGROUND = 1 << 0,
+	UI_BOX_DRAW_BORDER     = 1 << 1,
+};
+
+typedef struct
+{
+	UI_BoxDrawFlags flags;
+	Color_SRGBA background;
+	Color_SRGBA border;
+	f32 border_width;
+	f32 roundness;
+	f32 edge_softness;
+	f32 emission;
+}
+UI_BoxPaintDesc;
+
 typedef struct
 {
 	vec2 min;
@@ -81,6 +101,8 @@ typedef void UI_BoxVirtualBuildItem(UI_BoxBuilder *builder, u32 item_index, void
 typedef vec2 UI_BoxMeasure(UI_Box *box, UI_BoxConstraints constraints);
 typedef vec2 UI_BoxMeasureChildren(UI_Box *box, UI_BoxConstraints constraints);
 typedef void UI_BoxPrepareLayout(UI_Box *box);
+// Runs after the box and all of its children have current rectangles.
+typedef void UI_BoxFinishLayout(UI_Box *box);
 typedef void UI_BoxPaint(UI_Box *box);
 
 typedef struct
@@ -88,6 +110,7 @@ typedef struct
 	UI_BoxMeasure *measure;
 	UI_BoxMeasureChildren *measure_children;
 	UI_BoxPrepareLayout *prepare_layout;
+	UI_BoxFinishLayout *finish_layout;
 	UI_BoxPaint *paint;
 }
 UI_BoxOps;
@@ -105,6 +128,7 @@ struct UI_Box
 	UI_Id id;
 	String name;
 	UI_BoxDesc desc;
+	UI_BoxPaintDesc paint;
 	UI_Box **children;
 	u32 child_count;
 	vec2 intrinsic_size;
@@ -150,6 +174,8 @@ struct UI_BoxBuilder
 	UI_Box *child_stack[UI_BOX_MAX_PENDING_CHILDREN];
 	UI_BoxDesc desc;
 	UI_BoxDesc desc_stack[UI_BOX_MAX_DEPTH];
+	UI_BoxPaintDesc paint;
+	UI_BoxPaintDesc paint_stack[UI_BOX_MAX_DEPTH];
 	u32 parent_count;
 	u32 id_count;
 	u32 child_count;
@@ -185,6 +211,11 @@ void ui_axis(UI_BoxBuilder *builder, AXIS axis);
 void ui_gap(UI_BoxBuilder *builder, f32 gap);
 void ui_perp_align(UI_BoxBuilder *builder, f32 align);
 void ui_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow);
+void ui_background(UI_BoxBuilder *builder, Color_SRGBA color);
+void ui_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width);
+void ui_roundness(UI_BoxBuilder *builder, f32 roundness);
+void ui_edge_softness(UI_BoxBuilder *builder, f32 edge_softness);
+void ui_emission(UI_BoxBuilder *builder, f32 emission);
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints);
 void ui_box_layout(UI_Box *box, rect_f32 rect);

@@ -14,6 +14,48 @@ UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc,
 UI_Box *ui_text_box_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String text);
 UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String sizing_text, String text);
 
+void ui_box_paint(UI_Box *box);
+
+typedef struct
+{
+	rect_f32 viewport;
+	rect_f32 track;
+	rect_f32 track_viewport;
+	rect_f32 thumb;
+	vec2 content_size;
+	vec2 scroll_min;
+	vec2 scroll_max;
+	u64 frame_index;
+	u64 layout_generation;
+}
+UI_ScrollGeometry;
+
+typedef struct
+{
+	UI_BoxBuilder *builder;
+	UI_Box *root;
+	UI_Box *viewport;
+	UI_Box *track;
+	UI_Box *space_before;
+	UI_Box *thumb;
+	UI_Box *space_after;
+	AXIS axis;
+	b32 has_previous;
+	f32 offset;
+	f32 target;
+	UI_ScrollGeometry previous;
+	void *persistent;
+	u32 parent_count;
+	u32 desc_count;
+}
+UI_Scroll;
+
+// The scope must build exactly one box. That box becomes the clipped viewport;
+// a virtual list can therefore be used directly without a wrapper.
+UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, u64 key, AXIS axis);
+void ui_scroll_reset(UI_Scroll *scroll);
+void ui_scroll_end(UI_Scroll *scroll);
+
 typedef enum
 {
 	UI_BOX_TABLE_COLUMN_CONTENT,

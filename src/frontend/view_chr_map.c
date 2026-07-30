@@ -150,7 +150,7 @@ static void chr_map_view_content(ViewFrameData *frame)
 	{
 		UI_TextStyle style = frame->ui->theme.code;
 		style.color = frame->ui->theme.text_subtle;
-		ui_draw_text(frame->ui, frame->rect, style, LIT("No cartridge loaded"));
+		ui_draw_text(frame->ui, frame->rect, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
 	}
 

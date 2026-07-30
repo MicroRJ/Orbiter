@@ -181,7 +181,6 @@ int main(int argc, char **argv)
 
 	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
 		.enable_instruction_trace = true,
-		.enable_instruction_boundaries = true,
 	});
 	Assert(core);
 	Assert(!nes_emulator_has_cartridge(core));
@@ -212,6 +211,11 @@ int main(int argc, char **argv)
 	Assert(first.cpu_address == before.PC);
 	Assert(first.cpu_mapped.device == NES_DEVICE_PRG_ROM);
 	Assert(first.cpu_mapped.offset == 0);
+	NES_Emulator *trace_disabled = nes_emulator_create(&arena,
+		(NES_EmulatorDesc) {});
+	Assert(nes_emulator_load_cartridge(trace_disabled, parsed_cartridge));
+	nes_emulator_run(trace_disabled, 3);
+	Assert(nes_emulator_scheduler_trace(trace_disabled).index == 0);
 	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(core);
 	Assert(boundaries.index > 0);
 	first = nes_scheduler_trace_at(boundaries, 0);
@@ -264,6 +268,28 @@ int main(int argc, char **argv)
 	{
 		ByteSpan state = nes_emulator_save_state(core, &arena);
 		Assert(state.data && state.size);
+		NES_Emulator *before_failed_load = arena_push(&arena,
+			sizeof(*before_failed_load));
+		memory_copy(before_failed_load, core, sizeof(*core));
+		u64 truncated_sizes[] = {
+			0,
+			1,
+			11,
+			12,
+			state.size - 1,
+		};
+		for (u32 index = 0; index < ArrayCount(truncated_sizes); ++index)
+		{
+			Assert(!nes_emulator_load_state(core,
+				byte_span(state.data, truncated_sizes[index])));
+			Assert(memory_match(core, before_failed_load, sizeof(*core)));
+		}
+		u8 *corrupt_state = arena_push_copy(&arena, state.size, state.data);
+		corrupt_state[8] ^= 0x80;
+		Assert(!nes_emulator_load_state(core,
+			byte_span(corrupt_state, state.size)));
+		Assert(memory_match(core, before_failed_load, sizeof(*core)));
+
 		const char *test_state_path = "build/nes_emulator_test_state.nesstate";
 		Assert(test_write_file(test_state_path, state.data, state.size));
 		String disk_state = test_read_file(&arena, test_state_path);

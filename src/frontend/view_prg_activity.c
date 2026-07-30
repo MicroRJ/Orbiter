@@ -293,7 +293,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	u32 program_size = program->prg_rom_byte_count + (include_prg_ram ? program->prg_ram_byte_count : 0);
 	if (!program->prg_rom_byte_count)
 	{
-		ui_draw_text(ui, layout, text_style, LIT("No cartridge loaded"));
+		ui_draw_text(ui, layout, text_style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
 	}
 

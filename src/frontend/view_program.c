@@ -129,7 +129,7 @@ static void program_view_content(ViewFrameData *frame)
 	UI_TextStyle font = ui->theme.code;
 	if (!debugger_has_cartridge(debugger))
 	{
-		ui_draw_text(ui, main_rect, font, LIT("No cartridge loaded"));
+		ui_draw_text(ui, main_rect, font, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
 	}
 

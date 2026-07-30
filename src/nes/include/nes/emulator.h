@@ -273,7 +273,6 @@ typedef struct
 {
 	u32 audio_sample_rate;
 	b32 enable_instruction_trace;
-	b32 enable_instruction_boundaries;
 }
 NES_EmulatorDesc;
 NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc);
@@ -403,6 +402,9 @@ static inline NES_SchedulerTraceSpans nes_scheduler_trace_spans_since(NES_Schedu
 	};
 }
 
+// NOTE(RJ) For compactness, each entry stores only the low 16 bits of the scheduler clock,
+// so the clock is only reconstructible if the reader's clock is less than 16 bits worth of
+// range away.
 static __forceinline b32 nes_scheduler_trace_clock_reconstructable_since(NES_SchedulerTraceView view, u64 scheduler_clock)
 {
 	return scheduler_clock <= view.scheduler_clock && view.scheduler_clock - scheduler_clock <= MAX_VALUE_U16;

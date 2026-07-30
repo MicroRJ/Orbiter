@@ -22,7 +22,7 @@ static inline u32 nes_scheduler_cpu_step(NES_Emulator *core)
 	// Note, this is introspection stuff:
 	// Has to be done here because the debugger doesn't have fine grain control over the CPU's execution
 	//
-	if (1) {
+	if (core->instruction_trace_enabled) {
 		NES_BusAccess access = nes_cpu_bus_peek_mapped(core, cpu->PC);
 		u64 trace_index = core->scheduler_trace_index;
 		core->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_SchedulerBoundary) {
@@ -66,17 +66,6 @@ static u32 nes_scheduler_step_internal(NES_Emulator *core, f32 *samples, u64 cap
 u32 nes_scheduler_step(NES_Emulator *core)
 {
 	return nes_scheduler_step_internal(core, 0, 0, 0);
-}
-
-void nes_scheduler_run(NES_Emulator *core, u64 target_master_cycles)
-{
-	i64 target_cpu_cycles = target_master_cycles / 3;
-
-	while (target_cpu_cycles > 0)
-	{
-		u32 cpu_cycles = nes_scheduler_step(core);
-		target_cpu_cycles -= cpu_cycles;
-	}
 }
 
 u64 nes_scheduler_run_samples(NES_Emulator *core, u64 minimum_samples, f32 *samples, u64 capacity)

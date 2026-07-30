@@ -1,0 +1,42 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Test and package
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS_INSTALL=%%I"
+          if not defined VS_INSTALL exit /b 1
+          call "%VS_INSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+          if errorlevel 1 exit /b %errorlevel%
+          call test.bat
+          if errorlevel 1 exit /b %errorlevel%
+          call package.bat
+          if errorlevel 1 exit /b %errorlevel%
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: Orbiter-v0.1.0-win64
+          path: |
+            dist/Orbiter-v0.1.0-win64.zip
+            dist/Orbiter-v0.1.0-win64.zip.sha256
+          if-no-files-found: error

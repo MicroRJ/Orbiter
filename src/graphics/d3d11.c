@@ -199,11 +199,11 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 
 	HRESULT hr;
 
-	i32 device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-
-   /* comment D3D11_CREATE_DEVICE_DEBUG this to use intel's graphic analyzer,
-   for whatever reason this makes it not work...? */
-	device_flags |= D3D11_CREATE_DEVICE_DEBUG|D3D11_CREATE_DEVICE_SINGLETHREADED;
+	i32 device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT |
+		D3D11_CREATE_DEVICE_SINGLETHREADED;
+#if defined(_DEBUG)
+	device_flags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
 
 
 	{
@@ -213,13 +213,27 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		, &g.device, NULL, &g.context);
 	}
 
+	// The optional Direct3D debug layer is not installed on every machine.
+	// Keep diagnostics when available, but do not make them a startup
+	// requirement even for a developer build.
+	if (FAILED(hr) && (device_flags & D3D11_CREATE_DEVICE_DEBUG)) {
+		device_flags &= ~D3D11_CREATE_DEVICE_DEBUG;
+		D3D_FEATURE_LEVEL requires[] = {D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
+		hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, 0, device_flags
+		, requires, _countof(requires), D3D11_SDK_VERSION
+		, &g.device, NULL, &g.context);
+	}
+
 	if (FAILED(hr)) {
-		D3D_FEATURE_LEVEL requires[] = {D3D_FEATURE_LEVEL_10_1,D3D_FEATURE_LEVEL_10_0};
+		// The embedded shaders target shader model 5, so the software
+		// renderer must provide the same feature level as the hardware path.
+		D3D_FEATURE_LEVEL requires[] = {D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
 		hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, 0, device_flags
 		, requires, _countof(requires), D3D11_SDK_VERSION
 		, &g.device, NULL, &g.context);
-		Assert(SUCCEEDED(hr));
 	}
+
+	Assert(SUCCEEDED(hr));
 
 
 	if (device_flags & D3D11_CREATE_DEVICE_DEBUG) {

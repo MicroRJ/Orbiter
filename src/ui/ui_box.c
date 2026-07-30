@@ -48,12 +48,21 @@ UI_BoxDesc ui_box_desc(void)
 	};
 }
 
+static UI_BoxPaintDesc ui_box__paint_desc(void)
+{
+	return (UI_BoxPaintDesc) {
+		.border_width = 1.f,
+		.edge_softness = 0.5f,
+	};
+}
+
 static UI_Box *ui_box__allocate_box(UI_BoxBuilder *builder, UI_Id id, String name, UI_BoxDesc desc)
 {
 	UI_Box *box = arena_push_zero(builder->arena, sizeof(*box));
 	box->id = id;
 	box->name = name;
 	box->desc = desc;
+	box->paint = builder->paint;
 	box->ui = builder->ui;
 	return box;
 }
@@ -77,6 +86,7 @@ UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *u
 	builder->arena = arena;
 	builder->ui = ui;
 	builder->desc = ui_box_desc();
+	builder->paint = ui_box__paint_desc();
 	builder->id = ui_id_child(UI_ID_NONE, root_key);
 	builder->root = ui_box__allocate_box(builder, builder->id, root_name, root_desc);
 	builder->parent = builder->root;
@@ -194,14 +204,17 @@ void ui_push(UI_BoxBuilder *builder)
 {
 	Assert(builder);
 	Assert(builder->desc_count < ArrayCount(builder->desc_stack));
-	builder->desc_stack[builder->desc_count++] = builder->desc;
+	builder->desc_stack[builder->desc_count] = builder->desc;
+	builder->paint_stack[builder->desc_count++] = builder->paint;
 }
 
 void ui_pop(UI_BoxBuilder *builder)
 {
 	Assert(builder);
 	Assert(builder->desc_count);
-	builder->desc = builder->desc_stack[--builder->desc_count];
+	builder->desc_count--;
+	builder->desc = builder->desc_stack[builder->desc_count];
+	builder->paint = builder->paint_stack[builder->desc_count];
 }
 
 void ui_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size)
@@ -258,6 +271,39 @@ void ui_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow)
 {
 	Assert(builder);
 	builder->desc.overflow[axis] = overflow;
+}
+
+void ui_background(UI_BoxBuilder *builder, Color_SRGBA color)
+{
+	Assert(builder);
+	builder->paint.flags |= UI_BOX_DRAW_BACKGROUND;
+	builder->paint.background = color;
+}
+
+void ui_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width)
+{
+	Assert(builder);
+	builder->paint.flags |= UI_BOX_DRAW_BORDER;
+	builder->paint.border = color;
+	builder->paint.border_width = Max(0.f, width);
+}
+
+void ui_roundness(UI_BoxBuilder *builder, f32 roundness)
+{
+	Assert(builder);
+	builder->paint.roundness = Max(0.f, roundness);
+}
+
+void ui_edge_softness(UI_BoxBuilder *builder, f32 edge_softness)
+{
+	Assert(builder);
+	builder->paint.edge_softness = Max(0.f, edge_softness);
+}
+
+void ui_emission(UI_BoxBuilder *builder, f32 emission)
+{
+	Assert(builder);
+	builder->paint.emission = Max(0.f, emission);
 }
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
@@ -415,6 +461,13 @@ static rect_f32 ui_box__child_clip(UI_Box *box, rect_f32 clip)
 	return clip;
 }
 
+static void ui_box__finish_layout(UI_Box *box)
+{
+	if (box->ops && box->ops->finish_layout) {
+		box->ops->finish_layout(box);
+	}
+}
+
 static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip);
 
 static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 one_past_item)
@@ -542,9 +595,12 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 	if (box->virtual_list.build_item)
 	{
 		ui_box__layout_virtual_list(box, clip);
+		ui_box__finish_layout(box);
 		return;
 	}
-	if (!box->child_count) {
+	if (!box->child_count)
+	{
+		ui_box__finish_layout(box);
 		return;
 	}
 
@@ -611,6 +667,7 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		ui_box__layout(child, child_rect, child_clip);
 		cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;
 	}
+	ui_box__finish_layout(box);
 }
 
 void ui_box_layout(UI_Box *box, rect_f32 rect)

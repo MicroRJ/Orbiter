@@ -198,7 +198,7 @@ static void test_instruction_boundary_clocks(void)
 {
 	Arena arena = arena_create(0, "NES instruction boundary clock test");
 	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.enable_instruction_boundaries = true,
+		.enable_instruction_trace = true,
 	});
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
 	nes_emulator_run(core, 30);

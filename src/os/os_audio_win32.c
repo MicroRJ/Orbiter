@@ -7,6 +7,7 @@ typedef struct
 {
 	u32                 buffer_frame_count;
 	u32                 bytes_per_frame;
+	u32                 channel_count;
 	IAudioClient       *client;
 	IMMDevice          *device;
 	IAudioRenderClient *renderer;
@@ -19,8 +20,21 @@ global const CLSID os_clsid_device_enumerator = { 0xBCDE0395, 0xE52F, 0x467C, { 
 global const IID   os_iid_device_enumerator   = { 0xA95664D2, 0x9614, 0x4F35, { 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6 } };
 global const IID   os_iid_audio_client        = { 0x1CB9AD4C, 0xDBFA, 0x4c32, { 0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2 } };
 global const IID   os_iid_audio_renderer      = { 0xF294ACFC, 0x3146, 0x4483, { 0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2 } };
+global const GUID  os_subtype_ieee_float      = { 0x00000003, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
 
 #define OS_RELEASE(value) do { if (value) { (value)->lpVtbl->Release(value); (value) = 0; } } while (0)
+
+static b32 os_audio_format_is_native_float(const WAVEFORMATEX *format)
+{
+	if (format->wBitsPerSample != sizeof(f32) * 8) return false;
+	if (format->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) return true;
+	if (format->wFormatTag != WAVE_FORMAT_EXTENSIBLE ||
+		format->cbSize < sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)) {
+		return false;
+	}
+	const WAVEFORMATEXTENSIBLE *extended = (const WAVEFORMATEXTENSIBLE *)format;
+	return memory_match(&extended->SubFormat, &os_subtype_ieee_float, sizeof(os_subtype_ieee_float));
+}
 
 b32 os_audio_init(OS_AudioInfo *info)
 {
@@ -44,10 +58,10 @@ b32 os_audio_init(OS_AudioInfo *info)
 	hr = os_audio.client->lpVtbl->GetMixFormat(os_audio.client, &format);
 	if (FAILED(hr)) goto failure;
 
-	Assert(format->wFormatTag == WAVE_FORMAT_EXTENSIBLE);
-	format->nChannels       = 2;
-	format->nBlockAlign     = 2 * sizeof(f32);
-	format->nAvgBytesPerSec = format->nSamplesPerSec * format->nBlockAlign;
+	if (!os_audio_format_is_native_float(format) || !format->nChannels ||
+		format->nBlockAlign != format->nChannels * sizeof(f32)) {
+		goto failure;
+	}
 
 	u64 requested_time_ms = 50;
 	#define NANOSECONDS_IN_A_MILLISECOND 10000
@@ -67,6 +81,7 @@ b32 os_audio_init(OS_AudioInfo *info)
 	if (FAILED(hr)) goto failure;
 
 	hr = os_audio.renderer->lpVtbl->ReleaseBuffer(os_audio.renderer, capacity, AUDCLNT_BUFFERFLAGS_SILENT);
+	if (FAILED(hr)) goto failure;
 
 	hr = os_audio.client->lpVtbl->Start(os_audio.client);
 	if (FAILED(hr)) goto failure;
@@ -74,6 +89,7 @@ b32 os_audio_init(OS_AudioInfo *info)
 
 	os_audio.buffer_frame_count = capacity;
 	os_audio.bytes_per_frame    = format->nBlockAlign;
+	os_audio.channel_count      = format->nChannels;
 	info->buffer_frame_count    = capacity;
 	info->sample_rate           = format->nSamplesPerSec;
 	info->channel_count         = format->nChannels;
@@ -115,8 +131,9 @@ u32 os_audio_write_mono(const f32 *samples, u32 count)
 	if (FAILED(hr)) return 0;
 	for (u32 index = 0; index < count; ++index)
 	{
-		((f32 *)output)[index * 2 + 0] = samples[index];
-		((f32 *)output)[index * 2 + 1] = samples[index];
+		for (u32 channel = 0; channel < os_audio.channel_count; ++channel) {
+			((f32 *)output)[index * os_audio.channel_count + channel] = samples[index];
+		}
 	}
 	hr = os_audio.renderer->lpVtbl->ReleaseBuffer(os_audio.renderer, count, 0);
 	return SUCCEEDED(hr) ? count : 0;

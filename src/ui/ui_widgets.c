@@ -47,6 +47,30 @@ static const UI_BoxOps ui_box__text_ops = {
 	.paint = ui_box__paint_text,
 };
 
+void ui_box_paint(UI_Box *box)
+{
+	Assert(box);
+	UI_Context *ui = box->ui;
+	UI_BoxPaintDesc *paint = &box->paint;
+	b32 has_paint = paint->flags || box->ops && box->ops->paint;
+	if (!has_paint) return;
+
+	if (paint->emission > 0.f) ui_push_emission(ui, paint->emission);
+	ui_push_clip(ui, box->clip_rect);
+	if (paint->flags & UI_BOX_DRAW_BACKGROUND)
+	{
+		UI_DrawCommand *command = ui_draw_rect(ui, box->rect, paint->background);
+		command->rect.roundness = paint->roundness;
+		command->rect.edge_softness = paint->edge_softness;
+	}
+	if (paint->flags & UI_BOX_DRAW_BORDER && paint->border_width > 0.f) {
+		ui_draw_rect_outline(ui, box->rect, paint->border_width, paint->border);
+	}
+	if (box->ops && box->ops->paint) box->ops->paint(box);
+	ui_pop_clip(ui);
+	if (paint->emission > 0.f) ui_pop_emission(ui);
+}
+
 static UI_Box *ui_box__make_text(UI_BoxBuilder *builder, u64 key, UI_BoxDesc *desc, UI_TextStyle style, String sizing_string, String string)
 {
 	Assert(builder);
@@ -122,6 +146,252 @@ UI_Box *ui_text_box_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc
 UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, String string)
 {
 	return ui_box__make_text(builder, key, &desc, style, sizing_string, string);
+}
+
+typedef struct
+{
+	f32 offset;
+	f32 target;
+	UI_ScrollGeometry geometry;
+}
+UI_ScrollState;
+
+typedef struct
+{
+	UI_Scroll *scroll;
+	UI_ScrollState *state;
+	b32 bootstrap;
+}
+UI_ScrollLayoutData;
+
+static const u64 UI_SCROLL_TRACK_KEY = 0x5343524F4C4C4241ull;
+static const u64 UI_SCROLL_SPACE_BEFORE_KEY = 1;
+static const u64 UI_SCROLL_THUMB_KEY = 2;
+static const u64 UI_SCROLL_SPACE_AFTER_KEY = 3;
+
+static f32 ui_scroll__smooth(f32 offset, f32 target, f32 elapsed)
+{
+	f32 half_life = 0.055f;
+	return target + (offset - target) * exp2f(-Max(elapsed, 0.f) / half_life);
+}
+
+static void ui_scroll__size_bar(UI_Scroll *scroll, f32 track_extent, f32 viewport_extent, f32 content_extent, f32 scroll_min, f32 scroll_max, f32 scroll_offset)
+{
+	AXIS axis = scroll->axis;
+	f32 max_scroll = scroll_max - scroll_min;
+	f32 thumb_extent = track_extent;
+	f32 thumb_offset = 0.f;
+	if (max_scroll > 0.001f && content_extent > 0.f)
+	{
+		thumb_extent = Min(Max(24.f, track_extent * viewport_extent / content_extent), track_extent);
+		f32 travel = Max(0.f, track_extent - thumb_extent);
+		f32 ratio = (scroll_offset - scroll_min) / max_scroll;
+		thumb_offset = travel * CLAMP(ratio, 0.f, 1.f);
+	}
+
+	scroll->space_before->desc.size[axis] = ui_box_fill(thumb_offset);
+	scroll->thumb->desc.size[axis] = ui_box_fill(thumb_extent);
+	scroll->space_after->desc.size[axis] = ui_box_fill(Max(track_extent - thumb_offset - thumb_extent, 0.f));
+}
+
+static void ui_scroll__finish_layout(UI_Box *box)
+{
+	UI_ScrollLayoutData *layout = box->content;
+	UI_Scroll *scroll = layout->scroll;
+	UI_ScrollState *state = layout->state;
+	UI_Box *viewport = scroll->viewport;
+	AXIS axis = scroll->axis;
+
+	if (layout->bootstrap)
+	{
+		ui_scroll__size_bar(scroll, scroll->track->viewport.wh[axis], viewport->viewport.wh[axis], Max(viewport->content_size.xy[axis], viewport->viewport.wh[axis]), viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis], viewport->scroll_offset.xy[axis]);
+		ui_box_relayout(scroll->track);
+	}
+
+	state->offset = viewport->scroll_offset.xy[axis];
+	state->target = CLAMP(state->target, viewport->scroll_min.xy[axis], viewport->scroll_max.xy[axis]);
+	state->geometry = (UI_ScrollGeometry) {
+		.viewport = viewport->viewport,
+		.track = scroll->track->rect,
+		.track_viewport = scroll->track->viewport,
+		.thumb = scroll->thumb->rect,
+		.content_size = viewport->content_size,
+		.scroll_min = viewport->scroll_min,
+		.scroll_max = viewport->scroll_max,
+		.frame_index = box->ui->frame_index,
+		.layout_generation = box->ui->layout_generation,
+	};
+	scroll->offset = state->offset;
+	scroll->target = state->target;
+}
+
+static const UI_BoxOps ui_scroll__root_ops = {
+	.finish_layout = ui_scroll__finish_layout,
+};
+
+UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, u64 key, AXIS axis)
+{
+	Assert(builder);
+	Assert(builder->ui);
+	Assert(axis == AXIS_X || axis == AXIS_Y);
+
+	UI_Scroll *scroll = arena_push_zero(builder->arena, sizeof(*scroll));
+	scroll->builder = builder;
+	scroll->axis = axis;
+	scroll->parent_count = builder->parent_count;
+	scroll->desc_count = builder->desc_count;
+
+	UI_BoxDesc root_desc = builder->desc;
+	root_desc.axis = !axis;
+	root_desc.gap = 0.f;
+	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_VISIBLE;
+	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_VISIBLE;
+	scroll->root = ui_box_begin_desc(builder, key, LIT("scroll"), root_desc);
+
+	UI_ScrollState *state = ui_state_get(builder->ui, scroll->root->id, sizeof(*state));
+	scroll->persistent = state;
+	scroll->offset = state->offset;
+	scroll->target = state->target;
+	scroll->previous = state->geometry;
+	scroll->has_previous = state->geometry.frame_index + 1 == builder->ui->frame_index && state->geometry.layout_generation == builder->ui->layout_generation;
+
+	ui_push(builder);
+	builder->desc = ui_box_desc();
+	return scroll;
+}
+
+void ui_scroll_reset(UI_Scroll *scroll)
+{
+	Assert(scroll);
+	Assert(scroll->persistent);
+	memory_zero(scroll->persistent, sizeof(UI_ScrollState));
+	scroll->has_previous = false;
+	scroll->offset = 0.f;
+	scroll->target = 0.f;
+	scroll->previous = (UI_ScrollGeometry) {};
+	scroll->builder->ui->active = UI_ID_NONE;
+}
+
+void ui_scroll_end(UI_Scroll *scroll)
+{
+	Assert(scroll);
+	UI_BoxBuilder *builder = scroll->builder;
+	UI_Context *ui = builder->ui;
+	UI_ScrollState *state = scroll->persistent;
+	AXIS axis = scroll->axis;
+	AXIS perp_axis = !axis;
+	Assert(builder->parent == scroll->root);
+	Assert(builder->parent_count == scroll->parent_count + 1);
+	Assert(builder->desc_count == scroll->desc_count + 1);
+	Assert(scroll->root->child_count == 1);
+
+	scroll->viewport = builder->child_stack[builder->child_count - 1];
+	scroll->viewport->desc.size[perp_axis] = ui_box_fill(1.f);
+	scroll->viewport->desc.min_size.xy[perp_axis] = 0.f;
+	scroll->viewport->desc.max_size.xy[perp_axis] = UI_BOX_INFINITY;
+	scroll->viewport->desc.overflow[axis] = UI_BOX_OVERFLOW_SCROLL;
+
+	UI_Id track_id = ui_id_child(scroll->root->id, UI_SCROLL_TRACK_KEY);
+	UI_Id thumb_id = ui_id_child(track_id, UI_SCROLL_THUMB_KEY);
+	if (!scroll->has_previous && (ui_id_equal(ui->active, track_id) || ui_id_equal(ui->active, thumb_id))) {
+		ui->active = UI_ID_NONE;
+	}
+
+	if (scroll->has_previous)
+	{
+		UI_ScrollGeometry *previous = &scroll->previous;
+		f32 scroll_min = previous->scroll_min.xy[axis];
+		f32 scroll_max = previous->scroll_max.xy[axis];
+		f32 max_scroll = scroll_max - scroll_min;
+		i32 wheel = ui->window->mouse_wheel.xy[axis];
+		if (wheel && !ui->mouse_wheel_consumed && rect_f32_contains(previous->viewport, ui->mouse))
+		{
+			state->target -= wheel * 48.f;
+			ui->mouse_wheel_consumed = true;
+		}
+
+		f32 travel = Max(0.f, previous->track_viewport.wh[axis] - previous->thumb.wh[axis]);
+		rect_f32 thumb_hit = previous->thumb;
+		thumb_hit.xy[perp_axis] = previous->track.xy[perp_axis];
+		thumb_hit.wh[perp_axis] = previous->track.wh[perp_axis];
+		UI_Response thumb_response = ui_interact(ui, thumb_id, thumb_hit);
+		if (thumb_response.pressed) {
+			ui->active_start_value = state->offset;
+		}
+		if (thumb_response.held && travel > 0.f && max_scroll > 0.f)
+		{
+			state->offset = CLAMP(ui->active_start_value + thumb_response.drag_delta.xy[axis] * max_scroll / travel, scroll_min, scroll_max);
+			state->target = state->offset;
+		}
+
+		if (!thumb_response.hovered && !ui_is_active(ui, thumb_id))
+		{
+			UI_Response track_response = ui_interact(ui, track_id, previous->track);
+			if (track_response.pressed && max_scroll > 0.f)
+			{
+				f32 direction = ui->mouse.xy[axis] < previous->thumb.xy[axis] ? -1.f : 1.f;
+				state->target += direction * previous->viewport.wh[axis] * 0.85f;
+			}
+		}
+
+		state->target = CLAMP(state->target, scroll_min, scroll_max);
+		if (!ui_is_active(ui, thumb_id)) {
+			state->offset = ui_scroll__smooth(state->offset, state->target, ui->frame_elapsed);
+		}
+		state->offset = CLAMP(state->offset, scroll_min, scroll_max);
+	}
+	scroll->offset = state->offset;
+	scroll->target = state->target;
+	scroll->viewport->scroll_offset.xy[axis] = state->offset;
+
+	UI_BoxDesc track = ui_box_desc();
+	track.axis = axis;
+	track.size[axis] = ui_box_fill(1.f);
+	track.size[perp_axis] = ui_box_pixels(12.f);
+	track.padd[perp_axis][0] = track.padd[perp_axis][1] = 3.f;
+	scroll->track = ui_box_begin_desc(builder, UI_SCROLL_TRACK_KEY, LIT(""), track);
+
+	UI_BoxDesc piece = ui_box_desc();
+	piece.size[AXIS_X] = ui_box_fill(1.f);
+	piece.size[AXIS_Y] = ui_box_fill(1.f);
+	piece.size[axis] = ui_box_fill(0.f);
+	scroll->space_before = ui_box_make_desc(builder, UI_SCROLL_SPACE_BEFORE_KEY, LIT(""), piece);
+	piece.size[axis] = ui_box_fill(1.f);
+	scroll->thumb = ui_box_make_desc(builder, UI_SCROLL_THUMB_KEY, LIT(""), piece);
+	piece.size[axis] = ui_box_fill(0.f);
+	scroll->space_after = ui_box_make_desc(builder, UI_SCROLL_SPACE_AFTER_KEY, LIT(""), piece);
+	ui_box_end(builder);
+
+	scroll->track->paint = (UI_BoxPaintDesc) {
+		.flags = UI_BOX_DRAW_BACKGROUND,
+		.background = ui->theme.slider_track,
+		.roundness = 2.f,
+		.edge_softness = 0.5f,
+	};
+	scroll->space_before->paint = (UI_BoxPaintDesc) {};
+	scroll->thumb->paint = (UI_BoxPaintDesc) {
+		.flags = UI_BOX_DRAW_BACKGROUND,
+		.background = ui->theme.slider_thumb,
+		.roundness = 2.f,
+		.edge_softness = 0.5f,
+	};
+	scroll->space_after->paint = (UI_BoxPaintDesc) {};
+
+	if (scroll->has_previous)
+	{
+		UI_ScrollGeometry *previous = &scroll->previous;
+		ui_scroll__size_bar(scroll, previous->track_viewport.wh[axis], previous->viewport.wh[axis], Max(previous->content_size.xy[axis], previous->viewport.wh[axis]), previous->scroll_min.xy[axis], previous->scroll_max.xy[axis], state->offset);
+	}
+
+	UI_ScrollLayoutData *layout = arena_push_zero(builder->arena, sizeof(*layout));
+	layout->scroll = scroll;
+	layout->state = state;
+	layout->bootstrap = !scroll->has_previous;
+	scroll->root->content = layout;
+	scroll->root->ops = &ui_scroll__root_ops;
+
+	ui_box_end(builder);
+	ui_pop(builder);
 }
 
 UI_BoxTableColumn ui_box_table_content(void)

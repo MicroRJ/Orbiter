@@ -532,6 +532,35 @@ static void program_map_instruction(Debugger *debugger, u16 cpu_address, u32 siz
 	}
 }
 
+static void program_map_traced_instruction(const Program *program,
+	NES_SchedulerBoundary trace, u32 size, u32 *program_offsets)
+{
+	for (u32 byte_index = 0; byte_index < 3; ++byte_index) {
+		program_offsets[byte_index] = MAX_VALUE_U32;
+	}
+
+	u32 first = 0;
+	if (!program_storage_offset_from_map(program, trace.cpu_mapped, &first)) {
+		return;
+	}
+
+	// All currently supported PRG mappers are contiguous within an 8 KiB
+	// window. Do not guess across a mapper boundary because the trace records
+	// the historical mapping of the opcode, not the mapper's later state.
+	const u32 minimum_mapping_window = KiB(8);
+	if ((trace.cpu_mapped.offset & (minimum_mapping_window - 1)) + size >
+		minimum_mapping_window) {
+		return;
+	}
+
+	u32 storage_end = first < program->prg_rom_byte_count ?
+		program->prg_rom_byte_count : program->byte_count;
+	if (size > storage_end - first) return;
+	for (u32 byte_index = 0; byte_index < size; ++byte_index) {
+		program_offsets[byte_index] = first + byte_index;
+	}
+}
+
 typedef struct
 {
 	u32 invalid_bytes;
@@ -867,10 +896,19 @@ void program_observe_execution(Debugger *debugger, NES_SchedulerBoundary trace)
 {
 	Program *program = &debugger->program;
 	++program->executed_instruction_count;
-	u32 program_offsets[1] = { MAX_VALUE_U32 };
-	NES_MapAddr mapped = trace.cpu_mapped;
-
-	if (program_storage_offset_from_map(program, mapped, &program_offsets[0])) {
-		program_update_cached_byte(program, mapped, program_offsets[0], trace.cpu_byte);
+	u32 size = program_instruction_size(trace.cpu_byte);
+	u32 program_offsets[3] = {
+		MAX_VALUE_U32, MAX_VALUE_U32, MAX_VALUE_U32,
+	};
+	program_map_traced_instruction(program, trace, size, program_offsets);
+	if (program_offsets[0] != MAX_VALUE_U32)
+	{
+		program_update_cached_byte(program, trace.cpu_mapped,
+			program_offsets[0], trace.cpu_byte);
+	}
+	if (program_offsets_contiguous(program_offsets, size))
+	{
+		program_mark_instruction(program, program_offsets, size,
+			PROGRAM_INSTRUCTION_EXECUTED, true, trace.cpu_address);
 	}
 }

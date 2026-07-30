@@ -26,8 +26,7 @@ void audio_stream_write(Audio_Stream *stream, const f32 *frames, u32 frame_count
 			stream->overrun_frames += 1;
 		}
 		u32 write_cursor = (stream->read_cursor + stream->count) % stream->capacity;
-		memory_copy(stream->samples + write_cursor * stream->channels,
-			frames + frame * stream->channels, sizeof(*frames) * stream->channels);
+		memory_copy(stream->samples + write_cursor * stream->channels, frames + frame * stream->channels, sizeof(*frames) * stream->channels);
 		stream->count += 1;
 	}
 }
@@ -52,8 +51,7 @@ Audio_ReadSpan audio_stream_acquire(Audio_Stream *stream)
 {
 	Assert(stream);
 	Assert(stream->acquired_count == 0);
-	u32 contiguous_frames = Min(stream->count,
-		stream->capacity - stream->read_cursor);
+	u32 contiguous_frames = Min(stream->count, stream->capacity - stream->read_cursor);
 	stream->acquired_count = contiguous_frames;
 	return (Audio_ReadSpan) {
 		.samples = stream->samples + stream->read_cursor * stream->channels,

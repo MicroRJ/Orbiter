@@ -14,8 +14,10 @@
 
 global const char debugger_state_path[]   = "data/save.orbiter";
 global const char debugger_config_path[]  = "data/debugger.cfg";
+global const char debugger_default_config_path[] = "data/default_debugger.cfg";
 global const char debugger_log_path[]     = "data/debugger.log";
 global const char debugger_program_path[] = "data/program.dump";
+global const char app_font_path[]          = "data/fonts/Saira/static/Saira-Medium.ttf";
 
 #define NES_PALETTE_COLORS(_) \
 _(0x80,0x80,0x80) _(0x00,0x00,0xBB) _(0x37,0x00,0xBF) _(0x84,0x00,0xA6) \
@@ -91,9 +93,6 @@ typedef struct
 	ExecutionActivity execution_activity;
 	FrontendPublication published;
 	GFX_Texture *video_texture;
-	GFX_Texture *crt_scanline_texture;
-	GFX_Texture *crt_bloom_ping_texture;
-	GFX_Texture *crt_bloom_pong_texture;
 	GFX_Texture *chr_texture;
 	OS_Window *os_window;
 	GFX_Renderer *renderer;
@@ -101,11 +100,6 @@ typedef struct
 	Draw_Context *draw;
 	Text_Context *text;
 	Text_GFX *text_gfx;
-	GFX_Texture *frame_texture;
-	GFX_Texture *effect_texture;
-	GFX_Texture *bloom_texture;
-	GFX_Texture *blur_horizontal_texture;
-	GFX_Texture *blur_vertical_texture;
 	UI_Context *ui;
 	Panels *panels;
 	Audio_Stream *audio;
@@ -115,6 +109,7 @@ typedef struct
 	u64 audio_backend_empty_events;
 	u64 audio_last_overrun_frames;
 	Seconds audio_stats_begin;
+	b32 audio_backend_available;
 	b32 audio_backend_was_empty;
 	String last_rom_path;
 
@@ -163,6 +158,19 @@ static b32 app_write_file(const char *path, const void *data, u32 size)
 	return result;
 }
 
+// NOTE(RJ) now file writes are "atomic"
+static b32 app_write_file_atomic(const char *path, const void *data, u32 size)
+{
+	char temporary_path[1024];
+	i32 length = snprintf(temporary_path, sizeof(temporary_path), "%s.tmp", path);
+	if (length <= 0 || (u32) length >= sizeof(temporary_path)) return false;
+	if (!app_write_file(temporary_path, data, size)) return false;
+	if (platform_move_file(temporary_path, path, true)) return true;
+	platform_remove_file(temporary_path);
+	return false;
+}
+
+// TODO(RJ) why are we using CRT files for this!?
 static void app_file_log_sink(const LogRecord *record, void *user_data)
 {
 	FILE *file = user_data;
@@ -228,12 +236,13 @@ static b32 app_save_state(void)
 	b32 success = false;
 	ARENA_SCOPE(&app.frame_arena)
 	{
+		// Todo, we need to just pass in the serializer stream here
 		u8 *data = arena_top(&app.frame_arena);
-		u32 offset = (u32)arena_used(&app.frame_arena);
+		u64 offset = arena_used(&app.frame_arena);
 		if (debugger_save_state(app.debugger, &app.frame_arena))
 		{
-			u32 size = (u32)arena_used(&app.frame_arena) - offset;
-			success = size && app_write_file(debugger_state_path, data, size);
+			u64 size = arena_used(&app.frame_arena) - offset;
+			success = size && app_write_file_atomic(debugger_state_path, data, size);
 		}
 	}
 	if (success) LOG_INFO("saved emulator state to '%s'", debugger_state_path);
@@ -247,13 +256,14 @@ static b32 app_restore_state(void)
 	ARENA_SCOPE(&app.frame_arena)
 	{
 		String state = app_read_file(&app.frame_arena, debugger_state_path);
-		if (state.size)
-		{
-			success = debugger_restore_state(app.debugger,
-			byte_span((void *)state.data, state.size));
+		if (state.size) {
+			success = debugger_restore_state(app.debugger, byte_span((void *) state.data, state.size));
 		}
 	}
+
+	// Todo, why are we calling this here
 	if (success) audio_stream_discard(app.audio);
+
 	if (success) LOG_INFO("restored emulator state from '%s'", debugger_state_path);
 	else LOG_WARN("failed to restore emulator state from '%s'", debugger_state_path);
 	return success;
@@ -311,7 +321,13 @@ static void app_load_config(void)
 {
 	ARENA_SCOPE(&app.frame_arena)
 	{
-		String config = app_read_file(&app.frame_arena, debugger_config_path);
+		const char *config_path = debugger_config_path;
+		String config = app_read_file(&app.frame_arena, config_path);
+		if (!config.size)
+		{
+			config_path = debugger_default_config_path;
+			config = app_read_file(&app.frame_arena, config_path);
+		}
 		if (config.size)
 		{
 			String version = app_config_read_line(&config);
@@ -326,10 +342,10 @@ static void app_load_config(void)
 					app_open_rom_path(terminated_path);
 				}
 				if (!panels_restore_layout(app.panels, config)) {
-					LOG_WARN("ignored invalid panel layout in '%s'", debugger_config_path);
+					LOG_WARN("ignored invalid panel layout in '%s'", config_path);
 				}
 			} else {
-				LOG_WARN("ignored unsupported debugger config '%s'", debugger_config_path);
+				LOG_WARN("ignored unsupported debugger config '%s'", config_path);
 			}
 		}
 	}
@@ -345,7 +361,7 @@ static void app_save_config(void)
 		char *text = arena_push_aligned(&app.frame_arena, size, 1);
 		memory_copy(text, header.text, header.size);
 		memory_copy(text + header.size, layout.text, layout.size);
-		if (!app_write_file(debugger_config_path, text, size)) {
+		if (!app_write_file_atomic(debugger_config_path, text, size)) {
 			LOG_WARN("failed to save debugger config to '%s'", debugger_config_path);
 		}
 	}
@@ -374,8 +390,8 @@ KeyBind;
 
 static const KeyBind app_emulator_mode_key_binds[] =
 {
-	{APP_ACTION_BEGIN_REWINDING_FORWARD   , {KEY_CHORD_ON_PRESSED, OS_Key_Left , OS_MODIFIER_CONTROL}},
-	{APP_ACTION_BEGIN_REWINDING_BACKWARDS , {KEY_CHORD_ON_PRESSED, OS_Key_Right, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_BEGIN_REWINDING_BACKWARDS , {KEY_CHORD_ON_PRESSED, OS_Key_Left , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_BEGIN_REWINDING_FORWARD   , {KEY_CHORD_ON_PRESSED, OS_Key_Right, OS_MODIFIER_CONTROL}},
 	{APP_ACTION_OPEN_ROM                  , {KEY_CHORD_ON_RELEASE, OS_Key_O    , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_RESET                     , {KEY_CHORD_ON_RELEASE, OS_Key_R    , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_SAVE_STATE                , {KEY_CHORD_ON_RELEASE, OS_Key_S    , OS_MODIFIER_CONTROL}},
@@ -392,7 +408,7 @@ static const KeyBind app_emulator_mode_key_binds[] =
 	{APP_ACTION_STEP                      , {KEY_CHORD_ON_RELEASE, OS_Key_F10  , }},
 };
 
-static AppAction app_find_action_for_keychord(KeyChord chord, KeyBind *binds, u32 nbinds) {
+static AppAction app_find_action_for_keychord(KeyChord chord, const KeyBind *binds, u32 nbinds) {
 	for (u32 i = 0; i < nbinds; ++ i)
 	{
 		if (binds[i].key_chord.key == chord.key && binds[i].key_chord.modifiers == chord.modifiers && binds[i].key_chord.activation == chord.activation) {
@@ -435,26 +451,25 @@ static AppInput app_translate_input_events_based_on_mode(void)
 	for (u32 index = 0; index < os_window_event_count(app.os_window); ++index)
 	{
 		const OS_Event *event = os_window_event(app.os_window, index);
-		input.action = app_find_action_for_keychord((KeyChord){event->type,event->key,event->modifiers}, app_emulator_mode_key_binds, ArrayCount(app_emulator_mode_key_binds));
+		input.action = app_find_action_for_keychord((KeyChord){(KeyChordActivation)event->type,event->key,event->modifiers}, app_emulator_mode_key_binds, ArrayCount(app_emulator_mode_key_binds));
 	}
 	return input;
 }
 
-static u64 app_handle_input(AppInput input)
+static b32 app_handle_input(AppInput input)
 {
-	u64 step_cycles = 0;
-	b32 clear_input = input.action != APP_ACTION_NONE;
+	b32 handled = false;
 	switch (input.action)
 	{
-		case APP_ACTION_NONE: app_update_debugger_input(); break;
 		case APP_ACTION_SUPPRESS_EMULATOR_INPUT:
 		{
-			clear_input = app.emulator_running;
+			handled = true;
 		} break;
 		case APP_ACTION_OPEN_ROM: app_open_rom(); break;
 		case APP_ACTION_RESET:
 		{
 			if (debugger_reset(app.debugger)) audio_stream_discard(app.audio);
+			handled = true;
 		} break;
 		case APP_ACTION_SAVE_STATE: app_save_state(); break;
 		case APP_ACTION_RESTORE_STATE: app_restore_state(); break;
@@ -465,26 +480,25 @@ static u64 app_handle_input(AppInput input)
 			} else {
 				LOG_ERROR("failed to dump program model to '%s'", debugger_program_path);
 			}
+			handled = true;
 		} break;
 		case APP_ACTION_TOGGLE_RUNNING:
 		{
 			app.emulator_running = !app.emulator_running;
 			LOG_INFO(app.emulator_running ? "running realtime" : "paused");
-		} break;
-		case APP_ACTION_STEP:
-		{
-			app.emulator_running = false;
-			step_cycles = 3;
+			handled = true;
 		} break;
 		case APP_ACTION_TOGGLE_PPU_CAPTURE:
 		{
 			if (app.ppu_gif.recording) gif_recorder_end(&app.ppu_gif);
 			else if (!gif_recorder_begin(&app.ppu_gif, v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT), "ppu_capture")) LOG_ERROR("failed to begin PPU GIF capture");
+			handled = true;
 		} break;
 		case APP_ACTION_TOGGLE_APP_CAPTURE:
 		{
 			if (app.app_gif.recording) gif_recorder_end(&app.app_gif);
 			else if (!gif_recorder_begin(&app.app_gif, app.os_window->size, "orbiter_capture")) LOG_ERROR("failed to begin application GIF capture");
+			handled = true;
 		} break;
 
 		case APP_ACTION_BEGIN_REWINDING_BACKWARDS:
@@ -494,7 +508,7 @@ static u64 app_handle_input(AppInput input)
 			app.rewind_direction = -1;
 			app.resume_emulator_running = app.emulator_running;
 			app.emulator_running = false;
-			clear_input = false;
+			handled = true;
 		} break;
 		case APP_ACTION_BEGIN_REWINDING_FORWARD:
 		{
@@ -503,27 +517,26 @@ static u64 app_handle_input(AppInput input)
 			app.rewind_direction = +1;
 			app.resume_emulator_running = app.emulator_running;
 			app.emulator_running = false;
-			clear_input = false;
+			handled = true;
 		} break;
 		case APP_ACTION_STOP_REWINDING:
 		{
 			app.mode = APP_MODE_EMULATOR;
 			app.emulator_running = app.resume_emulator_running;
-			clear_input = app.emulator_running;
+			handled = true;
 		} break;
-
 		case APP_ACTION_MUTE:
 		{
 			app.apu_muted = !app.apu_muted;
-		}
-		break;
+			handled = true;
+		} break;
 		case APP_ACTION_TOGGLE_PPU_FULLSCREEN:
 		{
 			app.exclusive_ppu_mode = !app.exclusive_ppu_mode;
 			app.fullscreen_mode = app.exclusive_ppu_mode;
 			os_window_set_fullscreen(app.os_window, app.fullscreen_mode);
-		}
-		break;
+			handled = true;
+		} break;
 		case APP_ACTION_EXIT_PPU_FULLSCREEN:
 		{
 			if (app.exclusive_ppu_mode)
@@ -532,32 +545,60 @@ static u64 app_handle_input(AppInput input)
 				app.fullscreen_mode = false;
 				os_window_set_fullscreen(app.os_window, false);
 			}
+			handled = true;
 		} break;
 		case APP_ACTION_TOGGLE_FULLSCREEN:
 		{
 			app.fullscreen_mode = !app.fullscreen_mode;
 			os_window_set_fullscreen(app.os_window, app.fullscreen_mode);
+			handled = true;
 		} break;
+		default: ;
 	}
-	if (clear_input) app_clear_debugger_input();
-	return step_cycles;
+	return handled;
 }
 
-static void app_fill_audio(void)
+static void app_run_without_audio(void)
 {
-	// Todo, we need to run at least one freaking frame!
+	// Todo, we really just need a new run mode that replaces unifies the two we currently
+	// have, some sort of run condition thing ...
+	//
+	// Todo, we also need to make sure that audio buffering doesn't make us skip a PPU frame,
+	// so we may need to rewind to the previous frame if that happens
+	//
+	// for instance, debugger_run(debugger, (Emulator_RunConditions){
+	//			.min_samples    = 48000 / 60,
+	//			.min_ppu_frames = 1,
+	//	})
+	// debugger_step(app.debugger, NES_PPU_FRAME_CYCLES);
+	// if (debugger_breakpoint_hit(app.debugger)) {
+	// 	app.emulator_running = false;
+	// 	audio_stream_discard(app.audio);
+	// }
+}
+
+static void app_run_with_audio(void)
+{
+	Assert(app.audio_backend_available);
+	Assert(!app.apu_muted);
+
+	// NOTE(RJ) We run the emulator enough to fill twice the buffer size of the audio
+	// backend if we've already got enough samples queued then we can return ...
+	//
+	// TODO(RJ) The problem is that this may make us skip a PPU frame every now and then,
+	// or very often ...
 	u32 queued = audio_stream_available_frames(app.audio);
 	u32 target = Min(app.audio_backend_capacity * 2, audio_stream_capacity_frames(app.audio));
-	if (queued >= target) return;
+	if (queued >= target) {
+		LOG_DEBUG("enough samples are queued already: queued = %u, target = %u", queued, target);
+		return;
+	}
 
 	u32 minimum = target - queued;
 	u32 capacity = audio_stream_capacity_frames(app.audio);
 
 	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * capacity);
 	u64 nsamples = debugger_run_samples(app.debugger, minimum, samples, capacity);
-
-	// Todo ... dude?
-	if (app.apu_muted) memory_zero(samples, sizeof(* samples) * nsamples);
 
 	if (debugger_breakpoint_hit(app.debugger))
 	{
@@ -573,6 +614,7 @@ static void app_fill_audio(void)
 
 static void app_drain_audio(void)
 {
+	if (!app.audio_backend_available) return;
 	u32 writable = os_audio_writable_frames();
 	u32 queued = audio_stream_available_frames(app.audio);
 	app.audio_min_queued_frames = Min(app.audio_min_queued_frames, queued);
@@ -629,6 +671,7 @@ static void app_drain_audio(void)
 		app.audio_stats_begin = now;
 	}
 }
+
 
 static void app_pace_frame(void)
 {
@@ -825,12 +868,6 @@ static void app_handle_window_commands(void)
 
 typedef struct
 {
-	f32 emission;
-}
-AppBoxPaintData;
-
-typedef struct
-{
 	UI_Box *root;
 	UI_Box *top;
 	UI_Box *panel_host;
@@ -840,24 +877,16 @@ AppShell;
 
 static UI_Box *app_status_text(UI_BoxBuilder *builder, u64 key, String text, UI_TextStyle style, f32 emission)
 {
+	ui_push(builder);
+	ui_emission(builder, emission);
 	UI_Box *box = ui_text_box_string(builder, key, style, text);
-	if (emission > 0.f)
-	{
-		AppBoxPaintData *paint = arena_push_zero(builder->arena, sizeof(*paint));
-		paint->emission = emission;
-		box->user = paint;
-	}
+	ui_pop(builder);
 	return box;
 }
 
 static void app_draw_box_tree(UI_Box *box)
 {
-	AppBoxPaintData *paint = box->user;
-	if (paint) ui_push_emission(app.ui, paint->emission);
-	if (box->ops && box->ops->paint) {
-		box->ops->paint(box);
-	}
-	if (paint) ui_pop_emission(app.ui);
+	ui_box_paint(box);
 	for (u32 child_index = 0; child_index < box->child_count; child_index ++) {
 		app_draw_box_tree(box->children[child_index]);
 	}
@@ -1063,159 +1092,115 @@ static void app_resize_graphics_outputs(vec2i size)
 	gfx_window_resize(app.gfx_window, size);
 }
 
-// Todo, remove this!
-static void app_acquire_graphics_outputs(vec2i size)
+static void app_draw_ui_layer(UI_LayerKind layer_kind, GFX_Texture *backdrop_texture, b32 emission_only);
+
+// Render passes
+
+static GFX_Texture *app_acquire_pass_output(vec2i size, GFX_Sampler sampler, const char *label)
 {
-	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
-	app.frame_texture = gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {
+	return gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {
 		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
 		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
 		.format = GRAPHICS_FORMAT_RGBA_F32,
 		.size = size,
-		.sampler = GRAPHICS_SAMPLER_POINT,
-		.label = "application frame",
-	});
-	app.effect_texture = gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = size,
-		.sampler = GRAPHICS_SAMPLER_POINT,
-		.label = "application effect",
-	});
-	app.bloom_texture = gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = size,
-		.sampler = GRAPHICS_SAMPLER_LINEAR,
-		.label = "UI emission",
-	});
-	app.blur_horizontal_texture = gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = blur_size,
-		.sampler = GRAPHICS_SAMPLER_LINEAR,
-		.label = "blur ping",
-	});
-	app.blur_vertical_texture = gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = blur_size,
-		.sampler = GRAPHICS_SAMPLER_LINEAR,
-		.label = "blur pong",
+		.sampler = sampler,
+		.label = label,
 	});
 }
 
-
-GFX_Texture *create_hdr_pass_output_texture(GFX_Texture *input, const char *label)
+static GFX_Texture *app_acquire_hdr_pass_output(GFX_Texture *input, const char *label)
 {
-	GFX_Texture *output = gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = gfx_texture_size(input),
-		.sampler = GRAPHICS_SAMPLER_POINT,
-		.label = label,
-	});
+	return app_acquire_pass_output(gfx_texture_size(input), GRAPHICS_SAMPLER_POINT, label);
+}
+
+static GFX_Texture *app_copy_pass(GFX_Texture *input, vec2i output_size, const char *label)
+{
+	GFX_Texture *output = app_acquire_pass_output(output_size, GRAPHICS_SAMPLER_LINEAR, label);
+	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = output });
+	draw_texture_copy(app.draw, input);
+	gfx_end_pass(app.draw);
 	return output;
 }
 
-GFX_Texture *app_crt_barrel_pass(GFX_Texture *input)
+static GFX_Texture *app_gaussian_blur_pass(GFX_Texture *input, vec2 direction, f32 sigma, const char *label)
 {
-	GFX_Texture *output = create_hdr_pass_output_texture(input, "barrel pass output");
+	GFX_Texture *output = app_acquire_pass_output(gfx_texture_size(input), GRAPHICS_SAMPLER_LINEAR, label);
+	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
+	draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) { .texture = input, .direction = direction, .sigma = sigma });
+	gfx_end_pass(app.draw);
+	return output;
+}
+
+static GFX_Texture *app_crt_barrel_pass(GFX_Texture *input)
+{
+	GFX_Texture *output = app_acquire_hdr_pass_output(input, "barrel pass output");
 	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
 	draw_barrel(app.draw, (Draw_BarrelParams) { .texture = input, .strength = 1.f });
 	gfx_end_pass(app.draw);
 	return output;
 }
 
-GFX_Texture *app_rewind_pass(GFX_Texture *input)
+static GFX_Texture *app_rewind_pass(GFX_Texture *input)
 {
-	GFX_Texture *output = create_hdr_pass_output_texture(input, "rewind pass output");
+	GFX_Texture *output = app_acquire_hdr_pass_output(input, "rewind pass output");
 	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
 	draw_rewind(app.draw, (Draw_RewindParams) { .texture = input, .time = (f32)fmod(seconds_now().seconds, 1024.0), .strength = 1.f });
 	gfx_end_pass(app.draw);
 	return output;
 }
 
-GFX_Texture *app_crt_scanlines_pass(GFX_Texture *input)
+static GFX_Texture *app_crt_scanlines_pass(GFX_Texture *input)
 {
-	GFX_Texture *output = create_hdr_pass_output_texture(input, "scanlines pass output");
+	GFX_Texture *output = app_acquire_hdr_pass_output(input, "scanlines pass output");
 	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
 	draw_crt_scanlines(app.draw, input);
 	gfx_end_pass(app.draw);
 	return output;
 }
 
-
-
-typedef struct
+static GFX_Texture *app_backdrop_blur_pass(GFX_Texture *frame_texture)
 {
-	GFX_Texture *video;
-	GFX_Texture *bloom;
-}
-App_PPUFrame;
+	prof_add_metric(PROF_METRIC_UI_BACKDROP_BLURS, 1);
+	vec2i size = gfx_texture_size(frame_texture);
+	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
+	GFX_Texture *blurred = app_copy_pass(frame_texture, blur_size, "backdrop downsample");
 
-static App_PPUFrame app_prepare_exclusive_ppu_frame(void)
-{
-	App_PPUFrame result = {
-		.video = app.video_texture,
-	};
-	if (!app.crt_enabled) {
-		return result;
+	for (u32 round = 0; round < 2; ++round)
+	{
+		blurred = app_gaussian_blur_pass(blurred, v2(1.f, 0.f), 3.f, "backdrop blur horizontal");
+		blurred = app_gaussian_blur_pass(blurred, v2(0.f, 1.f), 3.f, "backdrop blur vertical");
 	}
+	return blurred;
+}
 
-	gfx_begin_pass(app.draw, (GFX_PassDesc) {
-		.output = app.crt_scanline_texture,
-		.clear = true,
-		.clear_color = COLOR_BLACK,
-	});
-	draw_crt_scanlines(app.draw, app.video_texture);
+static void app_ui_bloom_pass(UI_LayerKind layer_kind, GFX_Texture *frame_texture, rect_f32 window_rect)
+{
+	if (!ui_frame(app.ui)->layers[layer_kind].has_emission) {
+		return;
+	}
+	prof_add_metric(PROF_METRIC_UI_BLOOM_LAYERS, 1);
+
+	vec2i size = gfx_texture_size(frame_texture);
+	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
+	GFX_Texture *emission = app_acquire_pass_output(size, GRAPHICS_SAMPLER_LINEAR, "UI emission");
+	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = emission, .clear = true, .clear_color = COLOR_TRANSPARENT });
+	app_draw_ui_layer(layer_kind, 0, true);
 	gfx_end_pass(app.draw);
 
-	gfx_begin_pass(app.draw, (GFX_PassDesc) {
-		.output = app.crt_bloom_ping_texture,
-		.clear = true,
-		.clear_color = COLOR_BLACK,
-	});
-	draw_luminance(app.draw, (Draw_LuminanceParams) {
-		.texture = app.crt_scanline_texture,
-		.threshold = 0.35f,
-		.gain = 0.35f,
+	GFX_Texture *bloom = app_copy_pass(emission, blur_size, "UI emission downsample");
+	bloom = app_gaussian_blur_pass(bloom, v2(1.f, 0.f), 5.f, "UI bloom horizontal");
+	bloom = app_gaussian_blur_pass(bloom, v2(0.f, 1.f), 5.f, "UI bloom vertical");
+
+	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = frame_texture });
+	draw_image(app.draw, (Draw_TextureParams) {
+		.rect = window_rect,
+		.texture = bloom,
+		.region = rect_i32_from_size(gfx_texture_size(bloom)),
+		.tint = color_srgba(0xB8B8B8),
+		.sampler = GRAPHICS_SAMPLER_LINEAR,
+		.blender = GFX_BLENDER_ADDITIVE,
 	});
 	gfx_end_pass(app.draw);
-
-	gfx_begin_pass(app.draw, (GFX_PassDesc) {
-		.output = app.crt_bloom_pong_texture,
-		.clear = true,
-		.clear_color = COLOR_BLACK,
-	});
-	draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) {
-		.texture = app.crt_bloom_ping_texture,
-		.direction = v2(1.f, 0.f),
-		.sigma = 2.f,
-	});
-	gfx_end_pass(app.draw);
-
-	gfx_begin_pass(app.draw, (GFX_PassDesc) {
-		.output = app.crt_bloom_ping_texture,
-		.clear = true,
-		.clear_color = COLOR_BLACK,
-	});
-	draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) {
-		.texture = app.crt_bloom_pong_texture,
-		.direction = v2(0.f, 1.f),
-		.sigma = 2.f,
-	});
-	gfx_end_pass(app.draw);
-
-	result.video = app.crt_scanline_texture;
-	// app.crt_bloom_ping_texture;
-	result.bloom = 0;
-	return result;
 }
 
 static void app_draw_exclusive_ppu(GFX_Texture *frame_texture, rect_f32 window_rect)
@@ -1225,7 +1210,7 @@ static void app_draw_exclusive_ppu(GFX_Texture *frame_texture, rect_f32 window_r
 	rect_f32 video_rect = rect_f32_align(window_rect, v2(presentation_size.x * scale, presentation_size.y * scale), v2(0.5f, 0.5f));
 	video_rect = rect_f32_round_out(video_rect);
 
-	App_PPUFrame ppu = app_prepare_exclusive_ppu_frame();
+	GFX_Texture *video_texture = app.crt_enabled ? app_crt_scanlines_pass(app.video_texture) : app.video_texture;
 	gfx_begin_pass(app.draw, (GFX_PassDesc) {
 		.output = frame_texture,
 		.clear = true,
@@ -1233,22 +1218,11 @@ static void app_draw_exclusive_ppu(GFX_Texture *frame_texture, rect_f32 window_r
 	});
 	draw_image(app.draw, (Draw_TextureParams) {
 		.rect = video_rect,
-		.texture = ppu.video,
+		.texture = video_texture,
 		.region = { 0, 0, NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT },
 		.tint = COLOR_WHITE,
 		.sampler = GRAPHICS_SAMPLER_POINT,
 	});
-	if (ppu.bloom)
-	{
-		draw_image(app.draw, (Draw_TextureParams) {
-			.rect = video_rect,
-			.texture = ppu.bloom,
-			.region = { 0, 0, NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT },
-			.tint = COLOR_WHITE,
-			.sampler = GRAPHICS_SAMPLER_LINEAR,
-			.blender = GFX_BLENDER_ADDITIVE,
-		});
-	}
 	gfx_end_pass(app.draw);
 }
 
@@ -1341,76 +1315,6 @@ static void app_draw_ui_layer(UI_LayerKind layer_kind, GFX_Texture *backdrop_tex
 	prof_add_metric(PROF_METRIC_UI_COMMAND_REPLAYS, replay_count);
 }
 
-static GFX_Texture *app_blur_backdrop(GFX_Texture *frame_texture)
-{
-	prof_add_metric(PROF_METRIC_UI_BACKDROP_BLURS, 1);
-	gfx_begin_pass(app.draw, (GFX_PassDesc) {
-		.output = app.blur_horizontal_texture,
-	});
-	draw_texture_copy(app.draw, frame_texture);
-	gfx_end_pass(app.draw);
-
-	for (u32 round = 0; round < 2; ++round)
-	{
-		gfx_begin_pass(app.draw, (GFX_PassDesc) {
-			.output = app.blur_vertical_texture,
-		});
-		draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) {
-			.texture = app.blur_horizontal_texture,
-			.direction = v2(1.f, 0.f),
-			.sigma = 3.f,
-		});
-		gfx_end_pass(app.draw);
-
-		gfx_begin_pass(app.draw, (GFX_PassDesc) {
-			.output = app.blur_horizontal_texture,
-		});
-		draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) {
-			.texture = app.blur_vertical_texture,
-			.direction = v2(0.f, 1.f),
-			.sigma = 3.f,
-		});
-		gfx_end_pass(app.draw);
-	}
-	return app.blur_horizontal_texture;
-}
-
-static void app_draw_ui_bloom(UI_LayerKind layer_kind, GFX_Texture *frame_texture, rect_f32 window_rect)
-{
-	if (!ui_frame(app.ui)->layers[layer_kind].has_emission) {
-		return;
-	}
-	prof_add_metric(PROF_METRIC_UI_BLOOM_LAYERS, 1);
-
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = app.bloom_texture, .clear = true, .clear_color = COLOR_TRANSPARENT });
-	app_draw_ui_layer(layer_kind, 0, true);
-	gfx_end_pass(app.draw);
-
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = app.blur_horizontal_texture, .clear = true, .clear_color = COLOR_TRANSPARENT });
-	draw_texture_copy(app.draw, app.bloom_texture);
-	gfx_end_pass(app.draw);
-
-	// Todo, instead of clearing we could instead just disable blending
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = app.blur_vertical_texture, .clear = true, .clear_color = COLOR_BLACK });
-	draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) { .texture = app.blur_horizontal_texture, .direction = v2(1.f, 0.f), .sigma = 5.f });
-	gfx_end_pass(app.draw);
-
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = app.blur_horizontal_texture, .clear = true, .clear_color = COLOR_BLACK });
-	draw_gaussian_blur(app.draw, (Draw_GaussianBlurParams) { .texture = app.blur_vertical_texture, .direction = v2(0.f, 1.f), .sigma = 5.f });
-	gfx_end_pass(app.draw);
-
-	gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = frame_texture });
-	draw_image(app.draw, (Draw_TextureParams) {
-		.rect = window_rect,
-		.texture = app.blur_horizontal_texture,
-		.region = rect_i32_from_size(gfx_texture_size(app.blur_horizontal_texture)),
-		.tint = color_srgba(0xB8B8B8),
-		.sampler = GRAPHICS_SAMPLER_LINEAR,
-		.blender = GFX_BLENDER_ADDITIVE,
-	});
-	gfx_end_pass(app.draw);
-}
-
 static void app_compose_ui_layers(GFX_Texture *frame_texture, rect_f32 window_rect)
 {
 	const UI_Frame *ui = ui_frame(app.ui);
@@ -1418,11 +1322,11 @@ static void app_compose_ui_layers(GFX_Texture *frame_texture, rect_f32 window_re
 	{
 		UI_LayerKind layer_kind = (UI_LayerKind)layer_index;
 		const UI_Layer *layer = &ui->layers[layer_index];
-		GFX_Texture *backdrop = layer->has_backdrops ? app_blur_backdrop(frame_texture) : 0;
+		GFX_Texture *backdrop = layer->has_backdrops ? app_backdrop_blur_pass(frame_texture) : 0;
 		gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = frame_texture });
 		app_draw_ui_layer(layer_kind, backdrop, false);
 		gfx_end_pass(app.draw);
-		app_draw_ui_bloom(layer_kind, frame_texture, window_rect);
+		app_ui_bloom_pass(layer_kind, frame_texture, window_rect);
 	}
 }
 
@@ -1465,13 +1369,12 @@ static void app_draw(void)
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
 	app_handle_window_commands();
 
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) if(debugger_undo_frame(app.debugger)) audio_stream_discard(app.audio);
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) if(debugger_redo_frame(app.debugger)) audio_stream_discard(app.audio);
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) if(debugger_undo_snapshot(app.debugger)) audio_stream_discard(app.audio);
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) if(debugger_redo_snapshot(app.debugger)) audio_stream_discard(app.audio);
 
 	app_resize_graphics_outputs(app.os_window->size);
 	gfx_begin_frame(app.draw);
-	app_acquire_graphics_outputs(app.os_window->size);
-	GFX_Texture *frame_texture = app.frame_texture;
+	GFX_Texture *frame_texture = app_acquire_pass_output(app.os_window->size, GRAPHICS_SAMPLER_POINT, "application frame");
 
 	if (app.exclusive_ppu_mode) {
 		app_draw_exclusive_ppu(frame_texture, window_rect);
@@ -1481,29 +1384,8 @@ static void app_draw(void)
 	}
 
 	GFX_Texture *present_texture = frame_texture;
-	GFX_Texture *effect_output = app.effect_texture;
-	if (app.mode == APP_MODE_REWINDING) {
-
-		gfx_begin_pass(app.draw, (GFX_PassDesc) { .output = effect_output, .clear = true, .clear_color = COLOR_BLACK });
-		draw_rewind(app.draw, (Draw_RewindParams) { .texture = present_texture, .time = (f32)fmod(seconds_now().seconds, 1024.0), .strength = 1.f });
-		gfx_end_pass(app.draw);
-
-		present_texture = effect_output;
-		effect_output = frame_texture;
-	}
-	if (app.crt_enabled) {
-		gfx_begin_pass(app.draw, (GFX_PassDesc) {
-			.output = effect_output,
-			.clear = true,
-			.clear_color = COLOR_BLACK,
-		});
-		draw_barrel(app.draw, (Draw_BarrelParams) {
-			.texture = present_texture,
-			.strength = 1.f,
-		});
-		gfx_end_pass(app.draw);
-		present_texture = effect_output;
-	}
+	if (app.mode == APP_MODE_REWINDING) present_texture = app_rewind_pass(present_texture);
+	if (app.crt_enabled) present_texture = app_crt_barrel_pass(present_texture);
 
 	gfx_begin_pass(app.draw, (GFX_PassDesc) {
 		.output = gfx_window_texture(app.gfx_window),
@@ -1529,26 +1411,45 @@ static void app_frame(void)
 		prof_begin_frame();
 		PROF_BLOCK("main frame incl wait")
 		{
-			debugger_update_cpu_mapping(app.debugger);
 			AppInput input = app_translate_input_events_based_on_mode();
-			u64 ppu_cycles = app_handle_input(input);
+			b32 app_consumed_input = app_handle_input(input);
 
 			const Program *program = debugger_program(app.debugger);
-			u32 refinement_budget = program->refinement_pass_count < 2 ? 2048 : 128;
+			u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
 
-			PROF_BLOCK("debug stepping")         debugger_run(app.debugger, ppu_cycles);
+			// TODO(RJ) remove app debugger orchestration from the app itself, this
+			// is order sensitive, should be done by the debugger itself in one atomic
+			// step and the app just passes in options.
+			if (app.mode == APP_MODE_EMULATOR)
+			{
+				PROF_BLOCK("snapshot") debugger_capture_snapshot(app.debugger);
 
-			if (app.mode == APP_MODE_EMULATOR && app.emulator_running) {
-				PROF_BLOCK("emulation") app_fill_audio();
+				app_clear_debugger_input();
+				if (!app_consumed_input) app_update_debugger_input();
+
+				if (input.action == APP_ACTION_STEP) {
+					app.emulator_running = false;
+					PROF_BLOCK("emulation step") debugger_step(app.debugger);
+				}
+				else if (app.emulator_running) {
+					if (app.audio_backend_available && !app.apu_muted) {
+						PROF_BLOCK("emulation") app_run_with_audio();
+					} else {
+						PROF_BLOCK("emulation muted") app_run_without_audio();
+					}
+				}
 			}
-			PROF_BLOCK("snapshot")               debugger_capture_frame(app.debugger);
-			PROF_BLOCK("program refinement")     debugger_refine(app.debugger, refinement_budget);
-			PROF_BLOCK("drain audio")            app_drain_audio();
-			PROF_BLOCK("execution activity")     execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
 
-			PROF_BLOCK("application")            app_publish();
-			PROF_BLOCK("application draw")       app_draw();
-			PROF_BLOCK("frame pacing")           app_pace_frame();
+			// TODO(RJ) one atomic step
+			PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
+			PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
+
+
+			PROF_BLOCK("drain audio")        app_drain_audio();
+			PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
+			PROF_BLOCK("application")        app_publish();
+			PROF_BLOCK("application draw")   app_draw();
+			PROF_BLOCK("frame pacing")       app_pace_frame();
 		}
 		prof_close_frame();
 	}
@@ -1568,7 +1469,16 @@ static void app_init(void)
 	app.frame_arena = arena_create(0, "app frame arena");
 
 	OS_AudioInfo audio_info;
-	Assert(os_audio_init(&audio_info));
+	app.audio_backend_available = os_audio_init(&audio_info);
+	if (!app.audio_backend_available)
+	{
+		audio_info = (OS_AudioInfo) {
+			.buffer_frame_count = 800,
+			.sample_rate = 48000,
+			.channel_count = 1,
+		};
+		LOG_WARN("audio output is unavailable; emulation will continue without sound");
+	}
 	u32 audio_capacity = Max(audio_info.buffer_frame_count * 4,
 	Max(audio_info.sample_rate / 10, 1));
 	app.audio = audio_stream_create(&app.arena, (Audio_StreamDesc) {
@@ -1582,12 +1492,12 @@ static void app_init(void)
 
 	// Font_Handle code_font = ttf_load(app_read_file(&app.arena, "data/fonts/IBMPlexMono-Medium.ttf"));
 	ttf_init_api();
-	Font_Handle code_font = ttf_load(app_read_file(&app.arena, "data/fonts/Saira/static/Saira-Medium.ttf"));
+	Font_Handle code_font = ttf_load(app_read_file(&app.arena, app_font_path));
 	UI_Theme theme = ui_default_theme(code_font);
 
 
 	app.os_window = os_window_create((OS_WindowDesc) {
-		.title = "Orbiter",
+		.title = "Orbiter v0.1.0",
 		.title_bar = {
 			.enabled = true,
 			.dark = true,
@@ -1606,7 +1516,7 @@ static void app_init(void)
 	app.panels = panels_create(&app.arena);
 	app.crt_enabled = true;
 	app.debugger = debugger_create(&app.arena, audio_info.sample_rate);
-	// Todo, get rid of these, we already have a transient texture system
+	// CPU-uploaded source textures persist; render pass outputs are transient.
 	app.video_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
 		.usage = GRAPHICS_TEXTURE_USAGE_PER_FRAME,
 		.bind_flags = GFX_TEXTURE_BIND_INPUT,
@@ -1614,30 +1524,6 @@ static void app_init(void)
 		.size = v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT),
 		.sampler = GRAPHICS_SAMPLER_POINT,
 		.label = "NES video",
-	});
-	app.crt_scanline_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT),
-		.sampler = GRAPHICS_SAMPLER_POINT,
-		.label = "CRT scanlines",
-	});
-	app.crt_bloom_ping_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT),
-		.sampler = GRAPHICS_SAMPLER_LINEAR,
-		.label = "CRT bloom ping",
-	});
-	app.crt_bloom_pong_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
-		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
-		.format = GRAPHICS_FORMAT_RGBA_F32,
-		.size = v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT),
-		.sampler = GRAPHICS_SAMPLER_LINEAR,
-		.label = "CRT bloom pong",
 	});
 	app.chr_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
 		.usage = GRAPHICS_TEXTURE_USAGE_PER_FRAME,
@@ -1675,6 +1561,10 @@ static void app_shutdown(void)
 
 int main(void)
 {
+	Platform_File_Info font_info;
+	if (!platform_get_file_info(app_font_path, &font_info)) {
+		os_set_current_directory_to_executable();
+	}
 	app_init();
 	while (os_window_is_open(app.os_window))
 	{

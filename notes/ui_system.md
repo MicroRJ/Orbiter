@@ -1,5 +1,41 @@
 ## UI system
 
+
+The simple layout problem already solves parent child dependencies very well.
+The main problem is virtual lists.
+Because they introduce yet another dimension.
+
+Here are the challenges:
+	The child height is unknown, the parent viewport is unknown.
+	The parent height may depend on child height and count.
+	The child width and or height depends on the parent's size.
+	And yet we have to have enough information to, know how big
+	the scrollable range is, and know which item is currently visible.
+
+In a retained mode UI system, you'd just know and remember child sizes. Knowing this you can
+setup the scrollbar, and offset children prior to laying them out.
+
+We're having to re-layout children because we don't know their sizes by the time we begin the
+scroll area.
+
+We did make a virtualization itself be part of the box, which makes the intended common case simpler,
+but the intended common case isn't common ...
+
+But we can't take it out either, we can't measure the child without it being in the parent, we can't
+wait for the parent to layout because its size may depend on the number of children.
+
+So it just seems like the right way to do it.
+
+The question is, do we experiment with a RAD style one frame persisted rectangles. If we knew the
+data from the previous frame, we'd know the size of the children, our rectangle, at the expense
+of having one frame delay, which doesn't sound that bad.
+
+We'd have to experiment.
+
+
+
+
+
 ----
 
 Our current UI system is pretty much a combination of immediate mode draw calls and some helper
