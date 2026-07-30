@@ -10,6 +10,8 @@ _(METRIC_HASH_BYTES              ,            "hash_bytes"        ) \
 _(METRIC_TEXT_LAYOUT_CALLS       ,          "text_layout_calls"   ) \
 _(METRIC_TEXT_LAYOUT_BYTES       ,          "text_layout_bytes"   ) \
 _(METRIC_BUILD_TEXT_RUN_CALLS    ,       "build_text_run_calls"   ) \
+_(METRIC_DRAW_RUNS               ,               "draw_runs"      ) \
+_(METRIC_DRAW_RUN_BYTES          ,          "draw_run_bytes"      ) \
 _(METRIC_DRAW_COMMANDS           ,           "draw_commands"      ) \
 _(METRIC_DRAW_COMMAND_BYTES      ,     "draw_command_bytes"       ) \
 _(METRIC_DRAW_RECT_COMMANDS      ,      "draw_rect_commands"      ) \

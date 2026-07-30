@@ -16,15 +16,13 @@ NES_BusMetrics;
 
 struct NES_Emulator
 {
-	NES_State             core;
-	NES_MapperClass       mapper;
-	u32                   audio_sample_rate;
-	b32                   instruction_trace_enabled;
-	u64                   scheduler_clock;
-	NES_BusMetrics        cpu_bus_metrics;
-	NES_BusMetrics        ppu_bus_metrics;
-	u64                   scheduler_trace_index;
-	u8                    video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+	NES_State               core;
+	NES_MapperClass         mapper;
+	u64                     scheduler_clock;
+	NES_BusMetrics          cpu_bus_metrics;
+	NES_BusMetrics          ppu_bus_metrics;
+	u64                     scheduler_trace_index;
+	u8                      video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
 	NES_SchedulerTraceEntry scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
 };
 

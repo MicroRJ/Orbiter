@@ -29,12 +29,21 @@ typedef struct
 Draw_BatchMetrics;
 
 typedef struct Draw_Run Draw_Run;
+
+typedef struct
+{
+	rect_i32 clip;
+	i32 z;
+	b32 has_clip;
+}
+Draw_RunState;
+
 struct Draw_Run
 {
 	Draw_Run *next;
-	i32 z;
 	Draw_Command *first;
 	Draw_Command *last;
+	Draw_RunState state;
 	u32 command_count;
 	b32 has_backdrops;
 	b32 has_emission;
@@ -727,40 +736,34 @@ void draw_mask_rects(Draw_Context *draw, Draw_MaskRectsParams params)
 
 // Deferred draw list
 
+static b32 draw__run_states_equal(Draw_RunState a, Draw_RunState b)
+{
+	return a.z == b.z && a.has_clip == b.has_clip && (!a.has_clip || rect_i32_equal(a.clip, b.clip));
+}
+
 static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kind, b32 inherit_clip)
 {
 	Assert(draw);
 	Assert(draw->frame_active);
 	Assert(!draw->commands_composed);
-	Draw_Command *command = arena_push_zero(&draw->command_arena, sizeof(*command));
-	command->kind = kind;
-	command->emission = draw->emission;
-	prof_add_metric(PROF_METRIC_DRAW_COMMANDS, 1);
-	prof_add_metric(PROF_METRIC_DRAW_COMMAND_BYTES, sizeof(*command));
-	switch (kind)
-	{
-		case DRAW_COMMAND_RECT:         prof_add_metric(PROF_METRIC_DRAW_RECT_COMMANDS, 1); break;
-		case DRAW_COMMAND_IMAGE:        prof_add_metric(PROF_METRIC_DRAW_IMAGE_COMMANDS, 1); break;
-		case DRAW_COMMAND_TEXT:         prof_add_metric(PROF_METRIC_DRAW_TEXT_COMMANDS, 1); break;
-		case DRAW_COMMAND_INSET_SHADOW:
-		case DRAW_COMMAND_BACKDROP:     prof_add_metric(PROF_METRIC_DRAW_EFFECT_COMMANDS, 1); break;
-		default: Assert(!"invalid draw command");
-	}
-	if (command->emission > 0.f) {
-		prof_add_metric(PROF_METRIC_DRAW_EMISSIVE_COMMANDS, 1);
-	}
+
+	Draw_RunState state = {
+		.z = draw->z,
+	};
 	if (inherit_clip && draw->list_clip_stack_count && !draw->unclipped_scope_count)
 	{
-		command->has_clip = true;
-		command->clip = draw->list_clip_stack[draw->list_clip_stack_count - 1];
-		prof_add_metric(PROF_METRIC_DRAW_CLIPPED_COMMANDS, 1);
+		state.has_clip = true;
+		state.clip = rect_i32_from_f32(draw->list_clip_stack[draw->list_clip_stack_count - 1]);
 	}
+
 	Draw_Run *run = draw->frame.last;
-	if (!run || run->z != draw->z)
+	if (!run || !draw__run_states_equal(run->state, state))
 	{
 		run = arena_push_zero(&draw->command_arena, sizeof(*run));
-		run->z = draw->z;
+		run->state = state;
 		draw->frame.run_count++;
+		prof_add_metric(PROF_METRIC_DRAW_RUNS, 1);
+		prof_add_metric(PROF_METRIC_DRAW_RUN_BYTES, sizeof(*run));
 		if (draw->frame.last) {
 			draw->frame.last->next = run;
 		} else {
@@ -768,6 +771,27 @@ static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kin
 		}
 		draw->frame.last = run;
 	}
+
+	Draw_Command *command = arena_push_zero(&draw->command_arena, sizeof(*command));
+	command->kind = kind;
+	prof_add_metric(PROF_METRIC_DRAW_COMMANDS, 1);
+	prof_add_metric(PROF_METRIC_DRAW_COMMAND_BYTES, sizeof(*command));
+	switch (kind)
+	{
+		case DRAW_COMMAND_RECT:         prof_add_metric(PROF_METRIC_DRAW_RECT_COMMANDS, 1); command->emission = draw->emission; break;
+		case DRAW_COMMAND_IMAGE:        prof_add_metric(PROF_METRIC_DRAW_IMAGE_COMMANDS, 1); command->emission = draw->emission; break;
+		case DRAW_COMMAND_TEXT:         prof_add_metric(PROF_METRIC_DRAW_TEXT_COMMANDS, 1); command->emission = draw->emission; break;
+		case DRAW_COMMAND_INSET_SHADOW:
+		case DRAW_COMMAND_BACKDROP:     prof_add_metric(PROF_METRIC_DRAW_EFFECT_COMMANDS, 1); break;
+		default: Assert(!"invalid draw command");
+	}
+	if (command->emission > 0.f) {
+		prof_add_metric(PROF_METRIC_DRAW_EMISSIVE_COMMANDS, 1);
+	}
+	if (state.has_clip) {
+		prof_add_metric(PROF_METRIC_DRAW_CLIPPED_COMMANDS, 1);
+	}
+
 	run->has_backdrops |= kind == DRAW_COMMAND_BACKDROP;
 	run->has_emission |= command->emission > 0.f;
 	if (run->last) {
@@ -944,7 +968,7 @@ static void draw__sort_runs_by_z(Draw_Run **runs, u32 run_count)
 	{
 		Draw_Run *run = runs[index];
 		u32 insert_index = index;
-		while (insert_index && runs[insert_index - 1]->z > run->z)
+		while (insert_index && runs[insert_index - 1]->state.z > run->state.z)
 		{
 			runs[insert_index] = runs[insert_index - 1];
 			insert_index--;
@@ -959,16 +983,20 @@ static void draw__replay_runs(Draw_Context *draw, Text_GFX *text_gfx, Draw_Run *
 	PROF_BLOCK("draw run playback")
 	for (u32 run_index = 0; run_index < run_count; ++run_index)
 	{
-		for (Draw_Command *command = runs[run_index]->first; command; command = command->next)
+		Draw_Run *run = runs[run_index];
+		if (emission_only && !run->has_emission) {
+			continue;
+		}
+		replay_count += run->command_count;
+		if (run->state.has_clip) {
+			draw_push_clip(draw, rect_f32_from_i32(run->state.clip));
+		}
+
+		for (Draw_Command *command = run->first; command; command = command->next)
 		{
-			replay_count++;
 			if (emission_only && command->emission <= 0.f) {
 				continue;
 			}
-			if (command->has_clip) {
-				draw_push_clip(draw, command->clip);
-			}
-
 			switch (command->kind)
 			{
 				case DRAW_COMMAND_RECT:
@@ -1012,10 +1040,10 @@ static void draw__replay_runs(Draw_Context *draw, Text_GFX *text_gfx, Draw_Run *
 				} break;
 				default: Assert(!"invalid draw command");
 			}
+		}
 
-			if (command->has_clip) {
-				draw_pop_clip(draw);
-			}
+		if (run->state.has_clip) {
+			draw_pop_clip(draw);
 		}
 	}
 	prof_add_metric(PROF_METRIC_DRAW_COMMAND_REPLAYS, replay_count);
@@ -1079,7 +1107,7 @@ void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, r
 			u32 slice_end = slice_begin;
 			b32 has_backdrops = false;
 			b32 has_emission = false;
-			while (slice_end < run_count && runs[slice_end]->z == runs[slice_begin]->z)
+			while (slice_end < run_count && runs[slice_end]->state.z == runs[slice_begin]->state.z)
 			{
 				has_backdrops |= runs[slice_end]->has_backdrops;
 				has_emission |= runs[slice_end]->has_emission;

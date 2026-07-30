@@ -50,7 +50,7 @@ static CPU_TestFixture cpu_test_fixture_create(void)
 	prg_rom[0x3FFC] = 0x00;
 	prg_rom[0x3FFD] = 0x80;
 
-	fixture.core = nes_emulator_create(&fixture.arena, (NES_EmulatorDesc) {});
+	fixture.core = nes_emulator_create(&fixture.arena);
 	Assert(fixture.core);
 	Assert(nes_emulator_load_cartridge(fixture.core, (NES_CartridgeDesc) {
 		.prg_rom = byte_span(prg_rom, KiB(16)),
@@ -193,7 +193,7 @@ static void cpu_test_reset_vector(CPU_TestFixture *fixture)
 	cpu_test_prepare(fixture);
 	fixture->core->core.prg_rom[0x3FFC] = 0x23;
 	fixture->core->core.prg_rom[0x3FFD] = 0x81;
-	nes_emulator_reset(fixture->core);
+	nes_cpu_reset(fixture->core);
 	CPU_EXPECT_EQUAL(0x8123, cpu_test_state(fixture)->PC);
 	CPU_EXPECT_EQUAL(0xFD, cpu_test_state(fixture)->S);
 	CPU_EXPECT_EQUAL(0x24, cpu_test_state(fixture)->P);

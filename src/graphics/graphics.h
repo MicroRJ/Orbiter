@@ -336,8 +336,6 @@ struct Draw_Command
 	Draw_Command *next;
 	Draw_CommandKind kind;
 	f32 emission;
-	b32 has_clip;
-	rect_f32 clip;
 	union
 	{
 		Draw_RectParams rect;

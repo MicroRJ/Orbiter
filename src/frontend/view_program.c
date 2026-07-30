@@ -117,8 +117,6 @@ static void program_view_content(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
 	Assert(debugger);
-	Assert(frame->publication->valid);
-	const Program *program = debugger_program(debugger);
 
 	ViewState *state = &frame->view->program;
 	UI_Context *ui = frame->ui;
@@ -127,12 +125,13 @@ static void program_view_content(ViewFrameData *frame)
 	main_rect.h += frame->header_height;
 	Arena *scratch = frame->scratch;
 	UI_TextStyle font = ui->theme.code;
-	if (!debugger_has_cartridge(debugger))
+	if (!frame->publication->valid || !debugger_has_cartridge(debugger))
 	{
 		ui_draw_text(ui, main_rect, font, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
 	}
 
+	const Program *program = debugger_program(debugger);
 	u32 instruction_count = program_mapped_instruction_count(debugger);
 	f32 row_height = font.size;
 

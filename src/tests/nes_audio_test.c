@@ -94,27 +94,26 @@ static void test_pull_audio_chunks(void)
 
 	Arena arena = arena_create(0, "Orbiter audio test");
 	NES_CartridgeDesc cartridge = make_looping_cartridge(&arena);
-	NES_Emulator *whole = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.audio_sample_rate = SAMPLE_RATE,
-	});
-	NES_Emulator *chunked = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.audio_sample_rate = SAMPLE_RATE,
-	});
+	NES_Emulator *whole = nes_emulator_create(&arena);
+	NES_Emulator *chunked = nes_emulator_create(&arena);
+	u32 whole_sample_phase = 0;
+	u32 chunked_sample_phase = 0;
 	Assert(nes_emulator_load_cartridge(whole, cartridge));
 	Assert(nes_emulator_load_cartridge(chunked, cartridge));
 
 	f32 *whole_samples = arena_push_zero(&arena, sizeof(*whole_samples) * SAMPLE_CAPACITY);
 	f32 *chunked_samples = arena_push_zero(&arena, sizeof(*chunked_samples) * SAMPLE_CAPACITY);
-	u64 whole_count = nes_emulator_run_samples(whole, SAMPLE_COUNT, whole_samples, SAMPLE_CAPACITY);
+	u64 whole_count = nes_emulator_run_samples(whole, SAMPLE_RATE, &whole_sample_phase, SAMPLE_COUNT, whole_samples, SAMPLE_CAPACITY);
 	u64 chunked_count = 0;
 	while (chunked_count < SAMPLE_COUNT)
 	{
-		chunked_count += nes_emulator_run_samples(chunked, CHUNK_SAMPLES,
+		chunked_count += nes_emulator_run_samples(chunked, SAMPLE_RATE, &chunked_sample_phase, CHUNK_SAMPLES,
 			chunked_samples + chunked_count, SAMPLE_CAPACITY - chunked_count);
 	}
 
 	Assert(whole_count == SAMPLE_COUNT);
 	Assert(chunked_count == whole_count);
+	Assert(chunked_sample_phase == whole_sample_phase);
 	Assert(memory_match(whole_samples, chunked_samples, sizeof(*whole_samples) * whole_count));
 	Assert(nes_emulator_scheduler_clock(whole) > 0);
 	Assert(nes_emulator_scheduler_clock(chunked) == nes_emulator_scheduler_clock(whole));
@@ -126,11 +125,8 @@ static void test_samples_follow_cpu_cycles(void)
 {
 	Arena arena = arena_create(0, "Orbiter audio cycle placement test");
 	NES_CartridgeDesc cartridge = make_looping_cartridge(&arena);
-	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.audio_sample_rate = NES_CPU_HZ,
-	});
+	NES_Emulator *core = nes_emulator_create(&arena);
 	Assert(nes_emulator_load_cartridge(core, cartridge));
-	nes_emulator_reset(core);
 
 	// Make the DAC audible across all three clocks of the JMP. Pulse muting is
 	// based on the programmed period, not the changing countdown timer, so
@@ -146,7 +142,8 @@ static void test_samples_follow_cpu_cycles(void)
 	pulse->timer = 0;
 
 	f32 samples[3] = {};
-	Assert(nes_emulator_run_samples(core, ArrayCount(samples), samples, ArrayCount(samples)) == 3);
+	u32 sample_phase = 0;
+	Assert(nes_emulator_run_samples(core, NES_CPU_HZ, &sample_phase, ArrayCount(samples), samples, ArrayCount(samples)) == 3);
 	Assert(samples[0] != 0.0f);
 	Assert(samples[1] != 0.0f);
 	Assert(samples[2] != 0.0f);
@@ -164,19 +161,17 @@ static void test_dma_cycles_cross_the_same_boundary(void)
 	prg[3] = 0x14;
 	prg[4] = 0x40;
 
-	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.audio_sample_rate = NES_CPU_HZ,
-	});
+	NES_Emulator *core = nes_emulator_create(&arena);
 	Assert(nes_emulator_load_cartridge(core, cartridge));
-	nes_emulator_reset(core);
 
-	nes_emulator_run(core, 6);
+	Assert(nes_emulator_step(core) == 2);
 
 	// DMA is still instruction-atomic and included in the cycle count returned
 	// by STA. However large that returned batch is, every one of those cycles
 	// must pass through the exact same PPU/APU/audio scheduler boundary.
 	f32 samples[1024] = {};
-	u64 sample_count = nes_emulator_run_samples(core, 4, samples, ArrayCount(samples));
+	u32 sample_phase = 0;
+	u64 sample_count = nes_emulator_run_samples(core, NES_CPU_HZ, &sample_phase, 4, samples, ArrayCount(samples));
 	Assert(sample_count > 4);
 	arena_destroy(&arena);
 }
@@ -185,23 +180,20 @@ static void test_pull_audio_instruction_overshoot(void)
 {
 	Arena arena = arena_create(0, "NES pull audio test");
 	NES_CartridgeDesc cartridge = make_looping_cartridge(&arena);
-	NES_Emulator *overshoot = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.audio_sample_rate = NES_CPU_HZ,
-	});
+	NES_Emulator *overshoot = nes_emulator_create(&arena);
 	Assert(nes_emulator_load_cartridge(overshoot, cartridge));
 	f32 overshoot_samples[6] = {};
-	Assert(nes_emulator_run_samples(overshoot, 4, overshoot_samples, ArrayCount(overshoot_samples)) == 6);
+	u32 sample_phase = 0;
+	Assert(nes_emulator_run_samples(overshoot, NES_CPU_HZ, &sample_phase, 4, overshoot_samples, ArrayCount(overshoot_samples)) == 6);
 	arena_destroy(&arena);
 }
 
 static void test_instruction_boundary_clocks(void)
 {
 	Arena arena = arena_create(0, "NES instruction boundary clock test");
-	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) {
-		.enable_instruction_trace = true,
-	});
+	NES_Emulator *core = nes_emulator_create(&arena);
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
-	nes_emulator_run(core, 30);
+	for (u32 index = 0; index < 4; ++index) nes_emulator_step(core);
 	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(core);
 	Assert(!nes_scheduler_trace_dropped_since(boundaries, 0));
 	Assert(boundaries.index > 0);

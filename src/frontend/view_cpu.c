@@ -70,8 +70,14 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 static void cpu_view_content(ViewFrameData *frame)
 {
 	Assert(frame->debugger);
-	Assert(frame->publication->valid);
 	Assert(frame->draw_box_tree);
+	if (!frame->publication->valid || !debugger_has_cartridge(frame->debugger))
+	{
+		UI_TextStyle style = frame->ui->theme.code;
+		style.color = frame->ui->theme.text_subtle;
+		ui_draw_text(frame->ui, frame->rect, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
+		return;
+	}
 
 	// Published state is observational. A future editable CPU view must send a
 	// debugger command instead of modifying this copy or the core directly.

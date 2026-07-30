@@ -137,6 +137,7 @@ typedef enum
 	NES_STATE_FIELD_ID_MACHINE_APU,
 	NES_STATE_FIELD_ID_EMULATOR_MACHINE,
 	NES_STATE_FIELD_ID_EMULATOR_VIDEO,
+	// Reserved so later public field IDs remain stable.
 	NES_STATE_FIELD_ID_MACHINE_AUDIO_SAMPLE_PHASE,
 	NES_STATE_FIELD_ID_MACHINE_CPU_STALL_CYCLES,
 
@@ -168,8 +169,7 @@ typedef SerializeRecord NES_StateRecord;
 const SerializeRecordMap *nes_state_record_map(void);
 const NES_StateRecord *nes_state_record(NES_RecordId record_id);
 const NES_StateField *nes_state_field_from_id(NES_StateFieldID id);
+const NES_StateField *nes_state_visible_field(const NES_StateRecord *record, u32 visible_index);
 u32 nes_state_visible_field_count(const NES_StateRecord *record);
-const NES_StateField *nes_state_visible_field(
-	const NES_StateRecord *record, u32 visible_index);
 
 #endif

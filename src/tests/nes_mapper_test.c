@@ -34,7 +34,7 @@ static Mapper_TestFixture mapper_test_fixture_create(void)
 {
 	Mapper_TestFixture fixture = {};
 	fixture.arena = arena_create(0, "Orbiter mapper tests");
-	fixture.core = nes_emulator_create(&fixture.arena, (NES_EmulatorDesc) {});
+	fixture.core = nes_emulator_create(&fixture.arena);
 	Assert(fixture.core);
 	return fixture;
 }

@@ -103,6 +103,8 @@ typedef struct
 	UI_Context *ui;
 	Panels *panels;
 	Audio_Stream *audio;
+	u32 audio_sample_rate;
+	u32 audio_sample_phase;
 	u32 audio_backend_capacity;
 	u32 audio_min_queued_frames;
 	u64 audio_starved_frames;
@@ -233,6 +235,12 @@ static void app_clear_debugger_input(void)
 
 static b32 app_save_state(void)
 {
+	if (!debugger_has_cartridge(app.debugger))
+	{
+		LOG_WARN("cannot save emulator state without a loaded cartridge");
+		return false;
+	}
+
 	b32 success = false;
 	ARENA_SCOPE(&app.frame_arena)
 	{
@@ -250,6 +258,12 @@ static b32 app_save_state(void)
 	return success;
 }
 
+static void app_discard_audio(void)
+{
+	app.audio_sample_phase = 0;
+	audio_stream_discard(app.audio);
+}
+
 static b32 app_restore_state(void)
 {
 	b32 success = false;
@@ -261,8 +275,7 @@ static b32 app_restore_state(void)
 		}
 	}
 
-	// Todo, why are we calling this here
-	if (success) audio_stream_discard(app.audio);
+	if (success) app_discard_audio();
 
 	if (success) LOG_INFO("restored emulator state from '%s'", debugger_state_path);
 	else LOG_WARN("failed to restore emulator state from '%s'", debugger_state_path);
@@ -280,8 +293,8 @@ static b32 app_open_rom_path(String path)
 			LOG_INFO("open file: %s", path.text);
 			success = debugger_open_rom(app.debugger, byte_span((void *)rom.data, rom.size));
 			if (success) {
-				audio_stream_discard(app.audio);
-				app.last_rom_path = push_string_copy(&app.arena, path);
+				app_discard_audio();
+				if (!string_match(app.last_rom_path, path)) app.last_rom_path = push_string_copy(&app.arena, path);
 			}
 		} else {
 			LOG_WARN("failed to read ROM '%s'", path.text);
@@ -468,7 +481,7 @@ static b32 app_handle_input(AppInput input)
 		case APP_ACTION_OPEN_ROM: app_open_rom(); break;
 		case APP_ACTION_RESET:
 		{
-			if (debugger_reset(app.debugger)) audio_stream_discard(app.audio);
+			if (app.last_rom_path.size) app_open_rom_path(app.last_rom_path);
 			handled = true;
 		} break;
 		case APP_ACTION_SAVE_STATE: app_save_state(); break;
@@ -598,12 +611,12 @@ static void app_run_with_audio(void)
 	u32 capacity = audio_stream_capacity_frames(app.audio);
 
 	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * capacity);
-	u64 nsamples = debugger_run_samples(app.debugger, minimum, samples, capacity);
+	u64 nsamples = debugger_run_samples(app.debugger, app.audio_sample_rate, &app.audio_sample_phase, minimum, samples, capacity);
 
 	if (debugger_breakpoint_hit(app.debugger))
 	{
 		app.emulator_running = false;
-		audio_stream_discard(app.audio);
+		app_discard_audio();
 		return;
 	}
 
@@ -1201,8 +1214,8 @@ static void app_draw(void)
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
 	app_handle_window_commands();
 
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) if(debugger_undo_snapshot(app.debugger)) audio_stream_discard(app.audio);
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) if(debugger_redo_snapshot(app.debugger)) audio_stream_discard(app.audio);
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) if(debugger_undo_snapshot(app.debugger)) app_discard_audio();
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) if(debugger_redo_snapshot(app.debugger)) app_discard_audio();
 
 	GFX_Texture *frame_texture = app_acquire_pass_output(app.os_window->size, GRAPHICS_SAMPLER_POINT, "application frame");
 
@@ -1316,6 +1329,7 @@ static void app_init(void)
 		.channels = 1,
 		.frame_capacity = audio_capacity,
 	});
+	app.audio_sample_rate = audio_info.sample_rate;
 	app.audio_backend_capacity = audio_info.buffer_frame_count;
 	app.audio_min_queued_frames = MAX_VALUE_U32;
 	app.audio_stats_begin = seconds_now();
@@ -1345,7 +1359,7 @@ static void app_init(void)
 	app.ui = ui_create(&app.arena, app.os_window, app.text, app.draw, theme);
 	app.panels = panels_create(&app.arena);
 	app.crt_enabled = true;
-	app.debugger = debugger_create(&app.arena, audio_info.sample_rate);
+	app.debugger = debugger_create(&app.arena);
 	// CPU-uploaded source textures persist; render pass outputs are transient.
 	app.video_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
 		.usage = GRAPHICS_TEXTURE_USAGE_PER_FRAME,
@@ -1367,7 +1381,7 @@ static void app_init(void)
 	if (debugger_has_cartridge(app.debugger)) {
 		app_restore_state();
 	}
-	app_publish();
+	if (debugger_has_cartridge(app.debugger)) app_publish();
 	app.frame_begin = seconds_now();
 }
 

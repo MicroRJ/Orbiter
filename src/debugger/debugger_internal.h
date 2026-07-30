@@ -27,7 +27,6 @@ typedef struct
 	u8                 values[32];
 	NES_InputState    input_state;
 	u32          cpu_stall_cycles;
-	u64        audio_sample_phase;
 	u64           scheduler_clock;
 	NES_CPUState              cpu;
 	NES_PPUState              ppu;

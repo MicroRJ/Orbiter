@@ -369,7 +369,7 @@ static void apu_test_pulse_output_and_sweep(void)
 int main(void)
 {
 	Arena arena = arena_create(0, "APU test");
-	apu_test_core = nes_emulator_create(&arena, (NES_EmulatorDesc) {});
+	apu_test_core = nes_emulator_create(&arena);
 	apu_test_reset_and_registers();
 	apu_test_status_register();
 	apu_test_triangle_registers();

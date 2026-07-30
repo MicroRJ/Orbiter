@@ -189,7 +189,6 @@ typedef struct NES_State
 	u8             values[32];
 	NES_InputState input_state;
 	u32            cpu_stall_cycles;
-	u64            audio_sample_phase;
 	NES_CPUState   cpu;
 	NES_PPUState   ppu;
 	NES_APUState   apu;
@@ -269,25 +268,18 @@ typedef struct
 NES_CHRMap;
 
 
-typedef struct
-{
-	u32 audio_sample_rate;
-	b32 enable_instruction_trace;
-}
-NES_EmulatorDesc;
-NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc);
+NES_Emulator *nes_emulator_create(Arena *arena);
 
 b32 nes_emulator_has_cartridge(const NES_Emulator *core);
 u32 nes_emulator_prg_rom_size(const NES_Emulator *core);
 // Copies the descriptor's borrowed PRG and CHR data into emulator-owned storage.
 b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge);
-void nes_emulator_reset(NES_Emulator *core);
 u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
 u32 nes_emulator_step(NES_Emulator *core);
-void nes_emulator_run(NES_Emulator *core, u64 ppu_cycles);
-// Runs whole instructions until at least minimum_samples have been captured.
-// The returned count may be larger, so capacity must include overshoot space.
-u64 nes_emulator_run_samples(NES_Emulator *core, u64 minimum_samples, f32 *samples, u64 capacity);
+// Runs whole instructions until at least minimum_samples have been captured at sample_rate.
+// The caller owns sample_phase and must preserve it between calls. The returned count may be
+// larger than requested, so capacity must include overshoot space.
+u64 nes_emulator_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity);
 void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
 
 // These return owned copies. Callers never receive aliases to mutable device state.
@@ -300,7 +292,6 @@ u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
 u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
 NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
 void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value);
-NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index);
 void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map);
 ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
 b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);

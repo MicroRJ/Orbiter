@@ -69,7 +69,6 @@ typedef struct
 	u8 values[32];
 	NES_InputState input_state;
 	u32 cpu_stall_cycles;
-	u64 audio_sample_phase;
 	NES_CPUState cpu;
 	NES_PPUState ppu;
 	NES_APUState apu;
@@ -85,13 +84,18 @@ BenchmarkRuntimeSnapshot;
 static volatile u64 benchmark_snapshot_sink;
 static volatile u64 benchmark_boundary_sink;
 
+static void benchmark_run(NES_Emulator *core, u64 ppu_cycles)
+{
+	i64 remaining_cpu_cycles = ppu_cycles / 3;
+	while (remaining_cpu_cycles > 0) remaining_cpu_cycles -= nes_emulator_step(core);
+}
+
 static void benchmark_capture_runtime_snapshot(BenchmarkRuntimeSnapshot *snapshot, const NES_Emulator *core)
 {
 	const NES_State *state = &core->core;
 	memory_copy(snapshot->values, state->values, sizeof(snapshot->values));
 	snapshot->input_state = state->input_state;
 	snapshot->cpu_stall_cycles = state->cpu_stall_cycles;
-	snapshot->audio_sample_phase = state->audio_sample_phase;
 	snapshot->cpu = state->cpu;
 	snapshot->ppu = state->ppu;
 	snapshot->apu = state->apu;
@@ -340,7 +344,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	NES_Emulator *core = nes_emulator_create(&arena, (NES_EmulatorDesc) { .audio_sample_rate = 48000 });
+	NES_Emulator *core = nes_emulator_create(&arena);
 	if (!nes_emulator_load_cartridge(core, cartridge))
 	{
 		fprintf(stderr, "unsupported ROM '%s'\n", argv[1]);
@@ -348,7 +352,7 @@ int main(int argc, char **argv)
 	}
 
 	for (u32 frame = 0; frame < BENCHMARK_WARMUP_FRAMES; ++frame) {
-		nes_emulator_run(core, NES_PPU_FRAME_CYCLES);
+		benchmark_run(core, NES_PPU_FRAME_CYCLES);
 	}
 
 	f64 *samples = arena_push(&arena, sizeof(*samples) * iterations);
@@ -382,7 +386,7 @@ int main(int argc, char **argv)
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
 	{
 		Seconds begin = seconds_now();
-		nes_emulator_run(core, NES_PPU_FRAME_CYCLES);
+		benchmark_run(core, NES_PPU_FRAME_CYCLES);
 		samples[iteration] = seconds_now().seconds - begin.seconds;
 		frame_elapsed += samples[iteration];
 	}
@@ -400,7 +404,7 @@ int main(int argc, char **argv)
 	benchmark_print_bus("PPU bus", ppu_bus, iterations, frame_elapsed);
 
 	u64 trace_first = nes_emulator_scheduler_trace(core).index;
-	nes_emulator_run(core, NES_PPU_FRAME_CYCLES);
+	benchmark_run(core, NES_PPU_FRAME_CYCLES);
 	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(core);
 	Assert(nes_scheduler_trace_first_since(trace, trace_first) == trace_first);
 	BenchmarkTraceRange range = { .trace = trace, .first = trace_first };
@@ -408,7 +412,7 @@ int main(int argc, char **argv)
 	printf("%-24s %u events from one frame\n", "scheduler trace", trace_count);
 	benchmark_print_control_flow(range);
 
-	Debugger *analysis_debugger = debugger_create(&arena, 48000);
+	Debugger *analysis_debugger = debugger_create(&arena);
 	Assert(debugger_open_rom(analysis_debugger, byte_span((void *)file.text, file.size)));
 	u64 *execution_hash_keys = arena_push_zero(&arena, sizeof(*execution_hash_keys) * EXECUTION_GRAPH_HASH_CAPACITY);
 	BenchmarkHashStats cold_hash_stats = benchmark_measure_execution_hash(range, debugger_program(analysis_debugger), execution_hash_keys);

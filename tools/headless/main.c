@@ -69,7 +69,7 @@ static ByteSpan capture_state(Debugger *debugger, Arena *arena)
 	return byte_span(start, (u64)((u8 *)arena_top(arena) - start));
 }
 
-static b32 check_determinism(Debugger *debugger, Arena *arena, u32 frame)
+static b32 check_determinism(Debugger *debugger, Arena *arena, u32 *sample_phase, u32 frame)
 {
 	u32 requested_samples =
 		1 + ((frame * 1103515245u + 12345u) &
@@ -85,7 +85,9 @@ static b32 check_determinism(Debugger *debugger, Arena *arena, u32 frame)
 	{
 		debugger_capture_snapshot(debugger);
 		u64 snapshot_clock = debugger_scheduler_clock(debugger);
-		u64 expected_count = debugger_run_samples(debugger, requested_samples, expected_samples, SAMPLE_CAPACITY);
+		u32 initial_sample_phase = *sample_phase;
+		u64 expected_count = debugger_run_samples(debugger, HEADLESS_AUDIO_SAMPLE_RATE, sample_phase, requested_samples, expected_samples, SAMPLE_CAPACITY);
+		u32 expected_sample_phase = *sample_phase;
 		u64 expected_clock = debugger_scheduler_clock(debugger);
 		ByteSpan expected = capture_state(debugger, arena);
 		if (!expected.data) return false;
@@ -96,18 +98,21 @@ static b32 check_determinism(Debugger *debugger, Arena *arena, u32 frame)
 				frame, snapshot_clock, debugger_scheduler_clock(debugger));
 			return false;
 		}
+		*sample_phase = initial_sample_phase;
 
 		// Undo consumes the execution-origin snapshot. Capture the restored
 		// state again before replaying, just as the application does before
 		// every run.
 		debugger_capture_snapshot(debugger);
 		u64 replayed_count = debugger_run_samples(
-			debugger, requested_samples, replayed_samples, SAMPLE_CAPACITY);
+			debugger, HEADLESS_AUDIO_SAMPLE_RATE, sample_phase, requested_samples, replayed_samples, SAMPLE_CAPACITY);
+		u32 replayed_sample_phase = *sample_phase;
 		u64 replayed_clock = debugger_scheduler_clock(debugger);
 		ByteSpan replayed = capture_state(debugger, arena);
 		if (!replayed.data) return false;
 
 		if (expected_count != replayed_count ||
+			expected_sample_phase != replayed_sample_phase ||
 			expected_clock != replayed_clock ||
 			expected.size != replayed.size ||
 			!memory_match(expected_samples, replayed_samples,
@@ -130,6 +135,7 @@ static b32 check_determinism(Debugger *debugger, Arena *arena, u32 frame)
 			LOG_ERROR("replayed snapshot undo mismatch at frame %u", frame);
 			return false;
 		}
+		*sample_phase = initial_sample_phase;
 		debugger_capture_snapshot(debugger);
 	}
 	return true;
@@ -165,8 +171,8 @@ int main(int argc, char **argv)
 
 	int exit_code = 1;
 	Arena arena = arena_create(0, "headless debugger arena");
-	Debugger *debugger = debugger_create(
-		&arena, HEADLESS_AUDIO_SAMPLE_RATE);
+	Debugger *debugger = debugger_create(&arena);
+	u32 sample_phase = 0;
 	String rom = headless_read_file(&arena, argv[1]);
 	if (!rom.text || !rom.size)
 	{
@@ -195,9 +201,12 @@ int main(int argc, char **argv)
 		debugger_set_program_breakpoint(debugger, breakpoint, true);
 		f32 samples[128 + HEADLESS_SAMPLE_OVERSHOOT];
 		debugger_capture_snapshot(debugger);
-		debugger_run_samples(
-			debugger, 128, samples, ArrayCount(samples));
-		if (!debugger_breakpoint_hit(debugger) || debugger_scheduler_clock(debugger) != breakpoint_clock ||
+		u32 breakpoint_sample_phase = HEADLESS_AUDIO_SAMPLE_RATE;
+		sample_phase = breakpoint_sample_phase;
+		u64 breakpoint_samples = debugger_run_samples(
+			debugger, HEADLESS_AUDIO_SAMPLE_RATE, &sample_phase, 128, samples, ArrayCount(samples));
+		if (breakpoint_samples || sample_phase != breakpoint_sample_phase ||
+			!debugger_breakpoint_hit(debugger) || debugger_scheduler_clock(debugger) != breakpoint_clock ||
 			debugger_capture_state(debugger).cpu.PC != breakpoint_pc)
 		{
 			LOG_ERROR("snapshot breakpoint replay failed at CPU $%04X", breakpoint_pc);
@@ -213,15 +222,15 @@ int main(int argc, char **argv)
 			HEADLESS_FRAME_SAMPLES + HEADLESS_SAMPLE_OVERSHOOT];
 		if (check_replay)
 		{
-			if (!check_determinism(debugger, &arena, frame)) goto done;
+			if (!check_determinism(debugger, &arena, &sample_phase, frame)) goto done;
 			debugger_capture_snapshot(debugger);
-			debugger_run_samples(debugger, HEADLESS_FRAME_SAMPLES,
+			debugger_run_samples(debugger, HEADLESS_AUDIO_SAMPLE_RATE, &sample_phase, HEADLESS_FRAME_SAMPLES,
 				samples, ArrayCount(samples));
 			continue;
 		}
 		debugger_update_cpu_mapping(debugger);
 		debugger_capture_snapshot(debugger);
-		debugger_run_samples(debugger, HEADLESS_FRAME_SAMPLES,
+		debugger_run_samples(debugger, HEADLESS_AUDIO_SAMPLE_RATE, &sample_phase, HEADLESS_FRAME_SAMPLES,
 			samples, ArrayCount(samples));
 		const Program *program = debugger_program(debugger);
 		u32 refinement_budget = program->refinement_pass_count < 2 ? 2048 : 128;

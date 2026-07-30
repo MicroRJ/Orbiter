@@ -151,7 +151,7 @@ static void test_executed_program_marking(void)
 	rom[16 + 0x3FFE] = 0x00;
 	rom[16 + 0x3FFF] = 0x80;
 
-	Debugger *debugger = debugger_create(&arena, 48000);
+	Debugger *debugger = debugger_create(&arena);
 	Assert(debugger_open_rom(debugger, byte_span(rom, rom_size)));
 	NES_MapAddr first = debugger_cpu_map(debugger, 0x8000);
 	const Program *observed = debugger_program(debugger);

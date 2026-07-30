@@ -22,22 +22,20 @@ static inline u32 nes_scheduler_cpu_step(NES_Emulator *core)
 	// Note, this is introspection stuff:
 	// Has to be done here because the debugger doesn't have fine grain control over the CPU's execution
 	//
-	if (core->instruction_trace_enabled) {
-		NES_BusAccess access = nes_cpu_bus_peek_mapped(core, cpu->PC);
-		u64 trace_index = core->scheduler_trace_index;
-		core->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_SchedulerBoundary) {
-			.scheduler_clock = core->scheduler_clock,
-			.cpu_address = cpu->PC,
-			.cpu_mapped = access.mapped,
-			.cpu_byte = access.value,
-		});
-		core->scheduler_trace_index = trace_index + 1;
-	}
+	NES_BusAccess access = nes_cpu_bus_peek_mapped(core, cpu->PC);
+	u64 trace_index = core->scheduler_trace_index;
+	core->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_SchedulerBoundary) {
+		.scheduler_clock = core->scheduler_clock,
+		.cpu_address = cpu->PC,
+		.cpu_mapped = access.mapped,
+		.cpu_byte = access.value,
+	});
+	core->scheduler_trace_index = trace_index + 1;
 	return nes_cpu_step(core);
 }
 
 // Todo, we may want to average the samples ...
-static u32 nes_scheduler_step_internal(NES_Emulator *core, f32 *samples, u64 capacity, u64 *sample_count)
+static u32 nes_scheduler_step_internal(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, f32 *samples, u64 capacity, u64 *sample_count)
 {
 	u32 cpu_cycles = nes_scheduler_cpu_step(core);
 	for (u32 cycle = 0; cycle < cpu_cycles; ++cycle)
@@ -47,15 +45,12 @@ static u32 nes_scheduler_step_internal(NES_Emulator *core, f32 *samples, u64 cap
 			if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(core);
 		}
 		nes_apu_clock_cpu_cycle(&core->core.apu);
-		core->core.audio_sample_phase += core->audio_sample_rate;
-		while (core->core.audio_sample_phase >= NES_CPU_HZ)
+		*sample_phase += sample_rate;
+		while (*sample_phase >= NES_CPU_HZ)
 		{
-			core->core.audio_sample_phase -= NES_CPU_HZ;
-			if (samples)
-			{
-				Assert(*sample_count < capacity);
-				samples[(*sample_count)++] = nes_apu_dac(&core->core.apu);
-			}
+			*sample_phase -= NES_CPU_HZ;
+			Assert(*sample_count < capacity);
+			samples[(*sample_count)++] = nes_apu_dac(&core->core.apu);
 		}
 	}
 	prof_add_metric(PROF_METRIC_CPU_CYCLES, cpu_cycles);
@@ -65,18 +60,25 @@ static u32 nes_scheduler_step_internal(NES_Emulator *core, f32 *samples, u64 cap
 
 u32 nes_scheduler_step(NES_Emulator *core)
 {
-	return nes_scheduler_step_internal(core, 0, 0, 0);
+	u32 sample_phase = 0;
+	return nes_scheduler_step_internal(core, 0, &sample_phase, 0, 0, 0);
 }
 
-u64 nes_scheduler_run_samples(NES_Emulator *core, u64 minimum_samples, f32 *samples, u64 capacity)
+u64 nes_scheduler_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity)
 {
+	Assert(sample_rate);
+	Assert(sample_rate <= NES_CPU_HZ);
+	Assert(sample_phase);
+	Assert(*sample_phase < NES_CPU_HZ);
 	Assert(samples || capacity == 0);
 	Assert(minimum_samples <= capacity);
+	u32 phase = *sample_phase;
 	u64 sample_count = 0;
 	while (sample_count < minimum_samples)
 	{
-		nes_scheduler_step_internal(core, samples, capacity, &sample_count);
+		nes_scheduler_step_internal(core, sample_rate, &phase, samples, capacity, &sample_count);
 	}
+	*sample_phase = phase;
 	return sample_count;
 }
 

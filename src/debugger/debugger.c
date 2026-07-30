@@ -16,7 +16,6 @@ void debugger_capture_snapshot(Debugger *debugger)
 	memory_copy(snapshot->values, state->values, sizeof(snapshot->values));
 	snapshot->input_state = state->input_state;
 	snapshot->cpu_stall_cycles = state->cpu_stall_cycles;
-	snapshot->audio_sample_phase = state->audio_sample_phase;
 	snapshot->scheduler_clock = emulator->scheduler_clock;
 	snapshot->cpu = state->cpu;
 	snapshot->ppu = state->ppu;
@@ -36,7 +35,6 @@ static void debugger_restore(Debugger *debugger, const DBG_LiveSnapshot *snapsho
 	memory_copy(state->values, snapshot->values, sizeof(snapshot->values));
 	state->input_state = snapshot->input_state;
 	state->cpu_stall_cycles = snapshot->cpu_stall_cycles;
-	state->audio_sample_phase = snapshot->audio_sample_phase;
 	emulator->scheduler_clock = snapshot->scheduler_clock;
 	state->cpu = snapshot->cpu;
 	state->ppu = snapshot->ppu;
@@ -80,15 +78,12 @@ static void debugger_clear_snapshots(Debugger *debugger)
 	debugger->snapshots_cursor = 0;
 }
 
-Debugger *debugger_create(Arena *arena, u32 audio_sample_rate)
+Debugger *debugger_create(Arena *arena)
 {
 	Debugger *debugger = arena_push_zero(arena, sizeof(*debugger));
 	debugger->arena = arena;
 	debugger->program_work_arena = arena_create(0, "debugger program work arena");
-	debugger->emulator = nes_emulator_create(arena, (NES_EmulatorDesc) {
-		.audio_sample_rate = audio_sample_rate,
-		.enable_instruction_trace = true,
-	});
+	debugger->emulator = nes_emulator_create(arena);
 	return debugger;
 }
 
@@ -234,18 +229,6 @@ void debugger_update_cpu_mapping(Debugger *debugger)
 	debugger->cpu_mapping.initialized = true;
 }
 
-b32 debugger_reset(Debugger *debugger)
-{
-	Assert(debugger_has_cartridge(debugger));
-	nes_emulator_reset(debugger->emulator);
-	debugger_discard_scheduler_trace(debugger);
-	execution_graph_reset(&debugger->execution_graph);
-	program_reset(debugger);
-	debugger_clear_snapshots(debugger);
-	debugger_capture_snapshot(debugger);
-	return true;
-}
-
 b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 {
 	NES_CartridgeDesc cartridge = {};
@@ -323,25 +306,31 @@ u32 debugger_step(Debugger *debugger)
 	return cycles;
 }
 
-u64 debugger_run_samples(Debugger *debugger, u64 minimum_samples, f32 *samples, u64 capacity)
+u64 debugger_run_samples(Debugger *debugger, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity)
 {
 	Assert(debugger_has_cartridge(debugger));
+	Assert(sample_phase);
 	debugger_ensure_has_can_restore_in_case_of_breakpoint(debugger);
 	if (!debugger->program_breakpoint_count)
 	{
-		u64 count = nes_emulator_run_samples(debugger->emulator, minimum_samples, samples, capacity);
+		u64 count = nes_emulator_run_samples(debugger->emulator, sample_rate, sample_phase, minimum_samples, samples, capacity);
 		debugger_process_scheduler_trace(debugger);
 		return count;
 	}
 
 	// Note, we have to cap this before we might request so many samples that discard records ...
+	u32 initial_sample_phase = *sample_phase;
 	u64 total = 0;
 	while (total < minimum_samples)
 	{
 		u64 request = Min(minimum_samples - total, 128);
-		u64 count = nes_emulator_run_samples(debugger->emulator, request, samples + total, capacity - total);
+		u64 count = nes_emulator_run_samples(debugger->emulator, sample_rate, sample_phase, request, samples + total, capacity - total);
 		debugger_process_scheduler_trace(debugger);
-		if (debugger->breakpoint_hit) return 0;
+		if (debugger->breakpoint_hit)
+		{
+			*sample_phase = initial_sample_phase;
+			return 0;
+		}
 		total += count;
 	}
 	return total;
