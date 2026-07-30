@@ -71,98 +71,102 @@ void ui_box_paint(UI_Box *box)
 	if (paint->emission > 0.f) ui_pop_emission(ui);
 }
 
-static UI_Box *ui_box__make_text(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc *desc, UI_TextStyle style, String sizing_string, String string)
+static UI_Box *ui_box__make_text(UI_Context *ui, UI_Key key, UI_BoxDesc *desc, UI_TextStyle style, String sizing_string, String string)
 {
+	UI_BoxBuilder *builder = ui->builder;
 	Assert(builder);
-	Assert(builder->ui);
-	Assert(builder->ui->text);
+	Assert(ui->text);
 	Assert(style.font);
 	Assert(style.size > 0);
 	UI_TextBoxData *text = arena_push_zero(builder->arena, sizeof(*text));
 	text->string = string;
 	text->sizing_string = sizing_string;
 	text->style = style;
-	UI_Box *box = desc ? ui_box_make_desc(builder, key, string, *desc) : ui_box_make(builder, key, string);
+	UI_Box *box = desc ? ui_box_make_desc(ui, key, string, *desc) : ui_box_make(ui, key, string);
 	box->ops = &ui_box__text_ops;
 	box->content = text;
 	return box;
 }
 
-UI_Box *ui_text_box(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, const char *format, ...)
+UI_Box *ui_text_box(UI_Context *ui, UI_Key key, UI_TextStyle style, const char *format, ...)
 {
-	Assert(builder);
+	Assert(ui);
+	Assert(ui->builder);
 	va_list arguments;
 	va_start(arguments, format);
-	String string = push_formatted_v(builder->arena, format, arguments);
+	String string = push_formatted_v(ui->builder->arena, format, arguments);
 	va_end(arguments);
-	return ui_box__make_text(builder, key, 0, style, (String) {}, string);
+	return ui_box__make_text(ui, key, 0, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, String sizing_string, const char *format, ...)
+UI_Box *ui_text_box_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, String sizing_string, const char *format, ...)
 {
-	Assert(builder);
+	Assert(ui);
+	Assert(ui->builder);
 	va_list arguments;
 	va_start(arguments, format);
-	String string = push_formatted_v(builder->arena, format, arguments);
+	String string = push_formatted_v(ui->builder->arena, format, arguments);
 	va_end(arguments);
-	return ui_box__make_text(builder, key, 0, style, sizing_string, string);
+	return ui_box__make_text(ui, key, 0, style, sizing_string, string);
 }
 
-UI_Box *ui_text_box_string(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, String string)
+UI_Box *ui_text_box_string(UI_Context *ui, UI_Key key, UI_TextStyle style, String string)
 {
-	return ui_box__make_text(builder, key, 0, style, (String) {}, string);
+	return ui_box__make_text(ui, key, 0, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized_string(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, String sizing_string, String string)
+UI_Box *ui_text_box_sized_string(UI_Context *ui, UI_Key key, UI_TextStyle style, String sizing_string, String string)
 {
-	return ui_box__make_text(builder, key, 0, style, sizing_string, string);
+	return ui_box__make_text(ui, key, 0, style, sizing_string, string);
 }
 
-UI_Box *ui_text_box_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, const char *format, ...)
+UI_Box *ui_text_box_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, const char *format, ...)
 {
-	Assert(builder);
+	Assert(ui);
+	Assert(ui->builder);
 	va_list arguments;
 	va_start(arguments, format);
-	String string = push_formatted_v(builder->arena, format, arguments);
+	String string = push_formatted_v(ui->builder->arena, format, arguments);
 	va_end(arguments);
-	return ui_box__make_text(builder, key, &desc, style, (String) {}, string);
+	return ui_box__make_text(ui, key, &desc, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, const char *format, ...)
+UI_Box *ui_text_box_sized_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, const char *format, ...)
 {
-	Assert(builder);
+	Assert(ui);
+	Assert(ui->builder);
 	va_list arguments;
 	va_start(arguments, format);
-	String string = push_formatted_v(builder->arena, format, arguments);
+	String string = push_formatted_v(ui->builder->arena, format, arguments);
 	va_end(arguments);
-	return ui_box__make_text(builder, key, &desc, style, sizing_string, string);
+	return ui_box__make_text(ui, key, &desc, style, sizing_string, string);
 }
 
-UI_Box *ui_text_box_string_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String string)
+UI_Box *ui_text_box_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String string)
 {
-	return ui_box__make_text(builder, key, &desc, style, (String) {}, string);
+	return ui_box__make_text(ui, key, &desc, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, String string)
+UI_Box *ui_text_box_sized_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, String string)
 {
-	return ui_box__make_text(builder, key, &desc, style, sizing_string, string);
+	return ui_box__make_text(ui, key, &desc, style, sizing_string, string);
 }
 
-UI_Response ui_button(UI_BoxBuilder *builder, UI_Key key, String text)
+UI_Response ui_button(UI_Context *ui, UI_Key key, String text)
 {
-	Assert(builder);
-	Assert(builder->ui);
+	Assert(ui);
+	Assert(ui->builder);
 
-	UI_TextStyle style = builder->ui->theme.code;
+	UI_TextStyle style = ui->theme.code;
 	style.align = v2(0.5f, 0.5f);
 
 	UI_BoxDesc desc = ui_box_desc();
 	desc.horz_padd[0] = desc.horz_padd[1] = 10.f;
 	desc.vert_padd[0] = desc.vert_padd[1] = 6.f;
-	UI_Box *box = ui_text_box_string_desc(builder, key, desc, style, text);
+	UI_Box *box = ui_text_box_string_desc(ui, key, desc, style, text);
 	UI_Response response = ui_signal_from_box(box);
 
-	UI_Palette *palette = &builder->ui->theme.palette;
+	UI_Palette *palette = &ui->theme.palette;
 	box->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND | UI_BOX_DRAW_BORDER,
 		.background = palette->raised,
@@ -234,14 +238,15 @@ static const UI_BoxOps ui_scroll__track_ops = {
 	.prepare_layout = ui_scroll__prepare_track,
 };
 
-UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, UI_Key key, AXIS axis)
+UI_Scroll *ui_scroll_begin(UI_Context *ui, UI_Key key, AXIS axis)
 {
+	Assert(ui);
+	UI_BoxBuilder *builder = ui->builder;
 	Assert(builder);
-	Assert(builder->ui);
 	Assert(axis == AXIS_X || axis == AXIS_Y);
 
 	UI_Scroll *scroll = arena_push_zero(builder->arena, sizeof(*scroll));
-	scroll->builder = builder;
+	scroll->ui = ui;
 	scroll->axis = axis;
 	scroll->parent_count = builder->parent_count;
 	scroll->desc_count = builder->desc_count;
@@ -251,9 +256,9 @@ UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, UI_Key key, AXIS axis)
 	root_desc.gap = 0.f;
 	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_VISIBLE;
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_VISIBLE;
-	scroll->root = ui_box_begin_desc(builder, key, LIT("scroll"), root_desc);
+	scroll->root = ui_box_begin_desc(ui, key, LIT("scroll"), root_desc);
 
-	ui_push(builder);
+	ui_push(ui);
 	builder->desc = ui_box_desc();
 	return scroll;
 }
@@ -265,7 +270,7 @@ void ui_scroll_reset(UI_Scroll *scroll)
 	scroll->has_previous = false;
 	scroll->offset = 0.f;
 	scroll->target = 0.f;
-	scroll->builder->ui->active = UI_ID_NONE;
+	scroll->ui->active = UI_ID_NONE;
 	if (scroll->viewport)
 	{
 		UI_BoxState *viewport_state = scroll->viewport->state;
@@ -278,8 +283,8 @@ void ui_scroll_reset(UI_Scroll *scroll)
 void ui_scroll_end(UI_Scroll *scroll)
 {
 	Assert(scroll);
-	UI_BoxBuilder *builder = scroll->builder;
-	UI_Context *ui = builder->ui;
+	UI_Context *ui = scroll->ui;
+	UI_BoxBuilder *builder = ui->builder;
 	AXIS axis = scroll->axis;
 	AXIS perp_axis = !axis;
 	Assert(builder->parent == scroll->root);
@@ -298,18 +303,18 @@ void ui_scroll_end(UI_Scroll *scroll)
 	track.size[axis] = ui_box_fill(1.f);
 	track.size[perp_axis] = ui_box_pixels(12.f);
 	track.padd[perp_axis][0] = track.padd[perp_axis][1] = 3.f;
-	scroll->track = ui_box_begin_desc(builder, UI_SCROLL_TRACK_KEY, LIT(""), track);
+	scroll->track = ui_box_begin_desc(ui, UI_SCROLL_TRACK_KEY, LIT(""), track);
 
 	UI_BoxDesc piece = ui_box_desc();
 	piece.size[AXIS_X] = ui_box_fill(1.f);
 	piece.size[AXIS_Y] = ui_box_fill(1.f);
 	piece.size[axis] = ui_box_fill(0.f);
-	scroll->space_before = ui_box_make_desc(builder, UI_SCROLL_SPACE_BEFORE_KEY, LIT(""), piece);
+	scroll->space_before = ui_box_make_desc(ui, UI_SCROLL_SPACE_BEFORE_KEY, LIT(""), piece);
 	piece.size[axis] = ui_box_fill(1.f);
-	scroll->thumb = ui_box_make_desc(builder, UI_SCROLL_THUMB_KEY, LIT(""), piece);
+	scroll->thumb = ui_box_make_desc(ui, UI_SCROLL_THUMB_KEY, LIT(""), piece);
 	piece.size[axis] = ui_box_fill(0.f);
-	scroll->space_after = ui_box_make_desc(builder, UI_SCROLL_SPACE_AFTER_KEY, LIT(""), piece);
-	ui_box_end(builder);
+	scroll->space_after = ui_box_make_desc(ui, UI_SCROLL_SPACE_AFTER_KEY, LIT(""), piece);
+	ui_box_end(ui);
 
 	scroll->track->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND,
@@ -391,8 +396,8 @@ void ui_scroll_end(UI_Scroll *scroll)
 	scroll->track->content = scroll;
 	scroll->track->ops = &ui_scroll__track_ops;
 
-	ui_box_end(builder);
-	ui_pop(builder);
+	ui_box_end(ui);
+	ui_pop(ui);
 }
 
 UI_BoxTableColumn ui_box_table_content(void)
@@ -504,8 +509,10 @@ static const UI_BoxOps ui_box__table_ops = {
 	.prepare_layout = ui_box__prepare_table_layout,
 };
 
-UI_BoxTable ui_box_table_begin(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxTableDesc desc)
+UI_BoxTable ui_box_table_begin(UI_Context *ui, UI_Key key, String name, UI_BoxTableDesc desc)
 {
+	Assert(ui);
+	UI_BoxBuilder *builder = ui->builder;
 	Assert(builder);
 	Assert(desc.columns);
 	Assert(desc.column_count);
@@ -521,11 +528,11 @@ UI_BoxTable ui_box_table_begin(UI_BoxBuilder *builder, UI_Key key, String name, 
 	UI_BoxDesc box_desc = builder->desc;
 	box_desc.axis = AXIS_Y;
 	box_desc.gap = desc.row_gap;
-	UI_Box *box = ui_box_begin_desc(builder, key, name, box_desc);
+	UI_Box *box = ui_box_begin_desc(ui, key, name, box_desc);
 	box->content = data;
 	box->ops = &ui_box__table_ops;
 	return (UI_BoxTable) {
-		.builder = builder,
+		.ui = ui,
 		.box = box,
 		.desc = desc,
 	};
@@ -534,14 +541,14 @@ UI_BoxTable ui_box_table_begin(UI_BoxBuilder *builder, UI_Key key, String name, 
 UI_Box *ui_box_table_row_begin(UI_BoxTable *table, UI_Key key)
 {
 	Assert(table);
-	Assert(table->builder);
+	Assert(table->ui);
 	Assert(!table->row);
 	UI_BoxDesc desc = ui_box_desc();
 	desc.axis = AXIS_X;
 	desc.size[AXIS_X] = ui_box_fill(1.f);
 	desc.size[AXIS_Y] = ui_box_pixels(table->desc.row_height);
 	desc.gap = table->desc.column_gap;
-	table->row = ui_box_begin_desc(table->builder, key, LIT("table row"), desc);
+	table->row = ui_box_begin_desc(table->ui, key, LIT("table row"), desc);
 	table->column_index = 0;
 	return table->row;
 }
@@ -552,7 +559,7 @@ void ui_box_table_row_end(UI_BoxTable *table)
 	Assert(table->row);
 	Assert(!table->cell);
 	Assert(table->column_index == table->desc.column_count);
-	ui_box_end(table->builder);
+	ui_box_end(table->ui);
 	table->row = 0;
 }
 
@@ -567,7 +574,7 @@ UI_Box *ui_box_table_cell_begin(UI_BoxTable *table)
 	desc.horz_padd[0] = desc.horz_padd[1] = table->desc.cell_padd.x;
 	desc.vert_padd[0] = desc.vert_padd[1] = table->desc.cell_padd.y;
 	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	table->cell = ui_box_begin_desc(table->builder, table->column_index + 1, LIT("table cell"), desc);
+	table->cell = ui_box_begin_desc(table->ui, table->column_index + 1, LIT("table cell"), desc);
 	table->column_index++;
 	return table->cell;
 }
@@ -576,7 +583,7 @@ void ui_box_table_cell_end(UI_BoxTable *table)
 {
 	Assert(table);
 	Assert(table->cell);
-	ui_box_end(table->builder);
+	ui_box_end(table->ui);
 	table->cell = 0;
 }
 
@@ -586,6 +593,6 @@ UI_Box *ui_box_table_end(UI_BoxTable *table)
 	Assert(table->box);
 	Assert(!table->row);
 	Assert(!table->cell);
-	ui_box_end(table->builder);
+	ui_box_end(table->ui);
 	return table->box;
 }

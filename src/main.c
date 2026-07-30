@@ -875,12 +875,12 @@ typedef struct
 }
 AppShell;
 
-static UI_Box *app_status_text(UI_BoxBuilder *builder, u64 key, String text, UI_TextStyle style, f32 emission)
+static UI_Box *app_status_text(UI_Context *ui, u64 key, String text, UI_TextStyle style, f32 emission)
 {
-	ui_push(builder);
-	ui_emission(builder, emission);
-	UI_Box *box = ui_text_box_string(builder, key, style, text);
-	ui_pop(builder);
+	ui_push(ui);
+	ui_emission(ui, emission);
+	UI_Box *box = ui_text_box_string(ui, key, style, text);
+	ui_pop(ui);
 	return box;
 }
 
@@ -895,125 +895,124 @@ static void app_draw_box_tree(UI_Box *box)
 static AppShell app_build_shell(rect_f32 window_rect)
 {
 	AppShell shell = {};
-	UI_BoxBuilder b;
 	UI_BoxDesc root_desc = ui_box_desc();
 	root_desc.axis = AXIS_Y;
 	root_desc.size[AXIS_X] = ui_box_fill(1.f);
 	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
-	shell.root = ui_box_builder_begin(&b, &app.ui->frame_arena, app.ui, UI_KEY("application shell"), LIT("application shell"), root_desc);
+	shell.root = ui_build_begin(app.ui, UI_KEY("application shell"), LIT("application shell"), root_desc);
 
 	f32 status_height = app.ui->theme.code.size + 8.f;
 	UI_TextStyle style = app.ui->theme.code;
 	style.align.y = 0.5f;
 
-	ui_push(&b);
-	ui_axis(&b, AXIS_X);
-	ui_size(&b, AXIS_X, ui_box_fill(1.f));
-	ui_size(&b, AXIS_Y, ui_box_pixels(status_height));
-	ui_padd(&b, AXIS_X, 6.f, 6.f);
-	shell.top = ui_box_begin(&b, 1, LIT("top status"));
-	ui_pop(&b);
+	ui_push(app.ui);
+	ui_axis(app.ui, AXIS_X);
+	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_Y, ui_box_pixels(status_height));
+	ui_padd(app.ui, AXIS_X, 6.f, 6.f);
+	shell.top = ui_box_begin(app.ui, 1, LIT("top status"));
+	ui_pop(app.ui);
 
-	ui_push(&b);
-	ui_size(&b, AXIS_Y, ui_box_fill(1.f));
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_Y, ui_box_fill(1.f));
 	style.color = app.ui->theme.palette.cyan;
-	app_status_text(&b, 1, LIT("ORBITER"), style, app.ui->theme.palette.emission_medium);
+	app_status_text(app.ui, 1, LIT("ORBITER"), style, app.ui->theme.palette.emission_medium);
 
-	ui_push(&b);
-	ui_size(&b, AXIS_X, ui_box_flex(0.f, 1.f));
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 1.f));
 	style.color = app.ui->theme.text_subtle;
-	app_status_text(&b, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
-	ui_pop(&b);
+	app_status_text(app.ui, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
+	ui_pop(app.ui);
 
 	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1)
 	{
 		style.color = app.ui->theme.palette.error;
 		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
-		app_status_text(&b, 3, LIT("<< REWINDING"), style, app.ui->theme.palette.emission_high * pulse);
+		app_status_text(app.ui, 3, LIT("<< REWINDING"), style, app.ui->theme.palette.emission_high * pulse);
 	}
 	else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1)
 	{
 		style.color = app.ui->theme.palette.amber;
 		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
-		app_status_text(&b, 3, LIT("REPLAYING >>"), style, app.ui->theme.palette.emission_high * pulse);
+		app_status_text(app.ui, 3, LIT("REPLAYING >>"), style, app.ui->theme.palette.emission_high * pulse);
 	}
 	else if (app.mode == APP_MODE_REWINDING)
 	{
 		style.color = app.ui->theme.palette.error;
-		app_status_text(&b, 3, LIT("<< REWINDING >>"), style, app.ui->theme.palette.emission_high);
+		app_status_text(app.ui, 3, LIT("<< REWINDING >>"), style, app.ui->theme.palette.emission_high);
 	}
 	else if (app.mode == APP_MODE_EMULATOR)
 	{
 		if (app.emulator_running)
 		{
 			style.color = app.ui->theme.palette.amber;
-			app_status_text(&b, 3, LIT("RUNNING"), style, app.ui->theme.palette.emission_medium);
+			app_status_text(app.ui, 3, LIT("RUNNING"), style, app.ui->theme.palette.emission_medium);
 		}
 		else
 		{
 			f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f);
 			style.color = app.ui->theme.palette.error;
-			app_status_text(&b, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
+			app_status_text(app.ui, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
 		}
 	}
 
 	style.color = app.ui->theme.text_subtle;
-	if (app.app_gif.recording) app_status_text(&b, 4, LIT("   REC APP"), style, 0.f);
-	else if (app.ppu_gif.recording) app_status_text(&b, 4, LIT("   REC PPU"), style, 0.f);
-	if (app.apu_muted) app_status_text(&b, 5, LIT("   MUTED"), style, 0.f);
+	if (app.app_gif.recording) app_status_text(app.ui, 4, LIT("   REC APP"), style, 0.f);
+	else if (app.ppu_gif.recording) app_status_text(app.ui, 4, LIT("   REC PPU"), style, 0.f);
+	if (app.apu_muted) app_status_text(app.ui, 5, LIT("   MUTED"), style, 0.f);
 
-	ui_push(&b);
-	ui_size(&b, AXIS_X, ui_box_fill(1.f));
-	ui_box_make(&b, 6, LIT("top spacer"));
-	ui_pop(&b);
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
+	ui_box_make(app.ui, 6, LIT("top spacer"));
+	ui_pop(app.ui);
 
-	ui_push(&b);
-	ui_size(&b, AXIS_X, ui_box_flex(0.f, 1.f));
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 1.f));
 	style.align.x = 0.f;
-	ui_text_box_sized(&b, 7, style, LIT("FPS 999.9"), "FPS %02.2f", app.frames_per_second);
-	ui_pop(&b);
+	ui_text_box_sized(app.ui, 7, style, LIT("FPS 999.9"), "FPS %02.2f", app.frames_per_second);
+	ui_pop(app.ui);
 	style.align.x = 0.f;
-	ui_text_box_sized(&b, 8, style, LIT("FRAME 999999999"), " FRAME %llu", app.published.generation);
-	ui_pop(&b);
+	ui_text_box_sized(app.ui, 8, style, LIT("FRAME 999999999"), " FRAME %llu", app.published.generation);
+	ui_pop(app.ui);
 
-	ui_box_end(&b);
+	ui_box_end(app.ui);
 
-	ui_push(&b);
-	ui_size(&b, AXIS_X, ui_box_fill(1.f));
-	ui_size(&b, AXIS_Y, ui_box_fill(1.f));
-	shell.panel_host = ui_box_make(&b, 2, LIT("panel host"));
-	ui_pop(&b);
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_Y, ui_box_fill(1.f));
+	shell.panel_host = ui_box_make(app.ui, 2, LIT("panel host"));
+	ui_pop(app.ui);
 
-	ui_push(&b);
-	ui_axis(&b, AXIS_X);
-	ui_size(&b, AXIS_X, ui_box_fill(1.f));
-	ui_size(&b, AXIS_Y, ui_box_pixels(status_height));
-	ui_padd(&b, AXIS_X, 6.f, 6.f);
-	shell.bottom = ui_box_begin(&b, 3, LIT("bottom status"));
-	ui_pop(&b);
+	ui_push(app.ui);
+	ui_axis(app.ui, AXIS_X);
+	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_Y, ui_box_pixels(status_height));
+	ui_padd(app.ui, AXIS_X, 6.f, 6.f);
+	shell.bottom = ui_box_begin(app.ui, 3, LIT("bottom status"));
+	ui_pop(app.ui);
 
-	ui_push(&b);
-	ui_size(&b, AXIS_Y, ui_box_fill(1.f));
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_Y, ui_box_fill(1.f));
 	String rom_name = app_rom_name(app.last_rom_path);
 	String bottom_left = rom_name.size ? push_formatted(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
-	ui_push(&b);
-	ui_size(&b, AXIS_X, ui_box_flex(0.f, 1.f));
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 1.f));
 	style.align.x = 0.f;
-	app_status_text(&b, 1, bottom_left, style, 0.f);
-	ui_pop(&b);
-	ui_push(&b);
-	ui_size(&b, AXIS_X, ui_box_fill(1.f));
-	ui_box_make(&b, 2, LIT("bottom spacer"));
-	ui_pop(&b);
-	ui_push(&b);
-	ui_size(&b, AXIS_X, ui_box_flex(0.f, 3.f));
+	app_status_text(app.ui, 1, bottom_left, style, 0.f);
+	ui_pop(app.ui);
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
+	ui_box_make(app.ui, 2, LIT("bottom spacer"));
+	ui_pop(app.ui);
+	ui_push(app.ui);
+	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 3.f));
 	style.align.x = 1.f;
-	app_status_text(&b, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
-	ui_pop(&b);
-	ui_pop(&b);
-	ui_box_end(&b);
+	app_status_text(app.ui, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
+	ui_pop(app.ui);
+	ui_pop(app.ui);
+	ui_box_end(app.ui);
 
-	ui_box_builder_end(&b);
+	ui_build_end(app.ui);
 	ui_box_measure(shell.root, (UI_BoxConstraints) { .min = window_rect.size, .max = window_rect.size });
 	ui_box_layout(shell.root, window_rect);
 	return shell;

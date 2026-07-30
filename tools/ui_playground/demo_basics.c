@@ -15,8 +15,7 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	root_desc.vert_padd[0] = root_desc.vert_padd[1] = density.outer_padding;
 	root_desc.gap = density.gap;
 
-	UI_BoxBuilder builder;
-	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, UI_KEY("basics"), LIT("root"), root_desc);
+	UI_Box *root = ui_build_begin(ui, UI_KEY("basics"), LIT("root"), root_desc);
 
 	UI_BoxDesc header = playground_fill_desc();
 	header.axis = AXIS_X;
@@ -24,26 +23,26 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	header.horz_padd[0] = header.horz_padd[1] = 18.f;
 	header.vert_padd[0] = header.vert_padd[1] = 8.f;
 	header.gap = 8.f;
-	playground_begin_box(&builder, 1, LIT(""), header, slate, false);
+	playground_begin_box(ui, 1, LIT(""), header, slate, false);
 	UI_BoxDesc status_text = ui_box_desc();
 	status_text.perp_align = 0.5f;
 	UI_TextStyle vibrant = { .font = font, .size = 16, .color = color_srgba(0x18B8A4) };
 	UI_TextStyle subtle = { .font = font, .size = 16, .color = color_srgba(0x8EAAA5) };
 	UI_TextStyle running = { .font = font, .size = 16, .color = amber };
-	ui_text_box_string_desc(&builder, 1, status_text, vibrant, LIT("ORBITER"));
-	ui_text_box_string_desc(&builder, 2, status_text, subtle, LIT("|  UI BOX PLAYGROUND  |"));
-	ui_text_box_string_desc(&builder, 3, status_text, running, LIT("RUNNING"));
+	ui_text_box_string_desc(ui, 1, status_text, vibrant, LIT("ORBITER"));
+	ui_text_box_string_desc(ui, 2, status_text, subtle, LIT("|  UI BOX PLAYGROUND  |"));
+	ui_text_box_string_desc(ui, 3, status_text, running, LIT("RUNNING"));
 	UI_BoxDesc status_spacer = playground_fill_desc();
-	ui_box_make_desc(&builder, 4, LIT(""), status_spacer);
+	ui_box_make_desc(ui, 4, LIT(""), status_spacer);
 	subtle.align.x = 1.f;
-	ui_text_box_sized_string_desc(&builder, 5, status_text, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
-	ui_box_end(&builder);
+	ui_text_box_sized_string_desc(ui, 5, status_text, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
+	ui_box_end(ui);
 
 	UI_BoxDesc laboratory = playground_fill_desc();
 	laboratory.axis = AXIS_X;
 	laboratory.gap = density.gap;
 	laboratory.vert_padd[0] = 32.f;
-	playground_begin_box(&builder, 2, LIT("layout laboratory"), laboratory, slate, false);
+	playground_begin_box(ui, 2, LIT("layout laboratory"), laboratory, slate, false);
 
 	UI_BoxDesc navigation = playground_fill_desc();
 	navigation.size[AXIS_X] = ui_box_flex(0.f, 3.f);
@@ -54,16 +53,16 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	navigation.vert_padd[1] = density.card_padding;
 	navigation.gap = 8.f;
 
-	UI_Box *navigation_box = playground_begin_box(&builder, 10, LIT("CONTENT BASIS 270  |  SHRINK 3"), navigation, teal, true);
+	UI_Box *navigation_box = playground_begin_box(ui, 10, LIT("CONTENT BASIS 270  |  SHRINK 3"), navigation, teal, true);
 	navigation_box->intrinsic_size.x = 270.f;
 
 	for (u32 row = 0; row < 4; ++row)
 	{
 		UI_BoxDesc item = playground_fill_desc();
 		item.size[AXIS_Y] = ui_box_pixels(38.f);
-		playground_make_box(&builder, 11 + row, row == 0 ? LIT("Overview") : row == 1 ? LIT("Call tree") : row == 2 ? LIT("Flame graph") : LIT("Memory"), item, color_srgba_mix(teal, slate, 0.45f), false);
+		playground_make_box(ui, 11 + row, row == 0 ? LIT("Overview") : row == 1 ? LIT("Call tree") : row == 2 ? LIT("Flame graph") : LIT("Memory"), item, color_srgba_mix(teal, slate, 0.45f), false);
 	}
-	ui_box_end(&builder);
+	ui_box_end(ui);
 
 	UI_BoxDesc timeline = playground_fill_desc();
 	timeline.size[AXIS_X] = ui_box_fill(2.f);
@@ -72,32 +71,32 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	timeline.vert_padd[0] = 48.f;
 	timeline.vert_padd[1] = density.card_padding;
 	timeline.gap = 10.f;
-	playground_begin_box(&builder, 20, LIT("ZERO BASIS  |  GROW 2"), timeline, blue, true);
+	playground_begin_box(ui, 20, LIT("ZERO BASIS  |  GROW 2"), timeline, blue, true);
 
 	UI_BoxDesc chart = playground_fill_desc();
 	chart.axis = AXIS_X;
 	chart.gap = 7.f;
-	playground_begin_box(&builder, 21, LIT("weighted children"), chart, color_srgba_mix(blue, slate, 0.55f), false);
+	playground_begin_box(ui, 21, LIT("weighted children"), chart, color_srgba_mix(blue, slate, 0.55f), false);
 	for (u32 bar = 0; bar < 5; ++bar)
 	{
 		UI_BoxDesc bar_desc = playground_fill_desc();
 		bar_desc.size[AXIS_X] = ui_box_fill((f32)(bar + 1));
 		bar_desc.size[AXIS_Y] = ui_box_pixels(54.f + 22.f * bar);
 		bar_desc.perp_align = 1.f;
-		playground_make_box(&builder, 22 + bar, LIT(""), bar_desc, color_srgba_mix(blue, violet, (f32)bar / 5.f), false);
+		playground_make_box(ui, 22 + bar, LIT(""), bar_desc, color_srgba_mix(blue, violet, (f32)bar / 5.f), false);
 	}
-	ui_box_end(&builder);
+	ui_box_end(ui);
 
 	UI_BoxDesc timeline_status = playground_fill_desc();
 	timeline_status.size[AXIS_Y] = ui_box_pixels(36.f);
-	playground_make_box(&builder, 28, LIT("1x  2x  3x  4x  5x grow weights"), timeline_status, color_srgba_mix(blue, slate, 0.35f), false);
-	ui_box_end(&builder);
+	playground_make_box(ui, 28, LIT("1x  2x  3x  4x  5x grow weights"), timeline_status, color_srgba_mix(blue, slate, 0.35f), false);
+	ui_box_end(ui);
 
 	UI_BoxDesc inspector_area = playground_fill_desc();
 	inspector_area.size[AXIS_X] = ui_box_flex(1.f, 1.f);
 	inspector_area.min_size.x = 180.f;
 	inspector_area.max_size.x = 420.f;
-	PlaygroundScrollArea scroll_area = playground_scroll_area_begin(&builder, 30, inspector_area);
+	PlaygroundScrollArea scroll_area = playground_scroll_area_begin(ui, 30, inspector_area);
 
 	UI_BoxDesc inspector = playground_fill_desc();
 	inspector.horz_padd[0] = inspector.horz_padd[1] = density.card_padding;
@@ -111,24 +110,24 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	profiler_rows->slate = slate;
 	profiler_rows->title_style = (UI_TextStyle) { .font = font, .size = 16, .color = color_srgba(0xD6E7E4) };
 	profiler_rows->subtitle_style = (UI_TextStyle) { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	UI_Box *inspector_box = ui_box_make_virtual_list_desc(&builder, 1, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_BoxVirtualListDesc) {
+	UI_Box *inspector_box = ui_box_make_virtual_list_desc(ui, 1, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_BoxVirtualListDesc) {
 		.item_count = 10000,
 		.user = profiler_rows,
 		.build_item = playground_build_profiler_row,
 	});
 	inspector_box->user = playground_visual(arena, violet, true);
 	scroll_area.root->intrinsic_size.x = 300.f;
-	playground_scroll_area_end(&builder, &scroll_area, inspector_box, color_srgba_mix(violet, slate, 0.72f), color_srgba(0xC99CFF));
+	playground_scroll_area_end(ui, &scroll_area, inspector_box, color_srgba_mix(violet, slate, 0.72f), color_srgba(0xC99CFF));
 	scene.scroll_areas[scene.scroll_area_count++] = scroll_area;
 
-	ui_box_end(&builder);
+	ui_box_end(ui);
 
 	UI_BoxDesc footer = playground_fill_desc();
 	footer.size[AXIS_Y] = ui_box_pixels(42.f);
 	footer.horz_padd[0] = footer.horz_padd[1] = 14.f;
 	footer.vert_padd[0] = footer.vert_padd[1] = 8.f;
-	playground_make_box(&builder, 40, LIT("Mouse-wheel the purple card or drag its box-built scrollbar."), footer, color_srgba_mix(amber, slate, 0.55f), false);
+	playground_make_box(ui, 40, LIT("Mouse-wheel the purple card or drag its box-built scrollbar."), footer, color_srgba_mix(amber, slate, 0.55f), false);
 
-	scene.root = ui_box_builder_end(&builder);
+	scene.root = ui_build_end(ui);
 	return scene;
 }

@@ -101,7 +101,7 @@ UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *u
 	return builder->root;
 }
 
-UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
+UI_Box *ui_builder_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
 {
 	Assert(builder);
 	Assert(builder->parent);
@@ -117,14 +117,14 @@ UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_Box
 	return box;
 }
 
-UI_Box *ui_box_make(UI_BoxBuilder *builder, UI_Key key, String name)
+UI_Box *ui_builder_box_make(UI_BoxBuilder *builder, UI_Key key, String name)
 {
-	return ui_box_make_desc(builder, key, name, builder->desc);
+	return ui_builder_box_make_desc(builder, key, name, builder->desc);
 }
 
-UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
+UI_Box *ui_builder_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
 {
-	UI_Box *box = ui_box_make_desc(builder, key, name, desc);
+	UI_Box *box = ui_builder_box_make_desc(builder, key, name, desc);
 	Assert(builder->parent_count < ArrayCount(builder->parent_stack));
 	builder->parent_stack[builder->parent_count] = builder->parent;
 	builder->parent_id_stack[builder->parent_count++] = builder->id;
@@ -133,12 +133,12 @@ UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_Bo
 	return box;
 }
 
-UI_Box *ui_box_begin(UI_BoxBuilder *builder, UI_Key key, String name)
+UI_Box *ui_builder_box_begin(UI_BoxBuilder *builder, UI_Key key, String name)
 {
-	return ui_box_begin_desc(builder, key, name, builder->desc);
+	return ui_builder_box_begin_desc(builder, key, name, builder->desc);
 }
 
-void ui_box_end(UI_BoxBuilder *builder)
+void ui_builder_box_end(UI_BoxBuilder *builder)
 {
 	Assert(builder);
 	Assert(builder->parent_count);
@@ -162,7 +162,7 @@ UI_Box *ui_box_builder_end(UI_BoxBuilder *builder)
 	return builder->root;
 }
 
-void ui_box_push_id(UI_BoxBuilder *builder, UI_Key key)
+void ui_builder_push_id(UI_BoxBuilder *builder, UI_Key key)
 {
 	Assert(builder);
 	Assert(builder->id_count < ArrayCount(builder->id_stack));
@@ -170,31 +170,32 @@ void ui_box_push_id(UI_BoxBuilder *builder, UI_Key key)
 	builder->id = ui_id_child(builder->id, key);
 }
 
-void ui_box_pop_id(UI_BoxBuilder *builder)
+void ui_builder_pop_id(UI_BoxBuilder *builder)
 {
 	Assert(builder);
 	Assert(builder->id_count);
 	builder->id = builder->id_stack[--builder->id_count];
 }
 
-UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
+UI_Box *ui_builder_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
 {
 	Assert(builder);
+	Assert(builder->ui);
 	Assert(list.build_item);
 	desc.overflow[desc.axis] = UI_BOX_OVERFLOW_SCROLL;
-	UI_Box *box = ui_box_begin_desc(builder, key, name, desc);
+	UI_Box *box = ui_builder_box_begin_desc(builder, key, name, desc);
 	box->virtual_list.arena = builder->arena;
 	box->virtual_list.build_item = list.build_item;
 	box->virtual_list.user = list.user;
 	box->virtual_list.item_count = list.item_count;
 	if (list.item_count)
 	{
-		ui_box_push_id(builder, 0);
-		list.build_item(builder, 0, list.user);
-		ui_box_pop_id(builder);
+		ui_builder_push_id(builder, 0);
+		list.build_item(builder->ui, 0, list.user);
+		ui_builder_pop_id(builder);
 		Assert(box->child_count == 1);
 	}
-	ui_box_end(builder);
+	ui_builder_box_end(builder);
 	if (list.item_count) {
 		box->virtual_list.sizing_item = box->children[0];
 	}
@@ -203,12 +204,12 @@ UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key, String
 	return box;
 }
 
-UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxVirtualListDesc list)
+UI_Box *ui_builder_box_make_virtual_list(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxVirtualListDesc list)
 {
-	return ui_box_make_virtual_list_desc(builder, key, name, builder->desc, list);
+	return ui_builder_box_make_virtual_list_desc(builder, key, name, builder->desc, list);
 }
 
-void ui_push(UI_BoxBuilder *builder)
+void ui_builder_push(UI_BoxBuilder *builder)
 {
 	Assert(builder);
 	Assert(builder->desc_count < ArrayCount(builder->desc_stack));
@@ -216,7 +217,7 @@ void ui_push(UI_BoxBuilder *builder)
 	builder->paint_stack[builder->desc_count++] = builder->paint;
 }
 
-void ui_pop(UI_BoxBuilder *builder)
+void ui_builder_pop(UI_BoxBuilder *builder)
 {
 	Assert(builder);
 	Assert(builder->desc_count);
@@ -225,70 +226,70 @@ void ui_pop(UI_BoxBuilder *builder)
 	builder->paint = builder->paint_stack[builder->desc_count];
 }
 
-void ui_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size)
+void ui_builder_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size)
 {
 	Assert(builder);
 	builder->desc.size[axis] = size;
 }
 
-void ui_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
+void ui_builder_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
 {
 	Assert(builder);
 	builder->desc.min_size.xy[axis] = size;
 }
 
-void ui_max_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
+void ui_builder_max_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
 {
 	Assert(builder);
 	builder->desc.max_size.xy[axis] = size;
 }
 
-void ui_margin(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
+void ui_builder_margin(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
 {
 	Assert(builder);
 	builder->desc.margin[axis][0] = before;
 	builder->desc.margin[axis][1] = after;
 }
 
-void ui_padd(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
+void ui_builder_padd(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
 {
 	Assert(builder);
 	builder->desc.padd[axis][0] = before;
 	builder->desc.padd[axis][1] = after;
 }
 
-void ui_axis(UI_BoxBuilder *builder, AXIS axis)
+void ui_builder_axis(UI_BoxBuilder *builder, AXIS axis)
 {
 	Assert(builder);
 	builder->desc.axis = axis;
 }
 
-void ui_gap(UI_BoxBuilder *builder, f32 gap)
+void ui_builder_gap(UI_BoxBuilder *builder, f32 gap)
 {
 	Assert(builder);
 	builder->desc.gap = gap;
 }
 
-void ui_perp_align(UI_BoxBuilder *builder, f32 align)
+void ui_builder_perp_align(UI_BoxBuilder *builder, f32 align)
 {
 	Assert(builder);
 	builder->desc.perp_align = align;
 }
 
-void ui_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow)
+void ui_builder_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow)
 {
 	Assert(builder);
 	builder->desc.overflow[axis] = overflow;
 }
 
-void ui_background(UI_BoxBuilder *builder, Color_SRGBA color)
+void ui_builder_background(UI_BoxBuilder *builder, Color_SRGBA color)
 {
 	Assert(builder);
 	builder->paint.flags |= UI_BOX_DRAW_BACKGROUND;
 	builder->paint.background = color;
 }
 
-void ui_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width)
+void ui_builder_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width)
 {
 	Assert(builder);
 	builder->paint.flags |= UI_BOX_DRAW_BORDER;
@@ -296,22 +297,172 @@ void ui_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width)
 	builder->paint.border_width = Max(0.f, width);
 }
 
-void ui_roundness(UI_BoxBuilder *builder, f32 roundness)
+void ui_builder_roundness(UI_BoxBuilder *builder, f32 roundness)
 {
 	Assert(builder);
 	builder->paint.roundness = Max(0.f, roundness);
 }
 
-void ui_edge_softness(UI_BoxBuilder *builder, f32 edge_softness)
+void ui_builder_edge_softness(UI_BoxBuilder *builder, f32 edge_softness)
 {
 	Assert(builder);
 	builder->paint.edge_softness = Max(0.f, edge_softness);
 }
 
-void ui_emission(UI_BoxBuilder *builder, f32 emission)
+void ui_builder_emission(UI_BoxBuilder *builder, f32 emission)
 {
 	Assert(builder);
 	builder->paint.emission = Max(0.f, emission);
+}
+
+static UI_BoxBuilder *ui_box__builder(UI_Context *ui)
+{
+	Assert(ui);
+	Assert(ui->builder);
+	Assert(ui->builder->ui == ui);
+	return ui->builder;
+}
+
+UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc)
+{
+	Assert(ui);
+	Assert(!ui->builder);
+	UI_BoxBuilder *builder = arena_push_zero(&ui->frame_arena, sizeof(*builder));
+	ui->builder = builder;
+	return ui_box_builder_begin(builder, &ui->frame_arena, ui, root_key, root_name, root_desc);
+}
+
+UI_Box *ui_build_end(UI_Context *ui)
+{
+	UI_BoxBuilder *builder = ui_box__builder(ui);
+	UI_Box *root = ui_box_builder_end(builder);
+	ui->builder = 0;
+	return root;
+}
+
+UI_Box *ui_box_make(UI_Context *ui, UI_Key key, String name)
+{
+	return ui_builder_box_make(ui_box__builder(ui), key, name);
+}
+
+UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, String name)
+{
+	return ui_builder_box_begin(ui_box__builder(ui), key, name);
+}
+
+UI_Box *ui_box_make_virtual_list(UI_Context *ui, UI_Key key, String name, UI_BoxVirtualListDesc list)
+{
+	return ui_builder_box_make_virtual_list(ui_box__builder(ui), key, name, list);
+}
+
+UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc)
+{
+	return ui_builder_box_make_desc(ui_box__builder(ui), key, name, desc);
+}
+
+UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc)
+{
+	return ui_builder_box_begin_desc(ui_box__builder(ui), key, name, desc);
+}
+
+UI_Box *ui_box_make_virtual_list_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
+{
+	return ui_builder_box_make_virtual_list_desc(ui_box__builder(ui), key, name, desc, list);
+}
+
+void ui_box_end(UI_Context *ui)
+{
+	ui_builder_box_end(ui_box__builder(ui));
+}
+
+void ui_box_push_id(UI_Context *ui, UI_Key key)
+{
+	ui_builder_push_id(ui_box__builder(ui), key);
+}
+
+void ui_box_pop_id(UI_Context *ui)
+{
+	ui_builder_pop_id(ui_box__builder(ui));
+}
+
+void ui_push(UI_Context *ui)
+{
+	ui_builder_push(ui_box__builder(ui));
+}
+
+void ui_pop(UI_Context *ui)
+{
+	ui_builder_pop(ui_box__builder(ui));
+}
+
+void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size)
+{
+	ui_builder_size(ui_box__builder(ui), axis, size);
+}
+
+void ui_min_size(UI_Context *ui, AXIS axis, f32 size)
+{
+	ui_builder_min_size(ui_box__builder(ui), axis, size);
+}
+
+void ui_max_size(UI_Context *ui, AXIS axis, f32 size)
+{
+	ui_builder_max_size(ui_box__builder(ui), axis, size);
+}
+
+void ui_margin(UI_Context *ui, AXIS axis, f32 before, f32 after)
+{
+	ui_builder_margin(ui_box__builder(ui), axis, before, after);
+}
+
+void ui_padd(UI_Context *ui, AXIS axis, f32 before, f32 after)
+{
+	ui_builder_padd(ui_box__builder(ui), axis, before, after);
+}
+
+void ui_axis(UI_Context *ui, AXIS axis)
+{
+	ui_builder_axis(ui_box__builder(ui), axis);
+}
+
+void ui_gap(UI_Context *ui, f32 gap)
+{
+	ui_builder_gap(ui_box__builder(ui), gap);
+}
+
+void ui_perp_align(UI_Context *ui, f32 align)
+{
+	ui_builder_perp_align(ui_box__builder(ui), align);
+}
+
+void ui_overflow(UI_Context *ui, AXIS axis, UI_BoxOverflow overflow)
+{
+	ui_builder_overflow(ui_box__builder(ui), axis, overflow);
+}
+
+void ui_background(UI_Context *ui, Color_SRGBA color)
+{
+	ui_builder_background(ui_box__builder(ui), color);
+}
+
+void ui_border(UI_Context *ui, Color_SRGBA color, f32 width)
+{
+	ui_builder_border(ui_box__builder(ui), color, width);
+}
+
+void ui_roundness(UI_Context *ui, f32 roundness)
+{
+	ui_builder_roundness(ui_box__builder(ui), roundness);
+}
+
+void ui_edge_softness(UI_Context *ui, f32 edge_softness)
+{
+	ui_builder_edge_softness(ui_box__builder(ui), edge_softness);
+}
+
+void ui_emission(UI_Context *ui, f32 emission)
+{
+	ui_builder_emission(ui_box__builder(ui), emission);
 }
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
@@ -509,6 +660,7 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip);
 
 static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 one_past_item)
 {
+	Assert(box->ui);
 	UI_BoxBuilder builder = {
 		.arena = box->virtual_list.arena,
 		.ui = box->ui,
@@ -517,19 +669,22 @@ static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 on
 		.id = box->id,
 		.desc = ui_box_desc(),
 	};
+	UI_BoxBuilder *previous_builder = box->ui->builder;
+	box->ui->builder = &builder;
 	box->children = 0;
 	box->child_count = 0;
 	for (u32 item_index = first_item; item_index < one_past_item; item_index ++)
 	{
 		u32 child_count = box->child_count;
-		ui_box_push_id(&builder, item_index);
-		box->virtual_list.build_item(&builder, item_index, box->virtual_list.user);
-		ui_box_pop_id(&builder);
+		ui_box_push_id(box->ui, item_index);
+		box->virtual_list.build_item(box->ui, item_index, box->virtual_list.user);
+		ui_box_pop_id(box->ui);
 		Assert(builder.parent == box);
 		Assert(builder.parent_count == 0);
 		Assert(box->child_count == child_count + 1);
 	}
 	ui_box_builder_end(&builder);
+	box->ui->builder = previous_builder;
 	for (u32 child_index = 0; child_index < box->child_count; child_index ++) {
 		box->children[child_index]->virtual_index = first_item + child_index;
 	}

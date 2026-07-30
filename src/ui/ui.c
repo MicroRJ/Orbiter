@@ -176,6 +176,7 @@ void ui_invalidate_layout(UI_Context *ui)
 void ui_begin_frame(UI_Context *ui)
 {
 	Assert(ui);
+	Assert(!ui->builder);
 	Seconds frame_time = seconds_now();
 	ui->frame_elapsed = (f32)Max(frame_time.seconds - ui->previous_frame_time.seconds, 0.0);
 	ui->previous_frame_time = frame_time;
@@ -256,6 +257,7 @@ void ui_box_state_forget(UI_Context *ui, UI_Id id)
 void ui_end_frame(UI_Context *ui)
 {
 	Assert(ui);
+	Assert(!ui->builder);
 	Assert(ui->layer_stack_count == 0);
 	Assert(ui->clip_stack_count == 0);
 	Assert(ui->unclipped_scope_count == 0);

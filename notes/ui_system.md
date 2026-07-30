@@ -36,6 +36,34 @@ The main layout algorithm for containers, is based around Android's Linear Layou
 but extended to support shrinking weights as well as expansion weights.
 
 
+### Box building
+RAD uses a linked list to build box children, this has the advantage that adding / removing children
+from a box is much easier and doesn't rely on context.
+
+For our builder I've chose a flat ```**children``` array. The way we build it is by pushing boxes
+onto a designated stack in the builder, once you're done you pop the stack and get a copy of the
+boxes.
+I think pretty much the only real advantage this has it's that it's just more convenient to deal
+with in very narrow, internal cases (since user code doesn't typically access children).
+
+But it does introduce some real friction points.
+
+For instance, you can't create a box and add / remove children arbitrarily, you have to either
+work with the system, or give the box a new children array yourself.
+
+We're already seeing some of the early API being forced to be shaped in less straightforward was
+just to deal with this.
+
+And it introduces the notion of, it'll work if it happens to work.
+
+For instance, for virtual lists, we need to insert items into the list. It works because the hooks
+run when the virtual list is the parent. This type of code just become highly ambiguous and hard to
+deal with later.
+
+
+
+
+
 
 
 

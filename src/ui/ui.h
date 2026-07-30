@@ -177,6 +177,7 @@ UI_Frame;
 
 typedef struct UI_Box UI_Box;
 typedef struct UI_BoxState UI_BoxState;
+typedef struct UI_BoxBuilder UI_BoxBuilder;
 typedef struct UI_Context UI_Context;
 struct UI_Context
 {
@@ -189,6 +190,7 @@ struct UI_Context
 	UI_BoxState **box_state_slots;
 	UI_BoxState *free_box_states;
 	u32        box_state_slot_count;
+	UI_BoxBuilder *builder;
 	u64        frame_index;
 	u64        layout_generation;
 	Seconds    previous_frame_time;
