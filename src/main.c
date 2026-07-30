@@ -900,7 +900,7 @@ static AppShell app_build_shell(rect_f32 window_rect)
 	root_desc.axis = AXIS_Y;
 	root_desc.size[AXIS_X] = ui_box_fill(1.f);
 	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
-	shell.root = ui_box_builder_begin(&b, &app.ui->frame_arena, app.ui, 1, LIT("application shell"), root_desc);
+	shell.root = ui_box_builder_begin(&b, &app.ui->frame_arena, app.ui, UI_KEY("application shell"), LIT("application shell"), root_desc);
 
 	f32 status_height = app.ui->theme.code.size + 8.f;
 	UI_TextStyle style = app.ui->theme.code;

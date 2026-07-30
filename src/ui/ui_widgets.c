@@ -71,7 +71,7 @@ void ui_box_paint(UI_Box *box)
 	if (paint->emission > 0.f) ui_pop_emission(ui);
 }
 
-static UI_Box *ui_box__make_text(UI_BoxBuilder *builder, u64 key, UI_BoxDesc *desc, UI_TextStyle style, String sizing_string, String string)
+static UI_Box *ui_box__make_text(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc *desc, UI_TextStyle style, String sizing_string, String string)
 {
 	Assert(builder);
 	Assert(builder->ui);
@@ -88,7 +88,7 @@ static UI_Box *ui_box__make_text(UI_BoxBuilder *builder, u64 key, UI_BoxDesc *de
 	return box;
 }
 
-UI_Box *ui_text_box(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, const char *format, ...)
+UI_Box *ui_text_box(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, const char *format, ...)
 {
 	Assert(builder);
 	va_list arguments;
@@ -98,7 +98,7 @@ UI_Box *ui_text_box(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, const c
 	return ui_box__make_text(builder, key, 0, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, String sizing_string, const char *format, ...)
+UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, String sizing_string, const char *format, ...)
 {
 	Assert(builder);
 	va_list arguments;
@@ -108,17 +108,17 @@ UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, S
 	return ui_box__make_text(builder, key, 0, style, sizing_string, string);
 }
 
-UI_Box *ui_text_box_string(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, String string)
+UI_Box *ui_text_box_string(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, String string)
 {
 	return ui_box__make_text(builder, key, 0, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized_string(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, String sizing_string, String string)
+UI_Box *ui_text_box_sized_string(UI_BoxBuilder *builder, UI_Key key, UI_TextStyle style, String sizing_string, String string)
 {
 	return ui_box__make_text(builder, key, 0, style, sizing_string, string);
 }
 
-UI_Box *ui_text_box_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, const char *format, ...)
+UI_Box *ui_text_box_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, const char *format, ...)
 {
 	Assert(builder);
 	va_list arguments;
@@ -128,7 +128,7 @@ UI_Box *ui_text_box_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_Te
 	return ui_box__make_text(builder, key, &desc, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, const char *format, ...)
+UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, const char *format, ...)
 {
 	Assert(builder);
 	va_list arguments;
@@ -138,12 +138,12 @@ UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc,
 	return ui_box__make_text(builder, key, &desc, style, sizing_string, string);
 }
 
-UI_Box *ui_text_box_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String string)
+UI_Box *ui_text_box_string_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String string)
 {
 	return ui_box__make_text(builder, key, &desc, style, (String) {}, string);
 }
 
-UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, String string)
+UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_string, String string)
 {
 	return ui_box__make_text(builder, key, &desc, style, sizing_string, string);
 }
@@ -229,7 +229,7 @@ static const UI_BoxOps ui_scroll__root_ops = {
 	.finish_layout = ui_scroll__finish_layout,
 };
 
-UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, u64 key, AXIS axis)
+UI_Scroll *ui_scroll_begin(UI_BoxBuilder *builder, UI_Key key, AXIS axis)
 {
 	Assert(builder);
 	Assert(builder->ui);
@@ -503,7 +503,7 @@ static const UI_BoxOps ui_box__table_ops = {
 	.prepare_layout = ui_box__prepare_table_layout,
 };
 
-UI_BoxTable ui_box_table_begin(UI_BoxBuilder *builder, u64 key, String name, UI_BoxTableDesc desc)
+UI_BoxTable ui_box_table_begin(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxTableDesc desc)
 {
 	Assert(builder);
 	Assert(desc.columns);
@@ -530,7 +530,7 @@ UI_BoxTable ui_box_table_begin(UI_BoxBuilder *builder, u64 key, String name, UI_
 	};
 }
 
-UI_Box *ui_box_table_row_begin(UI_BoxTable *table, u64 key)
+UI_Box *ui_box_table_row_begin(UI_BoxTable *table, UI_Key key)
 {
 	Assert(table);
 	Assert(table->builder);

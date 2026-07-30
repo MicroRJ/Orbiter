@@ -141,7 +141,7 @@ static void program_view_content(ViewFrameData *frame)
 	rect_f32_slice(&main_rect, AXIS_X, 32);
 	f32 scroll_height = frame->header_height + instruction_count * row_height;
 	f32 max_scroll = Max(scroll_height - main_rect.h, 0.f);
-	UI_Id scroll_id = ui_id_child(ui_id_child(UI_ID_NONE, frame->view->id), 1);
+	UI_Id scroll_id = ui_id_child(ui_id_child(UI_ID_NONE, ui_key_child(UI_KEY("program view"), frame->view->id)), 1);
 	b32 wheel_scroll = rect_f32_contains(main_rect, ui->mouse) && ui->window->mouse_wheel.y;
 	if (wheel_scroll) {
 		state->scroll_target = CLAMP(state->scroll_target - ui->window->mouse_wheel.y * 60.f, 0.f, max_scroll);

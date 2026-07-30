@@ -1,4 +1,5 @@
 #include "ui_box.h"
+#include "ui.h"
 
 static f32 ui_box__clamp(f32 value, f32 minimum, f32 maximum)
 {
@@ -56,14 +57,21 @@ static UI_BoxPaintDesc ui_box__paint_desc(void)
 	};
 }
 
-static UI_Box *ui_box__allocate_box(UI_BoxBuilder *builder, UI_Id id, String name, UI_BoxDesc desc)
+static UI_Box *ui_box__allocate_box(UI_BoxBuilder *builder, UI_Id id, UI_Key key, String name, UI_BoxDesc desc)
 {
 	UI_Box *box = arena_push_zero(builder->arena, sizeof(*box));
 	box->id = id;
+	box->key = key;
 	box->name = name;
 	box->desc = desc;
 	box->paint = builder->paint;
 	box->ui = builder->ui;
+	if (box->ui)
+	{
+		box->state = ui_box_state_get(box->ui, box->id);
+		box->has_previous = box->state->last_layout_frame + 1 == box->ui->frame_index && box->state->layout_generation == box->ui->layout_generation;
+		box->scroll_offset = box->state->view_offset;
+	}
 	return box;
 }
 
@@ -78,7 +86,7 @@ static void ui_box__finish_children(UI_BoxBuilder *builder, UI_Box *parent)
 	}
 }
 
-UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, u64 root_key, String root_name, UI_BoxDesc root_desc)
+UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc)
 {
 	Assert(builder);
 	Assert(arena);
@@ -88,12 +96,12 @@ UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *u
 	builder->desc = ui_box_desc();
 	builder->paint = ui_box__paint_desc();
 	builder->id = ui_id_child(UI_ID_NONE, root_key);
-	builder->root = ui_box__allocate_box(builder, builder->id, root_name, root_desc);
+	builder->root = ui_box__allocate_box(builder, builder->id, root_key, root_name, root_desc);
 	builder->parent = builder->root;
 	return builder->root;
 }
 
-UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc)
+UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
 {
 	Assert(builder);
 	Assert(builder->parent);
@@ -103,18 +111,18 @@ UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDes
 	for (u32 sibling_index = sibling_begin; sibling_index < builder->child_count; sibling_index ++) {
 		Assert(!ui_id_equal(builder->child_stack[sibling_index]->id, id));
 	}
-	UI_Box *box = ui_box__allocate_box(builder, id, name, desc);
+	UI_Box *box = ui_box__allocate_box(builder, id, key, name, desc);
 	builder->parent->child_count++;
 	builder->child_stack[builder->child_count++] = box;
 	return box;
 }
 
-UI_Box *ui_box_make(UI_BoxBuilder *builder, u64 key, String name)
+UI_Box *ui_box_make(UI_BoxBuilder *builder, UI_Key key, String name)
 {
 	return ui_box_make_desc(builder, key, name, builder->desc);
 }
 
-UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc)
+UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
 {
 	UI_Box *box = ui_box_make_desc(builder, key, name, desc);
 	Assert(builder->parent_count < ArrayCount(builder->parent_stack));
@@ -125,7 +133,7 @@ UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDe
 	return box;
 }
 
-UI_Box *ui_box_begin(UI_BoxBuilder *builder, u64 key, String name)
+UI_Box *ui_box_begin(UI_BoxBuilder *builder, UI_Key key, String name)
 {
 	return ui_box_begin_desc(builder, key, name, builder->desc);
 }
@@ -154,7 +162,7 @@ UI_Box *ui_box_builder_end(UI_BoxBuilder *builder)
 	return builder->root;
 }
 
-void ui_box_push_id(UI_BoxBuilder *builder, u64 key)
+void ui_box_push_id(UI_BoxBuilder *builder, UI_Key key)
 {
 	Assert(builder);
 	Assert(builder->id_count < ArrayCount(builder->id_stack));
@@ -169,7 +177,7 @@ void ui_box_pop_id(UI_BoxBuilder *builder)
 	builder->id = builder->id_stack[--builder->id_count];
 }
 
-UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
+UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
 {
 	Assert(builder);
 	Assert(list.build_item);
@@ -195,7 +203,7 @@ UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, u64 key, String na
 	return box;
 }
 
-UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, u64 key, String name, UI_BoxVirtualListDesc list)
+UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxVirtualListDesc list)
 {
 	return ui_box_make_virtual_list_desc(builder, key, name, builder->desc, list);
 }
@@ -461,11 +469,40 @@ static rect_f32 ui_box__child_clip(UI_Box *box, rect_f32 clip)
 	return clip;
 }
 
+static rect_f32 ui_box__intersect(rect_f32 a, rect_f32 b)
+{
+	f32 minimum_x = Max(a.x, b.x);
+	f32 minimum_y = Max(a.y, b.y);
+	f32 maximum_x = Min(a.x + a.w, b.x + b.w);
+	f32 maximum_y = Min(a.y + a.h, b.y + b.h);
+	return (rect_f32) {
+		.x = minimum_x,
+		.y = minimum_y,
+		.w = Max(0.f, maximum_x - minimum_x),
+		.h = Max(0.f, maximum_y - minimum_y),
+	};
+}
+
+static void ui_box__commit_state(UI_Box *box)
+{
+	if (!box->state) return;
+	box->state->last_layout_frame = box->ui->frame_index;
+	box->state->layout_generation = box->ui->layout_generation;
+	box->state->rect = box->rect;
+	box->state->hit_rect = ui_box__intersect(box->rect, box->clip_rect);
+	box->state->viewport = box->viewport;
+	box->state->content_size = box->content_size;
+	box->state->scroll_min = box->scroll_min;
+	box->state->scroll_max = box->scroll_max;
+	box->state->view_offset = box->scroll_offset;
+}
+
 static void ui_box__finish_layout(UI_Box *box)
 {
 	if (box->ops && box->ops->finish_layout) {
 		box->ops->finish_layout(box);
 	}
+	ui_box__commit_state(box);
 }
 
 static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip);

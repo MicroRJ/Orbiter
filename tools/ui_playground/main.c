@@ -471,7 +471,7 @@ static UI_Scroll *playground_build_test_scroll(Arena *arena, UI_Context *ui, UI_
 {
 	UI_BoxDesc root_desc = playground_fill_desc();
 	UI_BoxBuilder builder;
-	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, 0x5343524F4C4C5445ull, LIT("root"), root_desc);
+	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, UI_KEY("test scroll"), LIT("root"), root_desc);
 
 	ui_push(&builder);
 	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
@@ -515,6 +515,14 @@ static int playground_run_tests(void)
 			fine = playground_smooth_scroll(fine, 100.f, 1.f / 120.f);
 		}
 		CHECK(playground_near(coarse, fine), "smooth scrolling is invariant to frame subdivision");
+	}
+
+	{
+		UI_Key profiler = UI_KEY("profiler");
+		CHECK(profiler == ui_key_string(LIT("profiler")), "literal and runtime strings produce the same UI key");
+		CHECK(profiler != UI_KEY("program"), "different strings produce different UI keys");
+		CHECK(ui_key_child(profiler, 1) != ui_key_child(profiler, 2), "integer keys extend a string-keyed structural namespace");
+		CHECK(ui_id_equal(ui_id_child(UI_ID_NONE, profiler), ui_id_child(UI_ID_NONE, UI_KEY("profiler"))), "string keys produce deterministic UI IDs");
 	}
 
 	ARENA_SCOPE(&arena)
@@ -561,8 +569,11 @@ static int playground_run_tests(void)
 		ui_begin_frame(ui);
 		UI_Box *root = 0;
 		UI_Scroll *scroll = playground_build_test_scroll(&arena, ui, &root);
+		UI_BoxState *root_state = root->state;
+		CHECK(root->key == UI_KEY("test scroll") && root_state && !root->has_previous, "a string-keyed box acquires new persistent state");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(root_state->rect.w, 112.f) && playground_near(root_state->rect.h, 100.f), "layout commits finished box geometry into persistent state");
 		CHECK(!scroll->has_previous && playground_near(scroll->viewport->scroll_max.y, 300.f), "a new scroll scope bootstraps its geometry into context state");
 		CHECK(playground_near(scroll->thumb->rect.h, 25.f), "the bootstrap layout resolves the first scrollbar thumb");
 		CHECK(scroll->track->paint.flags == UI_BOX_DRAW_BACKGROUND && scroll->thumb->paint.flags == UI_BOX_DRAW_BACKGROUND, "scrollbar track and thumb carry generic box appearance");
@@ -572,6 +583,7 @@ static int playground_run_tests(void)
 		ui_begin_frame(ui);
 		ui->frame_elapsed = 0.055f;
 		scroll = playground_build_test_scroll(&arena, ui, &root);
+		CHECK(root->state == root_state && root->has_previous, "the next frame recovers the same box state and previous geometry");
 		CHECK(scroll->has_previous && playground_near(scroll->previous.scroll_max.y, 300.f), "the next scroll scope consumes geometry persisted by its key");
 		CHECK(playground_near(scroll->target, 48.f) && playground_near(scroll->offset, 24.f), "wheel input updates context-owned target and time-invariant offset before layout");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });

@@ -1,5 +1,37 @@
 ## UI system
 
+For the UI system we've settled on a model that closely follows that of RAD's debugger.
+
+The idea is to create a transient Box tree each frame.
+
+The Box tree represents an abstract layout. At the end of the frame, we process this
+tree and generate hard geometry from it. The key, is remembering the geometry for the
+next frame. This is the essence of RAD's UI system.
+We separate build state from transient state, that is, the Box itself is treated as a
+collection of build parameters, and the relevant results are persisted from one frame
+to another.
+
+Additionally, not only is a box a node in a layout tree, but also a graphical object.
+Each box contains basic paint information.
+
+Every UI element is a Box, for instance, the thumb of a scrollbar is a Box.
+
+Boxes can have hooks, for painting, and other hooks for integrating with the layout
+system.
+
+When it comes to the layout algorithm;
+
+The main layout algorithm for containers, is based around Android's Linear Layout,
+but extended to support shrinking weights as well as expansion weights.
+
+
+
+
+
+
+
+
+
 
 The simple layout problem already solves parent child dependencies very well.
 The main problem is virtual lists.

@@ -95,6 +95,7 @@ typedef struct
 UI_BoxConstraints;
 
 typedef struct UI_Box UI_Box;
+typedef struct UI_BoxState UI_BoxState;
 typedef struct UI_BoxBuilder UI_BoxBuilder;
 typedef struct UI_Context UI_Context;
 typedef void UI_BoxVirtualBuildItem(UI_BoxBuilder *builder, u32 item_index, void *user);
@@ -123,10 +124,36 @@ typedef struct
 }
 UI_BoxVirtualListDesc;
 
+// Context-owned state for a keyed box. Geometry describes the most recently
+// completed layout until the current box commits its new geometry.
+struct UI_BoxState
+{
+	UI_BoxState *hash_next;
+	UI_Id id;
+	u64 last_touched_frame;
+	u64 last_layout_frame;
+	u64 layout_generation;
+	rect_f32 rect;
+	rect_f32 hit_rect;
+	rect_f32 viewport;
+	vec2 content_size;
+	vec2 scroll_min;
+	vec2 scroll_max;
+	vec2 view_offset;
+	vec2 view_target;
+	f32 hot_t;
+	f32 active_t;
+	f32 focus_t;
+};
+
 struct UI_Box
 {
 	UI_Id id;
+	UI_Key key;
 	String name;
+	UI_BoxState *state;
+	// The state contains geometry from the immediately preceding compatible layout.
+	b32 has_previous;
 	UI_BoxDesc desc;
 	UI_BoxPaintDesc paint;
 	UI_Box **children;
@@ -188,16 +215,16 @@ UI_BoxSize ui_box_fill(f32 grow);
 UI_BoxSize ui_box_flex(f32 grow, f32 shrink);
 UI_BoxDesc ui_box_desc(void);
 
-UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, u64 root_key, String root_name, UI_BoxDesc root_desc);
-UI_Box *ui_box_make(UI_BoxBuilder *builder, u64 key, String name);
-UI_Box *ui_box_begin(UI_BoxBuilder *builder, u64 key, String name);
-UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, u64 key, String name, UI_BoxVirtualListDesc list);
-UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc);
-UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc);
-UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list);
+UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc);
+UI_Box *ui_box_make(UI_BoxBuilder *builder, UI_Key key, String name);
+UI_Box *ui_box_begin(UI_BoxBuilder *builder, UI_Key key, String name);
+UI_Box *ui_box_make_virtual_list(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxVirtualListDesc list);
+UI_Box *ui_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc);
+UI_Box *ui_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc);
+UI_Box *ui_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list);
 void ui_box_end(UI_BoxBuilder *builder);
 UI_Box *ui_box_builder_end(UI_BoxBuilder *builder);
-void ui_box_push_id(UI_BoxBuilder *builder, u64 key);
+void ui_box_push_id(UI_BoxBuilder *builder, UI_Key key);
 void ui_box_pop_id(UI_BoxBuilder *builder);
 
 void ui_push(UI_BoxBuilder *builder);

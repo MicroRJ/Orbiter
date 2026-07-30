@@ -26,7 +26,7 @@ static const char *view_type_names[VIEW_COUNT] = {
 
 static UI_Id panel_ui_id(const Panel *panel, u64 key)
 {
-	UI_Id namespace = ui_id_child(UI_ID_NONE, 0x50414E454C535953ull);
+	UI_Id namespace = ui_id_child(UI_ID_NONE, UI_KEY("panels"));
 	return ui_id_child(ui_id_child(namespace, panel->id), key);
 }
 

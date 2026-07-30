@@ -4,11 +4,14 @@
 #include "text.h"
 #include "os_graphical.h"
 #include "ui.h"
+#include "ui_box.h"
 
 enum
 {
 	UI_PERSISTENT_STATE_CAPACITY = 1024,
+	UI_BOX_STATE_SLOT_COUNT = 4096,
 };
+STATIC_ASSERT((UI_BOX_STATE_SLOT_COUNT & (UI_BOX_STATE_SLOT_COUNT - 1)) == 0);
 
 struct UI_PersistentState
 {
@@ -167,6 +170,8 @@ UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
 	ui->theme = theme;
 	ui->persistent_state_capacity = UI_PERSISTENT_STATE_CAPACITY;
 	ui->persistent_states = arena_push_zero(owner, ui->persistent_state_capacity * sizeof(*ui->persistent_states));
+	ui->box_state_slot_count = UI_BOX_STATE_SLOT_COUNT;
+	ui->box_state_slots = arena_push_zero(owner, ui->box_state_slot_count * sizeof(*ui->box_state_slots));
 	ui->layout_generation = 1;
 	ui->previous_frame_time = seconds_now();
 	ui->previous_window_size = window->size;
@@ -268,6 +273,61 @@ void ui_state_forget(UI_Context *ui, UI_Id id)
 	}
 }
 
+UI_BoxState *ui_box_state_get(UI_Context *ui, UI_Id id)
+{
+	Assert(ui);
+	Assert(id.value);
+	Assert(ui->box_state_slot_count);
+
+	u32 slot = (u32)id.value & (ui->box_state_slot_count - 1);
+	for (UI_BoxState *state = ui->box_state_slots[slot]; state; state = state->hash_next)
+	{
+		if (!ui_id_equal(state->id, id)) continue;
+		state->last_touched_frame = ui->frame_index;
+		return state;
+	}
+
+	UI_BoxState *state = ui->free_box_states;
+	if (state) {
+		ui->free_box_states = state->hash_next;
+	}
+	else {
+		state = arena_push_zero(ui->owner, sizeof(*state));
+	}
+	memory_zero(state, sizeof(*state));
+	state->id = id;
+	state->last_touched_frame = ui->frame_index;
+	state->hash_next = ui->box_state_slots[slot];
+	ui->box_state_slots[slot] = state;
+	return state;
+}
+
+void ui_box_state_forget(UI_Context *ui, UI_Id id)
+{
+	Assert(ui);
+	Assert(id.value);
+
+	u32 slot = (u32)id.value & (ui->box_state_slot_count - 1);
+	UI_BoxState **link = &ui->box_state_slots[slot];
+	while (*link)
+	{
+		UI_BoxState *state = *link;
+		if (!ui_id_equal(state->id, id))
+		{
+			link = &state->hash_next;
+			continue;
+		}
+
+		*link = state->hash_next;
+		memory_zero(state, sizeof(*state));
+		state->hash_next = ui->free_box_states;
+		ui->free_box_states = state;
+		if (ui_id_equal(ui->hot, id)) ui->hot = UI_ID_NONE;
+		if (ui_id_equal(ui->active, id)) ui->active = UI_ID_NONE;
+		break;
+	}
+}
+
 void ui_end_frame(UI_Context *ui)
 {
 	Assert(ui);
@@ -278,6 +338,27 @@ void ui_end_frame(UI_Context *ui)
 	if (!(ui->window->keys[OS_Key_MouseLeft] & OS_KEY_DOWN))
 	{
 		ui->active = UI_ID_NONE;
+	}
+
+	for (u32 slot = 0; slot < ui->box_state_slot_count; slot++)
+	{
+		UI_BoxState **link = &ui->box_state_slots[slot];
+		while (*link)
+		{
+			UI_BoxState *state = *link;
+			if (state->last_touched_frame == ui->frame_index)
+			{
+				link = &state->hash_next;
+				continue;
+			}
+
+			*link = state->hash_next;
+			if (ui_id_equal(ui->hot, state->id)) ui->hot = UI_ID_NONE;
+			if (ui_id_equal(ui->active, state->id)) ui->active = UI_ID_NONE;
+			memory_zero(state, sizeof(*state));
+			state->hash_next = ui->free_box_states;
+			ui->free_box_states = state;
+		}
 	}
 }
 
@@ -314,10 +395,28 @@ UI_Id ui_id_from_ptr(const void *pointer)
 	return (UI_Id) { value ? value : 1 };
 }
 
-UI_Id ui_id_child(UI_Id parent, u64 child)
+UI_Key ui_key_string(String string)
 {
-	u64 value = parent.value ^ (child + 0x9e3779b97f4a7c15ull +
-		(parent.value << 6) + (parent.value >> 2));
+	u64 value = 14695981039346656037ull;
+	value ^= 0x53;
+	value *= 1099511628211ull;
+	for (u32 index = 0; index < string.size; index++)
+	{
+		value ^= (u8)string.text[index];
+		value *= 1099511628211ull;
+	}
+	return value ? value : 1;
+}
+
+UI_Key ui_key_child(UI_Key parent, UI_Key child)
+{
+	u64 value = parent ^ (child + 0x9e3779b97f4a7c15ull + (parent << 6) + (parent >> 2));
+	return value ? value : 1;
+}
+
+UI_Id ui_id_child(UI_Id parent, UI_Key child)
+{
+	u64 value = ui_key_child(parent.value, child);
 	return (UI_Id) { value ? value : 1 };
 }
 

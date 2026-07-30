@@ -280,7 +280,7 @@ static void profiler_view_content(ViewFrameData *frame)
 	root_desc.gap = 12.f;
 	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
-	UI_Box *root = ui_box_builder_begin(&builder, frame->scratch, ui, frame->view->id, LIT("profiler tables"), root_desc);
+	UI_Box *root = ui_box_builder_begin(&builder, frame->scratch, ui, ui_key_child(UI_KEY("profiler tables"), frame->view->id), LIT("profiler tables"), root_desc);
 	UI_Box *timing_table = profiler_build_time_table(&builder, snapshot, row_height);
 	UI_Box *metric_table = profiler_build_metric_table(&builder, snapshot, row_height);
 	ui_box_builder_end(&builder);

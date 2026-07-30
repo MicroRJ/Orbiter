@@ -21,7 +21,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	root_desc.vert_padd[0] = root_desc.vert_padd[1] = density.outer_padding;
 	root_desc.gap = density.gap;
 	UI_BoxBuilder builder;
-	ui_box_builder_begin(&builder, arena, ui, 3, LIT("scroll history playground"), root_desc);
+	ui_box_builder_begin(&builder, arena, ui, UI_KEY("scroll history playground"), LIT("scroll history playground"), root_desc);
 
 	UI_BoxDesc header = playground_fill_desc();
 	header.axis = AXIS_X;

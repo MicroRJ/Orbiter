@@ -105,7 +105,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	root_desc.vert_padd[0] = root_desc.vert_padd[1] = density.outer_padding;
 	root_desc.gap = density.gap;
 	UI_BoxBuilder builder;
-	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, 2, LIT("dummy profiler"), root_desc);
+	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, UI_KEY("dummy profiler"), LIT("dummy profiler"), root_desc);
 
 	UI_BoxDesc header = playground_fill_desc();
 	header.axis = AXIS_X;

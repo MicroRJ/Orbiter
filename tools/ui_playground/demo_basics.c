@@ -16,7 +16,7 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	root_desc.gap = density.gap;
 
 	UI_BoxBuilder builder;
-	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, 1, LIT("root"), root_desc);
+	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, UI_KEY("basics"), LIT("root"), root_desc);
 
 	UI_BoxDesc header = playground_fill_desc();
 	header.axis = AXIS_X;
