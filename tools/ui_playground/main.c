@@ -904,6 +904,40 @@ static int playground_run_tests(void)
 
 	ARENA_SCOPE(&arena)
 	{
+		UI_BoxDesc root_desc = ui_box_desc();
+		root_desc.axis = AXIS_X;
+		root_desc.gap = 10.f;
+		UI_BoxBuilder builder;
+		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
+
+		UI_BoxDesc flow = playground_fill_desc();
+		flow.size[AXIS_X] = ui_box_fill(1.f);
+		UI_Box *first = ui_builder_box_make_desc(&builder, 1, LIT("first"), flow);
+
+		ui_builder_push(&builder);
+		ui_builder_rect(&builder, (rect_f32) { 35.f, 20.f, 80.f, 40.f });
+		UI_Box *absolute = ui_builder_box_begin(&builder, 2, LIT("absolute"));
+		ui_builder_pop(&builder);
+
+		UI_BoxDesc contents = playground_fill_desc();
+		UI_Box *nested = ui_builder_box_make_desc(&builder, 1, LIT("nested"), contents);
+		ui_builder_box_end(&builder);
+
+		flow.size[AXIS_X] = ui_box_pixels(50.f);
+		UI_Box *last = ui_builder_box_make_desc(&builder, 3, LIT("last"), flow);
+
+		ui_box_builder_end(&builder);
+		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, UI_BOX_INFINITY) });
+		CHECK(playground_near(root->measured_size.x, 60.f) && playground_near(root->measured_size.y, 0.f), "absolute children do not contribute to parent measurement on either positioned axis");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(300.f, 100.f), .max = v2(300.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 300.f, 100.f });
+		CHECK(playground_near(first->rect.w, 240.f) && playground_near(last->rect.x, 250.f), "absolute children do not consume flow space or introduce gaps");
+		CHECK(playground_near(absolute->rect.x, 35.f) && playground_near(absolute->rect.y, 20.f) && playground_near(absolute->rect.w, 80.f) && playground_near(absolute->rect.h, 40.f), "ui_builder_rect assigns an explicit parent-relative rectangle");
+		CHECK(playground_near(nested->rect.x, 35.f) && playground_near(nested->rect.y, 20.f) && playground_near(nested->rect.w, 80.f) && playground_near(nested->rect.h, 40.f), "an absolute box still lays out its descendants normally");
+	}
+
+	ARENA_SCOPE(&arena)
+	{
 		UI_Box *root = playground_test_row(&arena, 100.f, ui_box_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY, ui_box_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY);
 		CHECK(playground_near(root->first->rect.w, 80.f) && playground_near(root->last->rect.w, 80.f), "unsatisfied deficit stops at child minimums without negative sizes");
 	}

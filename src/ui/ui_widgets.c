@@ -320,14 +320,14 @@ void ui_scroll_end(UI_Scroll *scroll)
 	scroll->track->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND,
 		.background = ui->theme.slider_track,
-		.roundness = 2.f,
+		.roundness = 0.5f,
 		.edge_softness = 0.5f,
 	};
 	scroll->space_before->paint = (UI_BoxPaintDesc) {};
 	scroll->thumb->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND,
 		.background = ui->theme.slider_thumb,
-		.roundness = 2.f,
+		.roundness = 0.5f,
 		.edge_softness = 0.5f,
 	};
 	scroll->space_after->paint = (UI_BoxPaintDesc) {};

@@ -28,6 +28,13 @@ typedef enum
 }
 UI_BoxOverflow;
 
+typedef enum
+{
+	UI_BOX_POSITION_FLOW,
+	UI_BOX_POSITION_ABSOLUTE,
+}
+UI_BoxPositionKind;
+
 typedef struct
 {
 	UI_BoxSizeKind kind;
@@ -39,7 +46,15 @@ UI_BoxSize;
 
 typedef struct
 {
+	UI_BoxPositionKind kind;
+	f32 value;
+}
+UI_BoxPosition;
+
+typedef struct
+{
 	UI_BoxSize size[2];
+	UI_BoxPosition position[2];
 	vec2 min_size;
 	vec2 max_size;
 	union
@@ -230,6 +245,8 @@ void ui_box_pop_id(UI_Context *ui);
 void ui_push(UI_Context *ui);
 void ui_pop(UI_Context *ui);
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size);
+void ui_position(UI_Context *ui, AXIS axis, f32 position);
+void ui_rect(UI_Context *ui, rect_f32 rect);
 void ui_min_size(UI_Context *ui, AXIS axis, f32 size);
 void ui_max_size(UI_Context *ui, AXIS axis, f32 size);
 void ui_margin(UI_Context *ui, AXIS axis, f32 before, f32 after);
@@ -259,6 +276,8 @@ void ui_builder_pop_id(UI_BoxBuilder *builder);
 void ui_builder_push(UI_BoxBuilder *builder);
 void ui_builder_pop(UI_BoxBuilder *builder);
 void ui_builder_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size);
+void ui_builder_position(UI_BoxBuilder *builder, AXIS axis, f32 position);
+void ui_builder_rect(UI_BoxBuilder *builder, rect_f32 rect);
 void ui_builder_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size);
 void ui_builder_max_size(UI_BoxBuilder *builder, AXIS axis, f32 size);
 void ui_builder_margin(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after);

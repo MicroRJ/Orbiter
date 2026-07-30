@@ -16,6 +16,11 @@ static f32 ui_box__local_max(const UI_Box *box, AXIS axis)
 	return Max(ui_box__local_min(box, axis), box->desc.max_size.xy[axis]);
 }
 
+static b32 ui_box__is_absolute(const UI_Box *box, AXIS axis)
+{
+	return box->desc.position[axis].kind == UI_BOX_POSITION_ABSOLUTE;
+}
+
 UI_BoxSize ui_box_content(void)
 {
 	return (UI_BoxSize) { .kind = UI_BOX_SIZE_CONTENT };
@@ -242,6 +247,24 @@ void ui_builder_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size)
 	builder->desc.size[axis] = size;
 }
 
+void ui_builder_position(UI_BoxBuilder *builder, AXIS axis, f32 position)
+{
+	Assert(builder);
+	builder->desc.position[axis] = (UI_BoxPosition) {
+		.kind = UI_BOX_POSITION_ABSOLUTE,
+		.value = position,
+	};
+}
+
+void ui_builder_rect(UI_BoxBuilder *builder, rect_f32 rect)
+{
+	Assert(builder);
+	ui_builder_position(builder, AXIS_X, rect.x);
+	ui_builder_position(builder, AXIS_Y, rect.y);
+	ui_builder_size(builder, AXIS_X, ui_box_pixels(rect.w));
+	ui_builder_size(builder, AXIS_Y, ui_box_pixels(rect.h));
+}
+
 void ui_builder_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
 {
 	Assert(builder);
@@ -410,6 +433,16 @@ void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size)
 	ui_builder_size(ui_box__builder(ui), axis, size);
 }
 
+void ui_position(UI_Context *ui, AXIS axis, f32 position)
+{
+	ui_builder_position(ui_box__builder(ui), axis, position);
+}
+
+void ui_rect(UI_Context *ui, rect_f32 rect)
+{
+	ui_builder_rect(ui_box__builder(ui), rect);
+}
+
 void ui_min_size(UI_Context *ui, AXIS axis, f32 size)
 {
 	ui_builder_min_size(ui_box__builder(ui), axis, size);
@@ -533,7 +566,11 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 		vec2 available = v2(Max(0.f, constraints.max.x - box->desc.horz_padd[0] - box->desc.horz_padd[1]), Max(0.f, constraints.max.y - box->desc.vert_padd[0] - box->desc.vert_padd[1]));
 
 		content = v2(0.f, 0.f);
-		content.xy[main_axis] = box->desc.gap * (box->child_count - 1);
+		u32 flow_child_count = 0;
+		for (UI_Box *child = box->first; child; child = child->next) {
+			flow_child_count += !ui_box__is_absolute(child, main_axis);
+		}
+		if (flow_child_count) content.xy[main_axis] = box->desc.gap * (flow_child_count - 1);
 
 		for (UI_Box *child = box->first; child; child = child->next)
 		{
@@ -544,8 +581,8 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 			child_size.xy[main_axis] += child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
 			child_size.xy[perp_axis] += child->desc.margin[perp_axis][0] + child->desc.margin[perp_axis][1];
 
-			content.xy[main_axis] += child_size.xy[main_axis];
-			content.xy[perp_axis] = Max(content.xy[perp_axis], child_size.xy[perp_axis]);
+			if (!ui_box__is_absolute(child, main_axis)) content.xy[main_axis] += child_size.xy[main_axis];
+			if (!ui_box__is_absolute(child, perp_axis)) content.xy[perp_axis] = Max(content.xy[perp_axis], child_size.xy[perp_axis]);
 		}
 		natural.x = Max(natural.x, content.x);
 		natural.y = Max(natural.y, content.y);
@@ -580,6 +617,7 @@ static f32 ui_box__distribute(UI_Box *box, AXIS axis, f32 free_size)
 		f32 total_weight = 0.f;
 		for (UI_Box *child = box->first; child; child = child->next)
 		{
+			if (ui_box__is_absolute(child, axis)) continue;
 			f32 size = child->arranged_size.xy[axis];
 			f32 weight = growing ? child->desc.size[axis].grow : child->desc.size[axis].shrink;
 			f32 bound = growing ? ui_box__local_max(child, axis) : ui_box__local_min(child, axis);
@@ -595,6 +633,7 @@ static f32 ui_box__distribute(UI_Box *box, AXIS axis, f32 free_size)
 		f32 correction = 0.f;
 		for (UI_Box *child = box->first; child; child = child->next)
 		{
+			if (ui_box__is_absolute(child, axis)) continue;
 			f32 weight = growing ? child->desc.size[axis].grow : child->desc.size[axis].shrink;
 			if (weight <= 0.f) continue;
 			f32 prev = child->arranged_size.xy[axis];
@@ -803,12 +842,16 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 
 	AXIS main_axis = box->desc.axis;
 	AXIS perp_axis = !main_axis;
-	f32 occupied = box->desc.gap * (box->child_count - 1);
+	u32 flow_child_count = 0;
+	for (UI_Box *child = box->first; child; child = child->next) {
+		flow_child_count += !ui_box__is_absolute(child, main_axis);
+	}
+	f32 occupied = flow_child_count ? box->desc.gap * (flow_child_count - 1) : 0.f;
 
 	for (UI_Box *child = box->first; child; child = child->next)
 	{
 		child->arranged_size = child->measured_size;
-		occupied += child->arranged_size.xy[main_axis] + child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
+		if (!ui_box__is_absolute(child, main_axis)) occupied += child->arranged_size.xy[main_axis] + child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
 	}
 
 	f32 free_space = box->viewport.wh[main_axis] - occupied;
@@ -828,7 +871,7 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		}
 		perp_size = ui_box__clamp(perp_size, ui_box__local_min(child, perp_axis), ui_box__local_max(child, perp_axis));
 		child->arranged_size.xy[perp_axis] = perp_size;
-		box->content_size.xy[perp_axis] = Max(box->content_size.xy[perp_axis], perp_size + perp_before + perp_after);
+		if (!ui_box__is_absolute(child, perp_axis)) box->content_size.xy[perp_axis] = Max(box->content_size.xy[perp_axis], perp_size + perp_before + perp_after);
 	}
 
 	box->content_size.xy[main_axis] = Max(0.f, box->viewport.wh[main_axis] - free_space);
@@ -854,12 +897,12 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		f32 perp_available = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
 		f32 perp_size = child->arranged_size.xy[perp_axis];
 		rect_f32 child_rect = {};
-		child_rect.xy[main_axis] = cursor + main_before;
+		child_rect.xy[main_axis] = ui_box__is_absolute(child, main_axis) ? box->viewport.xy[main_axis] + child->desc.position[main_axis].value - box->scroll_offset.xy[main_axis] : cursor + main_before;
 		child_rect.wh[main_axis] = child->arranged_size.xy[main_axis];
-		child_rect.xy[perp_axis] = box->viewport.xy[perp_axis] - box->scroll_offset.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
+		child_rect.xy[perp_axis] = ui_box__is_absolute(child, perp_axis) ? box->viewport.xy[perp_axis] + child->desc.position[perp_axis].value - box->scroll_offset.xy[perp_axis] : box->viewport.xy[perp_axis] - box->scroll_offset.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
 		child_rect.wh[perp_axis] = perp_size;
 		ui_box__layout(child, child_rect, child_clip);
-		cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;
+		if (!ui_box__is_absolute(child, main_axis)) cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;
 	}
 	ui_box__finish_layout(box);
 }
