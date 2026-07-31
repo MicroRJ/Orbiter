@@ -21,22 +21,22 @@ static b32 ui_box__is_absolute(const UI_Box *box, AXIS axis)
 	return box->desc.position[axis].kind == UI_BOX_POSITION_ABSOLUTE;
 }
 
-UI_BoxSize ui_box_content(void)
+UI_BoxSize ui_wrap(void)
 {
 	return (UI_BoxSize) { .kind = UI_BOX_SIZE_CONTENT };
 }
 
-UI_BoxSize ui_box_pixels(f32 value)
+UI_BoxSize ui_fixed(f32 value)
 {
 	return (UI_BoxSize) { .kind = UI_BOX_SIZE_PIXELS, .value = Max(0.f, value) };
 }
 
-UI_BoxSize ui_box_fill(f32 grow)
+UI_BoxSize ui_grow(f32 grow)
 {
 	return (UI_BoxSize) { .kind = UI_BOX_SIZE_FILL, .grow = Max(0.f, grow) };
 }
 
-UI_BoxSize ui_box_flex(f32 grow, f32 shrink)
+UI_BoxSize ui_flex(f32 grow, f32 shrink)
 {
 	return (UI_BoxSize) {
 		.kind = UI_BOX_SIZE_CONTENT,
@@ -45,7 +45,7 @@ UI_BoxSize ui_box_flex(f32 grow, f32 shrink)
 	};
 }
 
-UI_BoxDesc ui_box_desc(void)
+UI_BoxDesc ui_defaults(void)
 {
 	return (UI_BoxDesc) {
 		.size = { { .kind = UI_BOX_SIZE_CONTENT }, { .kind = UI_BOX_SIZE_CONTENT } },
@@ -54,7 +54,7 @@ UI_BoxDesc ui_box_desc(void)
 	};
 }
 
-static UI_BoxPaintDesc ui_box__paint_desc(void)
+UI_BoxPaintDesc ui_default_paint(void)
 {
 	return (UI_BoxPaintDesc) {
 		.border_width = 1.f,
@@ -116,8 +116,8 @@ UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *u
 	memory_zero(builder, sizeof(*builder));
 	builder->arena = arena;
 	builder->ui = ui;
-	builder->desc = ui_box_desc();
-	builder->paint = ui_box__paint_desc();
+	builder->desc = ui_defaults();
+	builder->paint = ui_default_paint();
 	builder->id = ui_id_child(UI_ID_NONE, root_key);
 	builder->root = ui_box__allocate_box(builder, builder->id, root_key, root_name, root_desc);
 	builder->parent = builder->root;
@@ -261,8 +261,8 @@ void ui_builder_rect(UI_BoxBuilder *builder, rect_f32 rect)
 	Assert(builder);
 	ui_builder_position(builder, AXIS_X, rect.x);
 	ui_builder_position(builder, AXIS_Y, rect.y);
-	ui_builder_size(builder, AXIS_X, ui_box_pixels(rect.w));
-	ui_builder_size(builder, AXIS_Y, ui_box_pixels(rect.h));
+	ui_builder_size(builder, AXIS_X, ui_fixed(rect.w));
+	ui_builder_size(builder, AXIS_Y, ui_fixed(rect.h));
 }
 
 void ui_builder_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
@@ -348,6 +348,12 @@ void ui_builder_emission(UI_BoxBuilder *builder, f32 emission)
 	builder->paint.emission = Max(0.f, emission);
 }
 
+void ui_builder_paint_z(UI_BoxBuilder *builder, i32 z)
+{
+	Assert(builder);
+	builder->paint.z = z;
+}
+
 static UI_BoxBuilder *ui_box__builder(UI_Context *ui)
 {
 	Assert(ui);
@@ -358,17 +364,33 @@ static UI_BoxBuilder *ui_box__builder(UI_Context *ui)
 
 UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc)
 {
+	static const UI_Key overlay_root_key = 0x4F5645524C415900ull;
 	Assert(ui);
 	Assert(!ui->builder);
+	Assert(!ui->root);
+	Assert(!ui->overlay_root);
 	UI_BoxBuilder *builder = arena_push_zero(&ui->frame_arena, sizeof(*builder));
 	ui->builder = builder;
-	return ui_box_builder_begin(builder, &ui->frame_arena, ui, root_key, root_name, root_desc);
+	UI_Box *root = ui_box_builder_begin(builder, &ui->frame_arena, ui, root_key, root_name, root_desc);
+	ui->root = root;
+
+	UI_BoxDesc overlay_desc = ui_defaults();
+	overlay_desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
+	overlay_desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
+	UI_Id overlay_id = ui_id_child(root->id, overlay_root_key);
+	ui->overlay_root = ui_box__allocate_box(builder, overlay_id, overlay_root_key, LIT("UI overlay root"), overlay_desc);
+	return root;
 }
 
 UI_Box *ui_build_end(UI_Context *ui)
 {
 	UI_BoxBuilder *builder = ui_box__builder(ui);
+	Assert(!ui->tooltip_open);
 	UI_Box *root = ui_box_builder_end(builder);
+	for (UI_Box *child = root->first; child; child = child->next) {
+		Assert(!ui_id_equal(child->id, ui->overlay_root->id));
+	}
+	ui_box__append_child(root, ui->overlay_root);
 	ui->builder = 0;
 	return root;
 }
@@ -506,6 +528,11 @@ void ui_edge_softness(UI_Context *ui, f32 edge_softness)
 void ui_emission(UI_Context *ui, f32 emission)
 {
 	ui_builder_emission(ui_box__builder(ui), emission);
+}
+
+void ui_paint_z(UI_Context *ui, i32 z)
+{
+	ui_builder_paint_z(ui_box__builder(ui), z);
 }
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
@@ -712,8 +739,10 @@ static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 on
 		.root = box,
 		.parent = box,
 		.id = box->id,
-		.desc = ui_box_desc(),
+		.desc = ui_defaults(),
+		.paint = ui_default_paint(),
 	};
+	builder.paint.z = box->paint.z;
 	UI_BoxBuilder *previous_builder = box->ui->builder;
 	box->ui->builder = &builder;
 	ui_box__clear_children(box);

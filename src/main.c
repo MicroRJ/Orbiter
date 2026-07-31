@@ -909,10 +909,10 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 {
 	Assert(frame);
 	AppShell shell = {};
-	UI_BoxDesc root_desc = ui_box_desc();
+	UI_BoxDesc root_desc = ui_defaults();
 	root_desc.axis = AXIS_Y;
-	root_desc.size[AXIS_X] = ui_box_fill(1.f);
-	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
+	root_desc.size[AXIS_X] = ui_grow(1.f);
+	root_desc.size[AXIS_Y] = ui_grow(1.f);
 	shell.root = ui_build_begin(app.ui, UI_KEY("application shell"), LIT("application shell"), root_desc);
 
 	f32 status_height = app.ui->theme.code.size + 8.f;
@@ -921,19 +921,19 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 
 	ui_push(app.ui);
 	ui_axis(app.ui, AXIS_X);
-	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(app.ui, AXIS_Y, ui_box_pixels(status_height));
+	ui_size(app.ui, AXIS_X, ui_grow(1.f));
+	ui_size(app.ui, AXIS_Y, ui_fixed(status_height));
 	ui_padd(app.ui, AXIS_X, 6.f, 6.f);
 	shell.top = ui_box_begin(app.ui, 1, LIT("top status"));
 	ui_pop(app.ui);
 
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	style.color = app.ui->theme.palette.cyan;
 	app_status_text(app.ui, 1, LIT("ORBITER"), style, app.ui->theme.palette.emission_medium);
 
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	style.color = app.ui->theme.text_subtle;
 	app_status_text(app.ui, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
 	ui_pop(app.ui);
@@ -976,12 +976,12 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	if (app.apu_muted) app_status_text(app.ui, 5, LIT("   MUTED"), style, 0.f);
 
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_box_make(app.ui, 6, LIT("top spacer"));
 	ui_pop(app.ui);
 
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	style.align.x = 0.f;
 	ui_text_box_sized(app.ui, 7, style, LIT("FPS 999.9"), "FPS %02.2f", app.frames_per_second);
 	ui_pop(app.ui);
@@ -992,8 +992,8 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	ui_box_end(app.ui);
 
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(app.ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_X, ui_grow(1.f));
+	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	shell.panel_host = ui_box_begin(app.ui, 2, LIT("panel host"));
 	ui_pop(app.ui);
 
@@ -1005,27 +1005,27 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 
 	ui_push(app.ui);
 	ui_axis(app.ui, AXIS_X);
-	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(app.ui, AXIS_Y, ui_box_pixels(status_height));
+	ui_size(app.ui, AXIS_X, ui_grow(1.f));
+	ui_size(app.ui, AXIS_Y, ui_fixed(status_height));
 	ui_padd(app.ui, AXIS_X, 6.f, 6.f);
 	shell.bottom = ui_box_begin(app.ui, 3, LIT("bottom status"));
 	ui_pop(app.ui);
 
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	String rom_name = app_rom_name(app.last_rom_path);
 	String bottom_left = rom_name.size ? push_formatted(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	style.align.x = 0.f;
 	app_status_text(app.ui, 1, bottom_left, style, 0.f);
 	ui_pop(app.ui);
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_box_make(app.ui, 2, LIT("bottom spacer"));
 	ui_pop(app.ui);
 	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_box_flex(0.f, 3.f));
+	ui_size(app.ui, AXIS_X, ui_flex(0.f, 3.f));
 	style.align.x = 1.f;
 	app_status_text(app.ui, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
 	ui_pop(app.ui);

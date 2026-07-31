@@ -87,6 +87,7 @@ enum
 {
 	UI_BOX_DRAW_BACKGROUND = 1 << 0,
 	UI_BOX_DRAW_BORDER     = 1 << 1,
+	UI_BOX_DRAW_BACKDROP   = 1 << 2,
 };
 
 typedef struct
@@ -98,6 +99,7 @@ typedef struct
 	f32 roundness;
 	f32 edge_softness;
 	f32 emission;
+	i32 z;
 }
 UI_BoxPaintDesc;
 
@@ -224,21 +226,25 @@ struct UI_BoxBuilder
 	u32 desc_count;
 };
 
-UI_BoxSize ui_box_content(void);
-UI_BoxSize ui_box_pixels(f32 value);
-UI_BoxSize ui_box_fill(f32 grow);
-UI_BoxSize ui_box_flex(f32 grow, f32 shrink);
-UI_BoxDesc ui_box_desc(void);
+UI_BoxSize ui_wrap(void);
+UI_BoxSize ui_fixed(f32 value);
+UI_BoxSize ui_grow(f32 grow);
+UI_BoxSize ui_flex(f32 grow, f32 shrink);
+UI_BoxDesc ui_defaults(void);
+UI_BoxPaintDesc ui_default_paint(void);
 
 UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc);
 UI_Box *ui_build_end(UI_Context *ui);
 UI_Box *ui_box_make(UI_Context *ui, UI_Key key, String name);
+
+void ui_box_end(UI_Context *ui);
 UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, String name);
+
 UI_Box *ui_box_make_virtual_list(UI_Context *ui, UI_Key key, String name, UI_BoxVirtualListDesc list);
 UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc);
 UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc);
 UI_Box *ui_box_make_virtual_list_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list);
-void ui_box_end(UI_Context *ui);
+
 void ui_box_push_id(UI_Context *ui, UI_Key key);
 void ui_box_pop_id(UI_Context *ui);
 
@@ -260,6 +266,7 @@ void ui_border(UI_Context *ui, Color_SRGBA color, f32 width);
 void ui_roundness(UI_Context *ui, f32 roundness);
 void ui_edge_softness(UI_Context *ui, f32 edge_softness);
 void ui_emission(UI_Context *ui, f32 emission);
+void ui_paint_z(UI_Context *ui, i32 z);
 
 // Low-level builder API used by the box implementation and its focused tests.
 UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc);
@@ -291,6 +298,7 @@ void ui_builder_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width);
 void ui_builder_roundness(UI_BoxBuilder *builder, f32 roundness);
 void ui_builder_edge_softness(UI_BoxBuilder *builder, f32 edge_softness);
 void ui_builder_emission(UI_BoxBuilder *builder, f32 emission);
+void ui_builder_paint_z(UI_BoxBuilder *builder, i32 z);
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints);
 void ui_box_layout(UI_Box *box, rect_f32 rect);

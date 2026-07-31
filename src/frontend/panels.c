@@ -428,11 +428,11 @@ static UI_BoxDesc panel_leaf_desc(rect_f32 rect, vec2 root_position)
 {
 	rect.x -= root_position.x;
 	rect.y -= root_position.y;
-	UI_BoxDesc desc = ui_box_desc();
+	UI_BoxDesc desc = ui_defaults();
 	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE, .value = rect.x };
 	desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE, .value = rect.y };
-	desc.size[AXIS_X] = ui_box_pixels(rect.w);
-	desc.size[AXIS_Y] = ui_box_pixels(rect.h);
+	desc.size[AXIS_X] = ui_fixed(rect.w);
+	desc.size[AXIS_Y] = ui_fixed(rect.h);
 	desc.horz_padd[0] = desc.horz_padd[1] = 3.f;
 	desc.vert_padd[0] = desc.vert_padd[1] = 3.f;
 	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
@@ -492,9 +492,9 @@ UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame,
 	panels_handle_commands(panels, window);
 	panel_update_interaction(panels, window, frame->ui, panels->root, rect);
 
-	UI_BoxDesc desc = ui_box_desc();
-	desc.size[AXIS_X] = ui_box_fill(1.f);
-	desc.size[AXIS_Y] = ui_box_fill(1.f);
+	UI_BoxDesc desc = ui_defaults();
+	desc.size[AXIS_X] = ui_grow(1.f);
+	desc.size[AXIS_Y] = ui_grow(1.f);
 	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
 	UI_Box *root = ui_box_begin_desc(frame->ui, UI_KEY("panels"), LIT("panels"), desc);

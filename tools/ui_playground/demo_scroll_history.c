@@ -24,12 +24,12 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 
 	UI_BoxDesc header = playground_fill_desc();
 	header.axis = AXIS_X;
-	header.size[AXIS_Y] = ui_box_pixels(52.f);
+	header.size[AXIS_Y] = ui_fixed(52.f);
 	header.horz_padd[0] = header.horz_padd[1] = 16.f;
 	header.vert_padd[0] = header.vert_padd[1] = 8.f;
 	header.gap = 8.f;
 	playground_begin_box(ui, 7000, LIT(""), header, slate, false);
-	UI_BoxDesc header_text = ui_box_desc();
+	UI_BoxDesc header_text = ui_defaults();
 	header_text.perp_align = 0.5f;
 	ui_text_box_string_desc(ui, 1, header_text, title, LIT("SCROLL HISTORY LAB"));
 	ui_text_box_string_desc(ui, 2, header_text, subtle, LIT("|  ONE VIRTUAL LIST + ONE BOX SCROLLBAR"));
@@ -47,14 +47,14 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_box_begin_desc(ui, 7001, LIT(""), body);
 
 	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_min_size(ui, AXIS_X, 360.f);
 	UI_Scroll *scroll = ui_scroll_begin(ui, 7100, AXIS_Y);
 	if (reset_scroll || reset_button.pressed) ui_scroll_reset(scroll);
 
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_padd(ui, AXIS_X, density.card_padding, density.card_padding);
 	ui_padd(ui, AXIS_Y, density.card_padding, density.card_padding);
 	ui_gap(ui, 6.f);
@@ -82,14 +82,14 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 
 	UI_BoxDesc state_panel = playground_fill_desc();
 	state_panel.axis = AXIS_Y;
-	state_panel.size[AXIS_X] = ui_box_pixels(330.f);
+	state_panel.size[AXIS_X] = ui_fixed(330.f);
 	state_panel.horz_padd[0] = state_panel.horz_padd[1] = density.card_padding;
 	state_panel.vert_padd[0] = state_panel.vert_padd[1] = density.card_padding;
 	state_panel.gap = 8.f;
 	playground_begin_box(ui, 7200, LIT(""), state_panel, panel, false);
 
 	UI_BoxDesc line = playground_fill_desc();
-	line.size[AXIS_Y] = ui_box_pixels(22.f);
+	line.size[AXIS_Y] = ui_fixed(22.f);
 	ui_text_box_string_desc(ui, 1, line, title, LIT("PERSISTENT STATE"));
 	ui_text_box_string_desc(ui, 2, line, input_ready ? title : accent, input_ready ? LIT("input source: previous frame") : LIT("input source: unavailable"));
 	ui_text_box_string_desc(ui, 3, line, text, push_formatted(arena, "offset          %9.2f", scroll->offset));
@@ -103,7 +103,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_text_box_string_desc(ui, 11, line, text, push_formatted(arena, "thumb y / h  %7.2f / %7.2f", thumb_previous->rect.y, thumb_previous->rect.h));
 
 	UI_BoxDesc divider = playground_fill_desc();
-	divider.size[AXIS_Y] = ui_box_pixels(2.f);
+	divider.size[AXIS_Y] = ui_fixed(2.f);
 	playground_make_box(ui, 12, LIT(""), divider, color_srgba_mix(teal, panel, 0.35f), false);
 	ui_text_box_string_desc(ui, 13, line, title, LIT("FRAME PIPELINE"));
 
@@ -120,7 +120,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_box_end(ui);
 
 	UI_BoxDesc footer = playground_fill_desc();
-	footer.size[AXIS_Y] = ui_box_pixels(42.f);
+	footer.size[AXIS_Y] = ui_fixed(42.f);
 	footer.horz_padd[0] = footer.horz_padd[1] = 14.f;
 	footer.vert_padd[0] = footer.vert_padd[1] = 8.f;
 	playground_make_box(ui, 7300, LIT("WHEEL / DRAG  |  R: RESET HISTORY  |  TAB: NEXT MODE  |  SPACE: DENSITY"), footer, color_srgba_mix(amber, slate, 0.55f), false);

@@ -151,6 +151,10 @@ void ui_begin_frame(UI_Context *ui)
 		ui_invalidate_layout(ui);
 	}
 	arena_reset(&ui->frame_arena);
+	ui->root = 0;
+	ui->overlay_root = 0;
+	ui->tooltip_box = 0;
+	ui->tooltip_open = false;
 	ui->mouse = v2_from_v2i(ui->window->mouse_position);
 	ui->hot = UI_ID_NONE;
 }

@@ -7,7 +7,7 @@ static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI
 	ui_box_push_id(ui, key);
 	ui_push(ui);
 	ui_axis(ui, AXIS_X);
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_gap(ui, 8.f);
 	ui_padd(ui, AXIS_Y, 4.f, 4.f);
 	ui_box_begin(ui, 1, LIT("CPU field"));
@@ -20,7 +20,7 @@ static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI
 	String value = push_formatted_v(&ui->frame_arena, format, arguments);
 	va_end(arguments);
 	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
 	if (sizing_text.size) ui_text_box_sized_string(ui, 2, value_style, sizing_text, value);
 	else ui_text_box_string(ui, 2, value_style, value);
 	ui_pop(ui);
@@ -33,7 +33,7 @@ static void cpu_view_register_row_begin(UI_Context *ui, u64 key)
 {
 	ui_push(ui);
 	ui_axis(ui, AXIS_X);
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_box_begin(ui, key, LIT("CPU register row"));
 	ui_pop(ui);
 }
@@ -42,7 +42,7 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 {
 	ui_push(ui);
 	ui_axis(ui, AXIS_Y);
-	ui_size(ui, AXIS_X, ui_box_flex(1.f, 1.f));
+	ui_size(ui, AXIS_X, ui_flex(1.f, 1.f));
 	ui_min_size(ui, AXIS_X, 12.f);
 	ui_max_size(ui, AXIS_X, 44.f);
 	ui_padd(ui, AXIS_X, 4.f, 4.f);
@@ -52,7 +52,7 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 	ui_pop(ui);
 
 	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
 	label_style.align.x = 0.5f;
 	ui_text_box(ui, 1, label_style, "%c", name);
 	value_style.align.x = 0.5f;
@@ -88,20 +88,20 @@ static void cpu_view_content(ViewFrameData *frame)
 	UI_TextStyle section_style = frame->ui->theme.code;
 	section_style.color = frame->ui->theme.text_neutral;
 
-	UI_BoxDesc root_desc = ui_box_desc();
-	root_desc.size[AXIS_X] = ui_box_fill(1.f);
-	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
+	UI_BoxDesc root_desc = ui_defaults();
+	root_desc.size[AXIS_X] = ui_grow(1.f);
+	root_desc.size[AXIS_Y] = ui_grow(1.f);
 	ui_box_begin_desc(frame->ui, ui_key_child(UI_KEY("CPU view"), frame->view->id), LIT("CPU view"), root_desc);
 
 	ui_push(frame->ui);
-	ui_size(frame->ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(frame->ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
+	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
 	UI_Scroll *scroll = ui_scroll_begin(frame->ui, 1, AXIS_Y);
 
 	ui_push(frame->ui);
 	ui_axis(frame->ui, AXIS_Y);
-	ui_size(frame->ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(frame->ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
+	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
 	ui_padd(frame->ui, AXIS_X, 12.f, 0.f);
 	ui_padd(frame->ui, AXIS_Y, 12.f, 12.f);
 	ui_overflow(frame->ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
@@ -131,7 +131,7 @@ static void cpu_view_content(ViewFrameData *frame)
 
 	ui_push(frame->ui);
 	ui_axis(frame->ui, AXIS_X);
-	ui_size(frame->ui, AXIS_X, ui_box_fill(1.f));
+	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 	ui_gap(frame->ui, 4.f);
 	ui_box_begin(frame->ui, 5, LIT("CPU status flags"));
 	ui_pop(frame->ui);

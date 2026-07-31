@@ -19,6 +19,20 @@ typedef struct
 }
 UI_BoxTableData;
 
+typedef struct
+{
+	UI_Box *previous_parent;
+	UI_Id previous_id;
+	UI_Id overlay_id;
+	u32 parent_count;
+	u32 id_count;
+	u32 desc_count;
+	vec2 anchor;
+	vec2 offset;
+	f32 margin;
+}
+UI_TooltipData;
+
 static vec2 ui_box__measure_text(UI_Box *box, UI_BoxConstraints constraints)
 {
 	(void)constraints;
@@ -55,8 +69,13 @@ void ui_box_paint(UI_Box *box)
 	b32 has_paint = paint->flags || box->ops && box->ops->paint;
 	if (!has_paint) return;
 
+	b32 pushed_z = paint->z != UI_Z_CONTENT;
+	if (pushed_z) ui_push_z(ui, paint->z);
 	if (paint->emission > 0.f) ui_push_emission(ui, paint->emission);
 	ui_push_clip(ui, box->clip_rect);
+	if (paint->flags & UI_BOX_DRAW_BACKDROP) {
+		ui_draw_backdrop(ui, box->rect);
+	}
 	if (paint->flags & UI_BOX_DRAW_BACKGROUND)
 	{
 		Draw_Command *command = ui_draw_rect(ui, box->rect, paint->background);
@@ -69,6 +88,7 @@ void ui_box_paint(UI_Box *box)
 	if (box->ops && box->ops->paint) box->ops->paint(box);
 	ui_pop_clip(ui);
 	if (paint->emission > 0.f) ui_pop_emission(ui);
+	if (pushed_z) ui_pop_z(ui);
 }
 
 static UI_Box *ui_box__make_text(UI_Context *ui, UI_Key key, UI_BoxDesc *desc, UI_TextStyle style, String sizing_string, String string)
@@ -160,13 +180,14 @@ UI_Response ui_button(UI_Context *ui, UI_Key key, String text)
 	UI_TextStyle style = ui->theme.code;
 	style.align = v2(0.5f, 0.5f);
 
-	UI_BoxDesc desc = ui_box_desc();
+	UI_BoxDesc desc = ui_defaults();
 	desc.horz_padd[0] = desc.horz_padd[1] = 10.f;
 	desc.vert_padd[0] = desc.vert_padd[1] = 6.f;
 	UI_Box *box = ui_text_box_string_desc(ui, key, desc, style, text);
 	UI_Response response = ui_signal_from_box(box);
 
 	UI_Palette *palette = &ui->theme.palette;
+	i32 paint_z = box->paint.z;
 	box->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND | UI_BOX_DRAW_BORDER,
 		.background = palette->raised,
@@ -174,6 +195,7 @@ UI_Response ui_button(UI_Context *ui, UI_Key key, String text)
 		.border_width = 1.f,
 		.roundness = 3.f,
 		.edge_softness = 0.5f,
+		.z = paint_z,
 	};
 	if (response.hovered)
 	{
@@ -186,6 +208,118 @@ UI_Response ui_button(UI_Context *ui, UI_Key key, String text)
 		box->paint.border = palette->teal;
 	}
 	return response;
+}
+
+static void ui_tooltip__prepare_layout(UI_Box *box)
+{
+	UI_TooltipData *tooltip = box->content;
+	Assert(tooltip);
+
+	rect_f32 bounds = box->clip_rect;
+	vec2 preferred = v2_add(tooltip->anchor, tooltip->offset);
+	vec2 position = {};
+	for (AXIS axis = AXIS_X; axis <= AXIS_Y; ++axis)
+	{
+		f32 margin = Min(tooltip->margin, Max(0.f, bounds.wh[axis]) * 0.5f);
+		f32 minimum = bounds.xy[axis] + margin;
+		f32 maximum = bounds.xy[axis] + bounds.wh[axis] - margin - box->rect.wh[axis];
+		position.xy[axis] = CLAMP(preferred.xy[axis], minimum, Max(minimum, maximum));
+	}
+
+	vec2 delta = v2_sub(position, box->rect.pos);
+	box->rect.pos = position;
+	box->viewport.pos = v2_add(box->viewport.pos, delta);
+}
+
+static const UI_BoxHooks ui_tooltip__ops = {
+	.prepare_layout = ui_tooltip__prepare_layout,
+};
+
+static void ui_tooltip__raise_subtree(UI_Box *box)
+{
+	box->paint.z = Max(box->paint.z, UI_Z_OVERLAY);
+	for (UI_Box *child = box->first; child; child = child->next) {
+		ui_tooltip__raise_subtree(child);
+	}
+}
+
+UI_Box *ui_tooltip_begin(UI_Context *ui, UI_Key owner_key, vec2 screen_anchor)
+{
+	Assert(ui);
+	Assert(ui->builder);
+	Assert(ui->overlay_root);
+	if (ui->builder->root != ui->root) return 0;
+	if (ui->tooltip_box) return 0;
+	Assert(!ui->tooltip_open);
+
+	UI_BoxBuilder *builder = ui->builder;
+	UI_TooltipData *tooltip = arena_push_zero(builder->arena, sizeof(*tooltip));
+	tooltip->previous_parent = builder->parent;
+	tooltip->previous_id = builder->id;
+	tooltip->overlay_id = ui_id_child(ui->overlay_root->id, tooltip->previous_id.value);
+	tooltip->parent_count = builder->parent_count;
+	tooltip->id_count = builder->id_count;
+	tooltip->desc_count = builder->desc_count;
+	tooltip->anchor = screen_anchor;
+	tooltip->offset = v2(14.f, 18.f);
+	tooltip->margin = 8.f;
+
+	ui_builder_push(builder);
+	builder->parent = ui->overlay_root;
+	builder->id = tooltip->overlay_id;
+	builder->desc = ui_defaults();
+	builder->paint = ui_default_paint();
+	builder->paint.z = UI_Z_OVERLAY;
+
+	vec2 window_size = v2_from_v2i(ui->window->size);
+	UI_BoxDesc desc = ui_defaults();
+	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
+	desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
+	desc.max_size = v2(Max(0.f, window_size.x - tooltip->margin * 2.f), Max(0.f, window_size.y - tooltip->margin * 2.f));
+	desc.horz_padd[0] = desc.horz_padd[1] = 8.f;
+	desc.vert_padd[0] = desc.vert_padd[1] = 6.f;
+	desc.gap = 2.f;
+	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
+	desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+
+	UI_Box *box = ui_builder_box_begin_desc(builder, owner_key, LIT("tooltip"), desc);
+	box->ops = &ui_tooltip__ops;
+	box->content = tooltip;
+	box->paint.flags = UI_BOX_DRAW_BACKDROP;
+	box->paint.roundness = 5.f;
+
+	ui->tooltip_box = box;
+	ui->tooltip_open = true;
+	return box;
+}
+
+void ui_tooltip_end(UI_Context *ui)
+{
+	Assert(ui);
+	Assert(ui->builder);
+	Assert(ui->tooltip_box);
+	Assert(ui->tooltip_open);
+
+	UI_BoxBuilder *builder = ui->builder;
+	UI_Box *box = ui->tooltip_box;
+	UI_TooltipData *tooltip = box->content;
+	Assert(tooltip);
+	Assert(builder->parent == box);
+	Assert(builder->parent_count == tooltip->parent_count + 1);
+	Assert(builder->id_count == tooltip->id_count);
+	Assert(builder->desc_count == tooltip->desc_count + 1);
+
+	ui_builder_box_end(builder);
+	Assert(builder->parent == ui->overlay_root);
+	Assert(builder->parent_count == tooltip->parent_count);
+	Assert(ui_id_equal(builder->id, tooltip->overlay_id));
+	ui_tooltip__raise_subtree(box);
+	ui_builder_pop(builder);
+	builder->parent = tooltip->previous_parent;
+	builder->id = tooltip->previous_id;
+
+	Assert(builder->desc_count == tooltip->desc_count);
+	ui->tooltip_open = false;
 }
 
 static const u64 UI_SCROLL_TRACK_KEY = 0x5343524F4C4C4241ull;
@@ -213,9 +347,9 @@ static void ui_scroll__size_bar(UI_Scroll *scroll, f32 track_extent, f32 viewpor
 		thumb_offset = travel * CLAMP(ratio, 0.f, 1.f);
 	}
 
-	scroll->space_before->desc.size[axis] = ui_box_fill(thumb_offset);
-	scroll->thumb->desc.size[axis] = ui_box_fill(thumb_extent);
-	scroll->space_after->desc.size[axis] = ui_box_fill(Max(track_extent - thumb_offset - thumb_extent, 0.f));
+	scroll->space_before->desc.size[axis] = ui_grow(thumb_offset);
+	scroll->thumb->desc.size[axis] = ui_grow(thumb_extent);
+	scroll->space_after->desc.size[axis] = ui_grow(Max(track_extent - thumb_offset - thumb_extent, 0.f));
 }
 
 static void ui_scroll__prepare_track(UI_Box *box)
@@ -259,7 +393,7 @@ UI_Scroll *ui_scroll_begin(UI_Context *ui, UI_Key key, AXIS axis)
 	scroll->root = ui_box_begin_desc(ui, key, LIT("scroll"), root_desc);
 
 	ui_push(ui);
-	builder->desc = ui_box_desc();
+	builder->desc = ui_defaults();
 	return scroll;
 }
 
@@ -294,35 +428,38 @@ void ui_scroll_end(UI_Scroll *scroll)
 
 	scroll->viewport = scroll->root->first;
 	Assert(scroll->viewport == scroll->root->last);
-	scroll->viewport->desc.size[perp] = ui_box_fill(1.f);
+	scroll->viewport->desc.size[perp] = ui_grow(1.f);
 	scroll->viewport->desc.min_size.xy[perp] = 0.f;
 	scroll->viewport->desc.max_size.xy[perp] = UI_BOX_INFINITY;
 	scroll->viewport->desc.overflow[axis] = UI_BOX_OVERFLOW_SCROLL;
 
-	UI_BoxDesc track = ui_box_desc();
+	UI_BoxDesc track = ui_defaults();
 	track.axis = axis;
-	track.size[axis] = ui_box_fill(1.f);
+	track.size[axis] = ui_grow(1.f);
 	track.padd[axis][0] = track.padd[axis][1] = 3.f;
 	track.padd[perp][0] = track.padd[perp][1] = 3.f;
-	track.size[perp] = ui_box_pixels(12.f);
+	track.size[perp] = ui_fixed(12.f);
 	scroll->track = ui_box_begin_desc(ui, UI_SCROLL_TRACK_KEY, LIT(""), track);
 
-	UI_BoxDesc piece = ui_box_desc();
-	piece.size[AXIS_X] = ui_box_fill(1.f);
-	piece.size[AXIS_Y] = ui_box_fill(1.f);
-	piece.size[axis] = ui_box_fill(0.f);
+	UI_BoxDesc piece = ui_defaults();
+	piece.size[AXIS_X] = ui_grow(1.f);
+	piece.size[AXIS_Y] = ui_grow(1.f);
+	piece.size[axis] = ui_grow(0.f);
 	scroll->space_before = ui_box_make_desc(ui, UI_SCROLL_SPACE_BEFORE_KEY, LIT(""), piece);
-	piece.size[axis] = ui_box_fill(1.f);
+	piece.size[axis] = ui_grow(1.f);
 	scroll->thumb = ui_box_make_desc(ui, UI_SCROLL_THUMB_KEY, LIT(""), piece);
-	piece.size[axis] = ui_box_fill(0.f);
+	piece.size[axis] = ui_grow(0.f);
 	scroll->space_after = ui_box_make_desc(ui, UI_SCROLL_SPACE_AFTER_KEY, LIT(""), piece);
 	ui_box_end(ui);
 
+	i32 track_z = scroll->track->paint.z;
+	i32 thumb_z = scroll->thumb->paint.z;
 	scroll->track->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND,
 		.background = ui->theme.slider_track,
 		.roundness = 0.5f,
 		.edge_softness = 0.5f,
+		.z = track_z,
 	};
 	scroll->space_before->paint = (UI_BoxPaintDesc) {};
 	scroll->thumb->paint = (UI_BoxPaintDesc) {
@@ -330,6 +467,7 @@ void ui_scroll_end(UI_Scroll *scroll)
 		.background = ui->theme.slider_thumb,
 		.roundness = 0.5f,
 		.edge_softness = 0.5f,
+		.z = thumb_z,
 	};
 	scroll->space_after->paint = (UI_BoxPaintDesc) {};
 
@@ -431,7 +569,7 @@ static vec2 ui_box__measure_table(UI_Box *box, UI_BoxConstraints constraints)
 		for (UI_Box *cell = row->first; cell; cell = cell->next, column++)
 		{
 			Assert(column < table->column_count);
-			cell->desc.size[AXIS_X] = ui_box_content();
+			cell->desc.size[AXIS_X] = ui_wrap();
 			vec2 measured = ui_box_measure(cell, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, table->row_height) });
 			table->natural_widths[column] = Max(table->natural_widths[column], measured.x);
 		}
@@ -452,7 +590,7 @@ static vec2 ui_box__measure_table(UI_Box *box, UI_BoxConstraints constraints)
 		for (UI_Box *cell = row->first; cell; cell = cell->next, column++)
 		{
 			Assert(column < table->column_count);
-			cell->desc.size[AXIS_X] = ui_box_pixels(table->resolved_widths[column]);
+			cell->desc.size[AXIS_X] = ui_fixed(table->resolved_widths[column]);
 			cell->measured_size.x = cell->arranged_size.x = table->resolved_widths[column];
 		}
 		Assert(column == table->column_count);
@@ -502,7 +640,7 @@ static void ui_box__prepare_table_layout(UI_Box *box)
 		for (UI_Box *cell = row->first; cell; cell = cell->next, column++)
 		{
 			Assert(column < table->column_count);
-			cell->desc.size[AXIS_X] = ui_box_pixels(table->resolved_widths[column]);
+			cell->desc.size[AXIS_X] = ui_fixed(table->resolved_widths[column]);
 			cell->measured_size.x = cell->arranged_size.x = table->resolved_widths[column];
 		}
 		Assert(column == table->column_count);
@@ -548,10 +686,10 @@ UI_Box *ui_box_table_row_begin(UI_BoxTable *table, UI_Key key)
 	Assert(table);
 	Assert(table->ui);
 	Assert(!table->row);
-	UI_BoxDesc desc = ui_box_desc();
+	UI_BoxDesc desc = ui_defaults();
 	desc.axis = AXIS_X;
-	desc.size[AXIS_X] = ui_box_fill(1.f);
-	desc.size[AXIS_Y] = ui_box_pixels(table->desc.row_height);
+	desc.size[AXIS_X] = ui_grow(1.f);
+	desc.size[AXIS_Y] = ui_fixed(table->desc.row_height);
 	desc.gap = table->desc.column_gap;
 	table->row = ui_box_begin_desc(table->ui, key, LIT("table row"), desc);
 	table->column_index = 0;
@@ -574,8 +712,8 @@ UI_Box *ui_box_table_cell_begin(UI_BoxTable *table)
 	Assert(table->row);
 	Assert(!table->cell);
 	Assert(table->column_index < table->desc.column_count);
-	UI_BoxDesc desc = ui_box_desc();
-	desc.size[AXIS_Y] = ui_box_fill(1.f);
+	UI_BoxDesc desc = ui_defaults();
+	desc.size[AXIS_Y] = ui_grow(1.f);
 	desc.horz_padd[0] = desc.horz_padd[1] = table->desc.cell_padd.x;
 	desc.vert_padd[0] = desc.vert_padd[1] = table->desc.cell_padd.y;
 	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;

@@ -16,6 +16,14 @@ UI_Box *ui_text_box_sized_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc des
 
 UI_Response ui_button(UI_Context *ui, UI_Key key, String text);
 
+// Tooltip content is a box subtree painted after layout. Immediate ui_draw_*
+// calls are not part of that subtree. Only one tooltip is built per frame.
+// A null result means another tooltip already claimed the overlay or the call
+// came from a virtual-list callback that materializes during layout. Call
+// ui_tooltip_end only for a non-null result.
+UI_Box *ui_tooltip_begin(UI_Context *ui, UI_Key owner_key, vec2 screen_anchor);
+void ui_tooltip_end(UI_Context *ui);
+
 void ui_box_paint(UI_Box *box);
 
 typedef struct

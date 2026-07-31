@@ -21,14 +21,14 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, String title)
 	ui_pop_z(ui);
 
 	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(ui, AXIS_Y, ui_box_pixels(height + 24.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(height + 24.f));
 	ui_box_make(ui, 1, LIT("view header space"));
 	ui_pop(ui);
 
 	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_box_fill(1.f));
-	ui_size(ui, AXIS_Y, ui_box_fill(1.f));
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
 	result.content_box = ui_box_begin(ui, 2, LIT("view content"));

@@ -100,6 +100,10 @@ struct UI_Context
 	UI_BoxState *free_box_states;
 	u32        box_state_slot_count;
 	UI_BoxBuilder *builder;
+	UI_Box     *root;
+	UI_Box     *overlay_root;
+	UI_Box     *tooltip_box;
+	b32         tooltip_open;
 	u64        frame_index;
 	u64        layout_generation;
 	Seconds    previous_frame_time;
