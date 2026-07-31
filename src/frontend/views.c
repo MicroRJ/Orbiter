@@ -54,7 +54,6 @@ void view_build_ui(ViewFrameData *frame)
 		case VIEW_PROGRAM: program_view_build_ui(frame); break;
 		case VIEW_CPU: cpu_view_build_ui(frame); break;
 		case VIEW_PROFILER: profiler_view_build_ui(frame); break;
-		case VIEW_CPU_MAPPING: cpu_mapping_view_build_ui(frame); break;
 		case VIEW_PRG_ACTIVITY: prg_activity_view_build_ui(frame); break;
 		case VIEW_CHR_MAP: chr_map_view_build_ui(frame); break;
 		case VIEW_NONE:

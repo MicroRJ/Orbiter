@@ -119,7 +119,6 @@ objects := {
 	{ name = "view_cpu",          input = "src/frontend/view_cpu.c" },
 	{ name = "view_program",      input = "src/frontend/view_program.c" },
 	{ name = "view_profiler",     input = "src/frontend/view_profiler.c" },
-	{ name = "view_cpu_mapping",  input = "src/frontend/view_cpu_mapping.c" },
 	{ name = "view_prg_activity", input = "src/frontend/view_prg_activity.c" },
 	{ name = "view_video",        input = "src/frontend/view_video.c" },
 	{ name = "view_chr_map",      input = "src/frontend/view_chr_map.c" },

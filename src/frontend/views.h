@@ -15,7 +15,6 @@ typedef enum
 	VIEW_PROGRAM,
 	VIEW_CPU,
 	VIEW_PROFILER,
-	VIEW_CPU_MAPPING,
 	VIEW_PRG_ACTIVITY,
 	VIEW_CHR_MAP,
 	VIEW_COUNT,
@@ -145,7 +144,6 @@ void video_view_build_ui(ViewFrameData *frame);
 void program_view_build_ui(ViewFrameData *frame);
 void cpu_view_build_ui(ViewFrameData *frame);
 void profiler_view_build_ui(ViewFrameData *frame);
-void cpu_mapping_view_build_ui(ViewFrameData *frame);
 void prg_activity_view_build_ui(ViewFrameData *frame);
 void chr_map_view_build_ui(ViewFrameData *frame);
 

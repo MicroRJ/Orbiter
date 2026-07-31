@@ -19,7 +19,6 @@ static const char *view_type_names[VIEW_COUNT] = {
 	[VIEW_PROGRAM] = "program",
 	[VIEW_CPU] = "cpu",
 	[VIEW_PROFILER] = "profiler",
-	[VIEW_CPU_MAPPING] = "cpu_mapping",
 	[VIEW_PRG_ACTIVITY] = "prg_activity",
 	[VIEW_CHR_MAP] = "chr_map",
 };
@@ -348,13 +347,9 @@ static void panels_handle_commands(Panels *panels, OS_Window *window)
 	}
 	if (keys[OS_Key_5] & OS_KEY_RELEASED)
 	{
-		panel_open_view(panels, panel, VIEW_CPU_MAPPING);
-	}
-	if (keys[OS_Key_6] & OS_KEY_RELEASED)
-	{
 		panel_open_view(panels, panel, VIEW_PRG_ACTIVITY);
 	}
-	if (keys[OS_Key_7] & OS_KEY_RELEASED)
+	if (keys[OS_Key_6] & OS_KEY_RELEASED)
 	{
 		panel_open_view(panels, panel, VIEW_CHR_MAP);
 	}
