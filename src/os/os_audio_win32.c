@@ -115,27 +115,29 @@ u32 os_audio_writable_frames(void)
 {
 	if (!os_audio.client) return 0;
 	UINT32 padding = 0;
-	HRESULT hr = os_audio.client->lpVtbl->GetCurrentPadding(os_audio.client,
-		&padding);
+	HRESULT hr = os_audio.client->lpVtbl->GetCurrentPadding(os_audio.client, &padding);
 	if (FAILED(hr)) return 0;
 	return os_audio.buffer_frame_count - padding;
 }
 
 u32 os_audio_write_mono(const f32 *samples, u32 count)
 {
-	count = Min(count, os_audio_writable_frames());
-	if (!count) return 0;
-	BYTE *output = 0;
-	HRESULT hr = os_audio.renderer->lpVtbl->GetBuffer(os_audio.renderer,
-		count, &output);
-	if (FAILED(hr)) return 0;
-	for (u32 index = 0; index < count; ++index)
+	HRESULT hr;
+	PROF_BLOCK("os audio write mono")
 	{
-		for (u32 channel = 0; channel < os_audio.channel_count; ++channel) {
-			((f32 *)output)[index * os_audio.channel_count + channel] = samples[index];
+		count = Min(count, os_audio_writable_frames());
+		if (!count) return 0;
+		BYTE *output = 0;
+		hr = os_audio.renderer->lpVtbl->GetBuffer(os_audio.renderer, count, &output);
+		if (FAILED(hr)) return 0;
+		for (u32 index = 0; index < count; ++index)
+		{
+			for (u32 channel = 0; channel < os_audio.channel_count; ++channel) {
+				((f32 *)output)[index * os_audio.channel_count + channel] = samples[index];
+			}
 		}
+		hr = os_audio.renderer->lpVtbl->ReleaseBuffer(os_audio.renderer, count, 0);
 	}
-	hr = os_audio.renderer->lpVtbl->ReleaseBuffer(os_audio.renderer, count, 0);
 	return SUCCEEDED(hr) ? count : 0;
 }
 

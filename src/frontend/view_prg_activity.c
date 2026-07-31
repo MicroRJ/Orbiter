@@ -31,6 +31,13 @@ typedef struct
 }
 PRGActivityCellLocation;
 
+typedef struct
+{
+	ViewFrameData frame;
+	rect_f32 clip;
+}
+PRGActivityBoxData;
+
 static PRGActivityCellLocation prg_activity_cell_location(const PRGActivityGrid *grid, u32 cell_index)
 {
 	b32 ram = cell_index >= grid->rom_cell_count;
@@ -388,9 +395,29 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	prg_activity_draw_tooltip(frame, &grid, hovered_cell, hovered_cell_rect, program, program_size);
 }
 
+static void prg_activity_box_paint(UI_Box *box)
+{
+	PRGActivityBoxData *data = box->content;
+	Assert(data);
+	Assert(data->frame.ui == box->ui);
+	data->frame.rect = box->viewport;
+	data->frame.content_box = box;
+	ui_push_clip(box->ui, data->clip);
+	PROF_BLOCK("prg activity content") prg_activity_view_content(&data->frame);
+	ui_pop_clip(box->ui);
+}
+
+static const UI_BoxHooks prg_activity_box_hooks = {
+	.paint = prg_activity_box_paint,
+};
+
 void prg_activity_view_build_ui(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("PRG ACTIVITY - EXECUTION FLOW"));
-	PROF_BLOCK("prg activity content") prg_activity_view_content(&content);
+	PRGActivityBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
+	data->frame = content;
+	data->clip = frame->rect;
+	content.content_box->ops = &prg_activity_box_hooks;
+	content.content_box->content = data;
 	view_end_frame(&content);
 }
