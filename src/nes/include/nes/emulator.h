@@ -174,13 +174,11 @@ typedef struct
 }
 NES_APUState;
 
-typedef struct { u32 number; } NES_MapperId;
 typedef struct { u8 inputs[2]; } NES_InputState;
 
 typedef struct NES_State
 {
-	// IDK PROB REMOVE FROM HERE!?
-	NES_MapperId       mapper_number;
+	u32 mapper;
 	u32 num_chr_banks, num_prg_banks;
 	u32 prg_rom_size,  chr_rom_size;
 	u32 prg_bank_size, chr_bank_size;

@@ -39,11 +39,10 @@ static b32 nes_mapper_supported(u32 mapper)
 	return true;
 }
 
-static void nes_emulator_activate_mapper(NES_Emulator *core)
+static void nes_emulator_activate_mapper(NES_Emulator *emulator)
 {
-	u32 number = core->core.mapper_number.number;
-	Assert(nes_mapper_supported(number));
-	core->mapper = nes_mapper_classes[number];
+	Assert(nes_mapper_supported(emulator->core.mapper));
+	emulator->mapper = nes_mapper_classes[emulator->core.mapper];
 }
 
 static b32 nes_cartridge_supported(NES_CartridgeDesc cart)
@@ -82,10 +81,10 @@ static b32 nes_state_valid(const NES_State *state)
 	if (state->apu.reset_delay > 4)                              return false;
 	if (state->apu.step_index >= (state->apu.mode ? 5 : 4))      return false;
 	if (state->apu.triangle.wave_phase >= 32)                    return false;
-	if (!nes_mapper_supported(state->mapper_number.number))      return false;
-	if (state->mapper_number.number == 0 && state->num_prg_banks > 2) return false;
-	if (state->mapper_number.number == 9 && state->values[5] != 0xFD && state->values[5] != 0xFE) return false;
-	if (state->mapper_number.number == 9 && state->values[6] != 0xFD && state->values[6] != 0xFE) return false;
+	if (!nes_mapper_supported(state->mapper))                    return false;
+	if (state->mapper == 0 && state->num_prg_banks > 2) return false;
+	if (state->mapper == 9 && state->values[5] != 0xFD && state->values[5] != 0xFE) return false;
+	if (state->mapper == 9 && state->values[6] != 0xFD && state->values[6] != 0xFE) return false;
 	return true;
 }
 
@@ -242,7 +241,7 @@ b32 nes_emulator_load_cartridge(NES_Emulator *emulator, NES_CartridgeDesc cart)
 	emulator->core.num_chr_banks = cart.chr_rom.size / KiB(8);
 	emulator->core.prg_rom_size = cart.prg_rom.size;
 	emulator->core.chr_rom_size = cart.chr_rom.size;
-	emulator->core.mapper_number.number = cart.mapper;
+	emulator->core.mapper = cart.mapper;
 	emulator->core.vmirror = cart.vertical_mirroring;
 	nes_emulator_activate_mapper(emulator);
 	emulator->mapper.reset(emulator);
