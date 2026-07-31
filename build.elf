@@ -113,6 +113,7 @@ objects := {
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
+	{ name = "nes_target",         input = "src/frontend/nes_target.c" },
 	{ name = "execution_activity", input = "src/frontend/execution_activity.c" },
 	{ name = "gif_recorder",      input = "src/frontend/gif_recorder.c" },
 	{ name = "views",             input = "src/frontend/views.c" },

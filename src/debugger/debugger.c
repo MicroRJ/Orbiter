@@ -397,11 +397,6 @@ void debugger_capture_chr_map(const Debugger *debugger, NES_CHRMap *map)
 	nes_emulator_capture_chr_map(debugger->emulator, map);
 }
 
-u32 debugger_prg_rom_size(const Debugger *debugger)
-{
-	return nes_emulator_prg_rom_size(debugger->emulator);
-}
-
 const Program *debugger_program(const Debugger *debugger)
 {
 	return &debugger->program;

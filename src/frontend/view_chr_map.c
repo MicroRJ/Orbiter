@@ -28,7 +28,7 @@ CHRMapSelection;
 
 typedef struct
 {
-	const FrontendPublication *publication;
+	const NES_TargetSnapshot *publication;
 	GFX_Texture *texture;
 	CHRMapSelection selection;
 	b32 available;
@@ -62,13 +62,13 @@ static CHRMapLayout chr_map_layout(rect_f32 rect)
 	rect_f32 content = rect_f32_inset(rect, 10.f);
 	rect_f32 palettes = rect_f32_slice(&content, AXIS_Y, -40.f);
 	content.h = Max(0.f, content.h - 8.f);
-	f32 scale = Max(0.f, Min(content.w / CHR_MAP_TEXTURE_WIDTH, content.h / CHR_MAP_TEXTURE_HEIGHT));
-	rect_f32 atlas = rect_f32_align(content, v2(CHR_MAP_TEXTURE_WIDTH * scale, CHR_MAP_TEXTURE_HEIGHT * scale), v2(0.5f, 0.5f));
+	f32 scale = Max(0.f, Min(content.w / NES_TARGET_CHR_WIDTH, content.h / NES_TARGET_CHR_HEIGHT));
+	rect_f32 atlas = rect_f32_align(content, v2(NES_TARGET_CHR_WIDTH * scale, NES_TARGET_CHR_HEIGHT * scale), v2(0.5f, 0.5f));
 	return (CHRMapLayout) {
 		.palettes = palettes,
 		.atlas = atlas,
-		.patterns = { atlas.x, atlas.y, atlas.w, CHR_MAP_PATTERN_HEIGHT * scale },
-		.sprites = { atlas.x, atlas.y + CHR_MAP_PATTERN_HEIGHT * scale, atlas.w, CHR_MAP_SPRITE_HEIGHT * scale },
+		.patterns = { atlas.x, atlas.y, atlas.w, NES_TARGET_CHR_PATTERN_HEIGHT * scale },
+		.sprites = { atlas.x, atlas.y + NES_TARGET_CHR_PATTERN_HEIGHT * scale, atlas.w, NES_TARGET_CHR_SPRITE_HEIGHT * scale },
 	};
 }
 
@@ -87,23 +87,23 @@ static rect_f32 chr_map_tile_rect(CHRMapLayout layout, u32 tile_index)
 	};
 }
 
-static rect_f32 chr_map_sprite_rect(CHRMapLayout layout, const FrontendSprite *sprite)
+static rect_f32 chr_map_sprite_rect(CHRMapLayout layout, const NES_TargetSprite *sprite)
 {
 	rect_i32 region = sprite->selection_region;
 	return (rect_f32) {
-		.x = layout.atlas.x + region.x * layout.atlas.w / CHR_MAP_TEXTURE_WIDTH,
-		.y = layout.atlas.y + region.y * layout.atlas.h / CHR_MAP_TEXTURE_HEIGHT,
-		.w = region.w * layout.atlas.w / CHR_MAP_TEXTURE_WIDTH,
-		.h = region.h * layout.atlas.h / CHR_MAP_TEXTURE_HEIGHT,
+		.x = layout.atlas.x + region.x * layout.atlas.w / NES_TARGET_CHR_WIDTH,
+		.y = layout.atlas.y + region.y * layout.atlas.h / NES_TARGET_CHR_HEIGHT,
+		.w = region.w * layout.atlas.w / NES_TARGET_CHR_WIDTH,
+		.h = region.h * layout.atlas.h / NES_TARGET_CHR_HEIGHT,
 	};
 }
 
-static CHRMapSelection chr_map_selection_from_mouse(UI_Context *ui, const FrontendPublication *publication, CHRMapLayout layout)
+static CHRMapSelection chr_map_selection_from_mouse(UI_Context *ui, const NES_TargetSnapshot *publication, CHRMapLayout layout)
 {
 	if (rect_f32_contains(layout.patterns, ui->mouse))
 	{
-		f32 local_x = (ui->mouse.x - layout.patterns.x) * CHR_MAP_TEXTURE_WIDTH / layout.patterns.w;
-		f32 local_y = (ui->mouse.y - layout.patterns.y) * CHR_MAP_PATTERN_HEIGHT / layout.patterns.h;
+		f32 local_x = (ui->mouse.x - layout.patterns.x) * NES_TARGET_CHR_WIDTH / layout.patterns.w;
+		f32 local_y = (ui->mouse.y - layout.patterns.y) * NES_TARGET_CHR_PATTERN_HEIGHT / layout.patterns.h;
 		u32 table = Min((u32)local_x / 128, 1u);
 		u32 tile_x = Min(((u32)local_x % 128) / NES_PATTERN_TILE_SIZE, 15u);
 		u32 tile_y = Min((u32)local_y / NES_PATTERN_TILE_SIZE, 15u);
@@ -112,8 +112,8 @@ static CHRMapSelection chr_map_selection_from_mouse(UI_Context *ui, const Fronte
 
 	if (rect_f32_contains(layout.sprites, ui->mouse))
 	{
-		i32 texture_x = (i32)((ui->mouse.x - layout.atlas.x) * CHR_MAP_TEXTURE_WIDTH / layout.atlas.w);
-		i32 texture_y = (i32)((ui->mouse.y - layout.atlas.y) * CHR_MAP_TEXTURE_HEIGHT / layout.atlas.h);
+		i32 texture_x = (i32)((ui->mouse.x - layout.atlas.x) * NES_TARGET_CHR_WIDTH / layout.atlas.w);
+		i32 texture_y = (i32)((ui->mouse.y - layout.atlas.y) * NES_TARGET_CHR_HEIGHT / layout.atlas.h);
 		for (u32 index = 0; index < ArrayCount(publication->sprites); ++index)
 		{
 			rect_i32 region = publication->sprites[index].selection_region;
@@ -147,7 +147,7 @@ static void chr_map_build_tooltip(ViewFrameData *frame, CHRMapSelection selectio
 	else
 	{
 		Assert(selection.index < ArrayCount(frame->publication->sprites));
-		const FrontendSprite *sprite = &frame->publication->sprites[selection.index];
+		const NES_TargetSprite *sprite = &frame->publication->sprites[selection.index];
 		ui_text_box_sized(ui, 1, style, LIT("OAM $FF  X 255  Y 255  TILE $FF"), "OAM $%02X  X %u  Y %u  TILE $%02X", (u32)sprite->oam_index, (u32)sprite->x, (u32)sprite->y, (u32)sprite->tile);
 		ui_text_box_sized(ui, 2, style, LIT("PAL 3  BEHIND BG  FLIP HV"), "PAL %u  %s  FLIP %c%c", (u32)sprite->palette, sprite->behind_background ? "BEHIND BG" : "IN FRONT", sprite->flip_horizontal ? 'H' : '-', sprite->flip_vertical ? 'V' : '-');
 		ui_text_box_sized(ui, 3, style, LIT("PPU $FFFF -> CHR ROM $FFFFFFFF"), "PPU $%04X -> %s $%05X", (u32)sprite->ppu_address, chr_map_device_name(sprite->pattern_mapping.device), sprite->pattern_mapping.address);
@@ -156,7 +156,7 @@ static void chr_map_build_tooltip(ViewFrameData *frame, CHRMapSelection selectio
 	ui_tooltip_end(ui);
 }
 
-static void chr_map_draw_palettes(UI_Context *ui, const FrontendPublication *publication, rect_f32 rect)
+static void chr_map_draw_palettes(UI_Context *ui, const NES_TargetSnapshot *publication, rect_f32 rect)
 {
 	UI_TextStyle style = ui->theme.code;
 	style.color = ui->theme.text_subtle;
@@ -170,7 +170,7 @@ static void chr_map_draw_palettes(UI_Context *ui, const FrontendPublication *pub
 		f32 x = line.x + label_width;
 		for (u32 index = 0; index < 4; ++index)
 		{
-			const FrontendPalette *palette = &publication->palettes[kind * 4 + index];
+			const NES_TargetPalette *palette = &publication->palettes[kind * 4 + index];
 			for (u32 slot = 0; slot < ArrayCount(palette->colors); ++slot)
 			{
 				rect_f32 swatch = { x, line.y, swatch_size, swatch_size };
@@ -208,14 +208,14 @@ static void chr_map_box_paint(UI_Box *box)
 	ui_draw_image(ui, (Draw_TextureParams) {
 		.rect = rect_f32_round_out(layout.patterns),
 		.texture = data->texture,
-		.region = { 0, 0, CHR_MAP_TEXTURE_WIDTH, CHR_MAP_PATTERN_HEIGHT },
+		.region = { 0, 0, NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_PATTERN_HEIGHT },
 		.tint = COLOR_WHITE,
 	});
 	ui_draw_rect(ui, rect_f32_round_out(layout.sprites), ui->theme.slider_track);
 	ui_draw_image(ui, (Draw_TextureParams) {
 		.rect = rect_f32_round_out(layout.sprites),
 		.texture = data->texture,
-		.region = { 0, CHR_MAP_PATTERN_HEIGHT, CHR_MAP_TEXTURE_WIDTH, CHR_MAP_SPRITE_HEIGHT },
+		.region = { 0, NES_TARGET_CHR_PATTERN_HEIGHT, NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_SPRITE_HEIGHT },
 		.tint = COLOR_WHITE,
 	});
 	ui_draw_rect_outline(ui, rect_f32_round_out(layout.patterns), 1.f, ui->theme.panel_outline);

@@ -10,6 +10,7 @@
 #include "views.h"
 #include "execution_activity.h"
 #include "gif_recorder.h"
+#include "nes_target.h"
 #include "os.h"
 
 global const char debugger_state_path[]   = "data/save.orbiter";
@@ -18,29 +19,6 @@ global const char debugger_default_config_path[] = "data/default_debugger.cfg";
 global const char debugger_log_path[]     = "data/debugger.log";
 global const char debugger_program_path[] = "data/program.dump";
 global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
-
-#define NES_PALETTE_COLORS(_) \
-_(0x80,0x80,0x80) _(0x00,0x00,0xBB) _(0x37,0x00,0xBF) _(0x84,0x00,0xA6) \
-_(0xBB,0x00,0x6A) _(0xB7,0x00,0x1E) _(0xB3,0x00,0x00) _(0x91,0x26,0x00) \
-_(0x7B,0x2B,0x00) _(0x00,0x3E,0x00) _(0x00,0x48,0x0D) _(0x00,0x3C,0x22) \
-_(0x00,0x2F,0x66) _(0x00,0x00,0x00) _(0x05,0x05,0x05) _(0x05,0x05,0x05) \
-_(0xC8,0xC8,0xC8) _(0x00,0x59,0xFF) _(0x44,0x3C,0xFF) _(0xB7,0x33,0xCC) \
-_(0xFF,0x33,0xAA) _(0xFF,0x37,0x5E) _(0xFF,0x37,0x1A) _(0xD5,0x4B,0x00) \
-_(0xC4,0x62,0x00) _(0x3C,0x7B,0x00) _(0x1E,0x84,0x15) _(0x00,0x95,0x66) \
-_(0x00,0x84,0xC4) _(0x11,0x11,0x11) _(0x09,0x09,0x09) _(0x09,0x09,0x09) \
-_(0xFF,0xFF,0xFF) _(0x00,0x95,0xFF) _(0x6F,0x84,0xFF) _(0xD5,0x6F,0xFF) \
-_(0xFF,0x77,0xCC) _(0xFF,0x6F,0x99) _(0xFF,0x7B,0x59) _(0xFF,0x91,0x5F) \
-_(0xFF,0xA2,0x33) _(0xA6,0xBF,0x00) _(0x51,0xD9,0x6A) _(0x4D,0xD5,0xAE) \
-_(0x00,0xD9,0xFF) _(0x66,0x66,0x66) _(0x0D,0x0D,0x0D) _(0x0D,0x0D,0x0D) \
-_(0xFF,0xFF,0xFF) _(0x84,0xBF,0xFF) _(0xBB,0xBB,0xFF) _(0xD0,0xBB,0xFF) \
-_(0xFF,0xBF,0xEA) _(0xFF,0xBF,0xCC) _(0xFF,0xC4,0xB7) _(0xFF,0xCC,0xAE) \
-_(0xFF,0xD9,0xA2) _(0xCC,0xE1,0x99) _(0xAE,0xEE,0xB7) _(0xAA,0xF7,0xEE) \
-_(0xB3,0xEE,0xFF) _(0xDD,0xDD,0xDD) _(0x11,0x11,0x11) _(0x11,0x11,0x11)
-
-#define NES_PALETTE_COLOR(r, g, b) { r, g, b, 255 },
-global const Color_RGBA8 nes_palette[64] = { NES_PALETTE_COLORS(NES_PALETTE_COLOR) };
-#undef NES_PALETTE_COLOR
-#undef NES_PALETTE_COLORS
 
 typedef enum
 {
@@ -95,7 +73,7 @@ typedef struct
 	Arena frame_arena;
 	Debugger *debugger;
 	ExecutionActivity execution_activity;
-	FrontendPublication published;
+	NES_TargetSnapshot published;
 	GFX_Texture *video_texture;
 	GFX_Texture *chr_texture;
 	OS_Window *os_window;
@@ -715,140 +693,31 @@ static void app_pace_frame(void)
 	app.frame_begin = seconds_now();
 }
 
-static u32 app_chr_map_sprite_tile_index(const NES_PPUState *ppu, const NES_PPUSprite *sprite, u32 row)
+static void app_upload_video_texture(void)
 {
-	if (ppu->PPUCTRL & 0x20) {
-		return (sprite->index & 1) * NES_PATTERN_TABLE_TILE_COUNT + (sprite->index & 0xFE) + row / NES_PATTERN_TILE_SIZE;
-	}
-	return !!(ppu->PPUCTRL & 0x08) * NES_PATTERN_TABLE_TILE_COUNT + sprite->index;
-}
-
-static void app_publish_sprites(void)
-{
-	const NES_PPUState *ppu = &app.published.state.ppu;
-	u32 sprite_height = ppu->PPUCTRL & 0x20 ? 16 : 8;
-	for (u32 index = 0; index < ArrayCount(app.published.sprites); ++index)
-	{
-		const NES_PPUSprite *source = &ppu->OAM[index];
-		u32 tile_index = app_chr_map_sprite_tile_index(ppu, source, 0);
-		i32 cell_x = (i32)(index % 16 * 16);
-		i32 cell_y = (i32)(CHR_MAP_PATTERN_HEIGHT + index / 16 * 16);
-		app.published.sprites[index] = (FrontendSprite) {
-			.texture_region = {
-				.x = cell_x + 4,
-				.y = cell_y + (16 - (i32)sprite_height) / 2,
-				.w = NES_PATTERN_TILE_SIZE,
-				.h = (i32)sprite_height,
-			},
-			.selection_region = { cell_x, cell_y, 16, 16 },
-			.pattern_mapping = app.published.chr_map.mappings[tile_index],
-			.ppu_address = (u16)(tile_index * NES_PATTERN_TILE_SIZE * 2),
-			.oam_index = (u8)index,
-			.x = source->xpos,
-			.y = (u8)(source->ypos + 1),
-			.tile = source->index,
-			.palette = source->attrs & 3,
-			.behind_background = !!(source->attrs & 0x20),
-			.flip_horizontal = !!(source->attrs & 0x40),
-			.flip_vertical = !!(source->attrs & 0x80),
-		};
-	}
-}
-
-static void app_publish_palettes(void)
-{
-	for (u32 index = 0; index < ArrayCount(app.published.palettes); ++index)
-	{
-		FrontendPalette *palette = &app.published.palettes[index];
-		palette->index = (u8)(index & 3);
-		palette->is_sprite = index >= 4;
-		for (u32 slot = 0; slot < ArrayCount(palette->colors); ++slot)
-		{
-			u8 address = (u8)((index >= 4 ? 0x10 : 0) + (index & 3) * 4 + slot);
-			u8 color_index = app.published.chr_map.palette[address];
-			palette->colors[slot] = (FrontendPaletteColor) {
-				.color = app.published.palette[color_index & 63],
-				.palette_address = address,
-				.color_index = color_index,
-			};
-		}
-	}
-}
-
-static void app_update_video_texture(void)
-{
-	Image_rgba_u8 image = push_image_rgba_u8(&app.frame_arena, v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT));
-	for (u32 index = 0; index < NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT; ++index) {
-		image.data[index] = app.published.palette[app.published.video[0][index] & 63];
-	}
 	gfx_update_texture(app.video_texture, (GFX_TextureUpdateParams) {
 		.dest = v2i(0, 0),
-		.size = image.reso,
-		.stride = image.elem_stride * sizeof(*image.data),
-		.data = image.data,
+		.size = v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT),
+		.stride = NES_VIDEO_WIDTH * sizeof(*app.published.video),
+		.data = app.published.video,
 	});
 }
 
-static void app_update_chr_texture(void)
+static void app_upload_chr_texture(void)
 {
-	const NES_CHRMap *map = &app.published.chr_map;
-	const NES_PPUState *ppu = &app.published.state.ppu;
-	Image_rgba_u8 image = push_image_rgba_u8(&app.frame_arena, v2i(CHR_MAP_TEXTURE_WIDTH, CHR_MAP_TEXTURE_HEIGHT));
-	memory_zero(image.data, image.elem_stride * image.reso.y * sizeof(*image.data));
-	for (u32 tile_index = 0; tile_index < NES_PATTERN_TILE_COUNT; ++tile_index)
-	{
-		u32 table = tile_index / NES_PATTERN_TABLE_TILE_COUNT;
-		u32 local_index = tile_index % NES_PATTERN_TABLE_TILE_COUNT;
-		u32 tile_x = table * 128 + local_index % 16 * NES_PATTERN_TILE_SIZE;
-		u32 tile_y = local_index / 16 * NES_PATTERN_TILE_SIZE;
-		for (u32 y = 0; y < NES_PATTERN_TILE_SIZE; ++y) {
-			for (u32 x = 0; x < NES_PATTERN_TILE_SIZE; ++x) {
-				u8 color = map->palette[map->tiles[tile_index].pixels[y][x]];
-				image.data[(tile_y + y) * CHR_MAP_TEXTURE_WIDTH + tile_x + x] = app.published.palette[color & 63];
-			}
-		}
-	}
-	u32 sprite_height = ppu->PPUCTRL & 0x20 ? 16 : 8;
-	for (u32 sprite_index = 0; sprite_index < ArrayCount(ppu->OAM); ++sprite_index)
-	{
-		const NES_PPUSprite *sprite = &ppu->OAM[sprite_index];
-		rect_i32 texture_region = app.published.sprites[sprite_index].texture_region;
-		for (u32 y = 0; y < sprite_height; ++y)
-		{
-			u32 source_y = sprite->attrs & 0x80 ? sprite_height - 1 - y : y;
-			u32 tile_index = app_chr_map_sprite_tile_index(ppu, sprite, source_y);
-			for (u32 x = 0; x < NES_PATTERN_TILE_SIZE; ++x)
-			{
-				u32 source_x = sprite->attrs & 0x40 ? NES_PATTERN_TILE_SIZE - 1 - x : x;
-				u8 palette_slot = map->tiles[tile_index].pixels[source_y % NES_PATTERN_TILE_SIZE][source_x];
-				if (palette_slot) {
-					u8 color = map->palette[0x10 + (sprite->attrs & 3) * 4 + palette_slot];
-					image.data[(texture_region.y + y) * CHR_MAP_TEXTURE_WIDTH + texture_region.x + x] = app.published.palette[color & 63];
-				}
-			}
-		}
-	}
 	gfx_update_texture(app.chr_texture, (GFX_TextureUpdateParams) {
 		.dest = v2i(0, 0),
-		.size = image.reso,
-		.stride = image.elem_stride * sizeof(*image.data),
-		.data = image.data,
+		.size = v2i(NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_HEIGHT),
+		.stride = NES_TARGET_CHR_WIDTH * sizeof(*app.published.chr_image),
+		.data = app.published.chr_image,
 	});
 }
 
 static void app_publish(void)
 {
-	app.published.state = debugger_capture_state(app.debugger);
-	PROF_BLOCK("capture video") debugger_capture_video(app.debugger, &app.published.video[0][0], NES_VIDEO_WIDTH);
-	PROF_BLOCK("capture chr map") debugger_capture_chr_map(app.debugger, &app.published.chr_map);
-	app.published.prg_rom_size = debugger_prg_rom_size(app.debugger);
-	memory_copy(app.published.palette, nes_palette, sizeof(nes_palette));
-	PROF_BLOCK("publish sprites") app_publish_sprites();
-	PROF_BLOCK("publish palettes") app_publish_palettes();
-	++ app.published.generation;
-	app.published.valid = true;
-	PROF_BLOCK("capture video texture") app_update_video_texture();
-	PROF_BLOCK("capture char texture") app_update_chr_texture();
+	PROF_BLOCK("publish NES target") nes_target_publish(&app.published, app.debugger);
+	PROF_BLOCK("upload video texture") app_upload_video_texture();
+	PROF_BLOCK("upload CHR texture") app_upload_chr_texture();
 }
 
 static String app_rom_name(String path)
@@ -1074,11 +943,7 @@ static void app_capture_gifs(GFX_Texture *frame_texture)
 	enum { GIF_CAPTURE_MAX_FRAMES = 60 * 30 };
 	if (app.ppu_gif.recording)
 	{
-		Image_rgba_u8 image = push_image_rgba_u8(&app.frame_arena, v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT));
-		for (u32 index = 0; index < NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT; ++index) {
-			image.data[index] = app.published.palette[app.published.video[0][index] & 63];
-		}
-		if (!gif_recorder_frame(&app.ppu_gif, image.data, image.elem_stride * sizeof(*image.data))) {
+		if (!gif_recorder_frame(&app.ppu_gif, app.published.video, NES_VIDEO_WIDTH * sizeof(*app.published.video))) {
 			LOG_ERROR("PPU GIF capture failed");
 		}
 		if (app.ppu_gif.frame_count >= GIF_CAPTURE_MAX_FRAMES) {
@@ -1234,8 +1099,12 @@ static void app_draw(void)
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
 	app_handle_window_commands();
 
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) if(debugger_undo_snapshot(app.debugger)) app_discard_audio();
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) if(debugger_redo_snapshot(app.debugger)) app_discard_audio();
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) {
+		for(u32 i=0;i<4;++i) if(debugger_undo_snapshot(app.debugger)) app_discard_audio(); else break;
+	}
+	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) {
+		for(u32 i=0;i<4;++i) if(debugger_redo_snapshot(app.debugger)) app_discard_audio(); else break;
+	}
 
 	GFX_Texture *frame_texture = app_acquire_pass_output(app.os_window->size, GRAPHICS_SAMPLER_POINT, "application frame");
 
@@ -1393,7 +1262,7 @@ static void app_init(void)
 		.usage = GRAPHICS_TEXTURE_USAGE_PER_FRAME,
 		.bind_flags = GFX_TEXTURE_BIND_INPUT,
 		.format = GRAPHICS_FORMAT_RGBA_U8_SRGB,
-		.size = v2i(256, 192),
+		.size = v2i(NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_HEIGHT),
 		.sampler = GRAPHICS_SAMPLER_POINT,
 		.label = "NES CHR map",
 	});
