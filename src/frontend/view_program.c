@@ -102,7 +102,7 @@ static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
 	ui_push_z(ui, UI_Z_OVERLAY);
 	ui_push_unclipped(ui);
-	ui_draw_backdrop(ui, tooltip);
+	ui_draw_backdrop(ui, tooltip, 5.f);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
 	for (u32 index = 0; index < ArrayCount(lines); ++index)
 	{

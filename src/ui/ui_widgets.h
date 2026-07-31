@@ -70,10 +70,11 @@ typedef struct
 {
 	const UI_BoxTableColumn *columns;
 	u32 column_count;
-	f32 row_height;
 	f32 column_gap;
 	f32 row_gap;
 	vec2 cell_padd;
+	// Todo, remove this, we don't need it and it makes layout weird!
+	f32 row_height;
 }
 UI_BoxTableDesc;
 

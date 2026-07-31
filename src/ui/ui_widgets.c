@@ -74,7 +74,7 @@ void ui_box_paint(UI_Box *box)
 	if (paint->emission > 0.f) ui_push_emission(ui, paint->emission);
 	ui_push_clip(ui, box->clip_rect);
 	if (paint->flags & UI_BOX_DRAW_BACKDROP) {
-		ui_draw_backdrop(ui, box->rect);
+		ui_draw_backdrop(ui, box->rect, paint->roundness);
 	}
 	if (paint->flags & UI_BOX_DRAW_BACKGROUND)
 	{

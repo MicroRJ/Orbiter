@@ -84,7 +84,7 @@ static void chr_map_draw_tooltip(ViewFrameData *frame, rect_f32 image_rect)
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
 	ui_push_z(ui, UI_Z_OVERLAY);
 	ui_push_unclipped(ui);
-	ui_draw_backdrop(ui, tooltip);
+	ui_draw_backdrop(ui, tooltip, 5.f);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
 	ui_draw_text(ui, text, style, line0);
 	text.y += style.size + 4.f;
@@ -132,7 +132,7 @@ static void chr_map_draw_sprite_tooltip(ViewFrameData *frame, rect_f32 atlas, re
 	tooltip.y = CLAMP(tooltip.y, frame->rect.y, Max(frame->rect.y, frame->rect.y + frame->rect.h - tooltip.h));
 	ui_push_z(ui, UI_Z_OVERLAY);
 	ui_push_unclipped(ui);
-	ui_draw_backdrop(ui, tooltip);
+	ui_draw_backdrop(ui, tooltip, 5.f);
 	rect_f32 text = rect_f32_inset(tooltip, padding);
 	ui_draw_text(ui, text, style, line0);
 	text.y += style.size + 4.f;

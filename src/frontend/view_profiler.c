@@ -135,6 +135,8 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 			ui_axis(ui, AXIS_Y);
 			ui_size(ui, AXIS_X, ui_wrap());
 			ui_size(ui, AXIS_Y, ui_wrap());
+			ui_padd(ui, AXIS_X, 8.f, 8.f);
+			ui_padd(ui, AXIS_Y, 8.f, 8.f);
 			ui_gap(ui, 4.f);
 			ui_box_begin(ui, 0, LIT(""));
 			ui_pop(ui);

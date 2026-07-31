@@ -143,7 +143,7 @@ void ui_pop_emission(UI_Context *ui);
 Draw_Command *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color);
 void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SRGBA color);
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength);
-void ui_draw_backdrop(UI_Context *ui, rect_f32 rect);
+void ui_draw_backdrop(UI_Context *ui, rect_f32 rect, f32 roundness);
 
 void ui_draw_panel(UI_Context *ui, rect_f32 rect, b32 focused);
 void ui_draw_splitter(UI_Context *ui, rect_f32 rect, UI_Id id);

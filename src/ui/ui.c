@@ -40,13 +40,13 @@ void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength)
 	});
 }
 
-void ui_draw_backdrop(UI_Context *ui, rect_f32 rect)
+void ui_draw_backdrop(UI_Context *ui, rect_f32 rect, f32 roundness)
 {
 	Assert(ui);
 	Assert(ui->draw);
 	draw_list_backdrop(ui->draw, (Draw_BackdropParams) {
 		.rect = rect,
-		.corner_radius = 5.f,
+		.corner_radius = roundness,
 		.distortion = 10.f,
 		.distortion_width = 15.f,
 		.saturation = 1.12f,
