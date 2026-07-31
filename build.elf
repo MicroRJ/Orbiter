@@ -118,7 +118,7 @@ objects := {
 	{ name = "gif_recorder",      input = "src/frontend/gif_recorder.c" },
 	{ name = "views",             input = "src/frontend/views.c" },
 	{ name = "view_cpu",          input = "src/frontend/view_cpu.c" },
-	{ name = "view_program",      input = "src/frontend/view_program.c" },
+	{ name = "program_view",      input = "src/frontend/program_view.c" },
 	{ name = "view_profiler",     input = "src/frontend/view_profiler.c" },
 	{ name = "view_prg_activity", input = "src/frontend/view_prg_activity.c" },
 	{ name = "view_video",        input = "src/frontend/view_video.c" },

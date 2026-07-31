@@ -136,12 +136,9 @@ void nes_target_publish(NES_TargetSnapshot *snapshot, const Debugger *debugger)
 {
 	Assert(snapshot);
 	Assert(debugger);
-	snapshot->valid = false;
-	if (!debugger_has_cartridge(debugger))
-	{
-		return;
-	}
+	Assert(debugger_has_cartridge(debugger));
 
+	snapshot->valid = false;
 	snapshot->state = debugger_capture_state(debugger);
 	PROF_BLOCK("capture video") debugger_capture_video(debugger, snapshot->video_indices, NES_VIDEO_WIDTH);
 	PROF_BLOCK("capture CHR map") debugger_capture_chr_map(debugger, &snapshot->chr_map);

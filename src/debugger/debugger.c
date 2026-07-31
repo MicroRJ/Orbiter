@@ -58,6 +58,7 @@ static void debugger_discard_scheduler_trace(Debugger *debugger)
 
 b32 debugger_undo_snapshot(Debugger *debugger)
 {
+	// Todo, we need to detect wrap around!
 	if (debugger->snapshots_cursor <= 0) return 0;
 	debugger_restore(debugger, &debugger->snapshots[-- debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK]);
 	debugger_discard_scheduler_trace(debugger);

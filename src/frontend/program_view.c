@@ -3,6 +3,13 @@
 #include "program.h"
 #include "views.h"
 
+typedef struct
+{
+	ViewFrameData frame;
+	rect_f32 clip;
+}
+ProgramBoxData;
+
 static String program_format_operand(Arena *arena, u16 base,
 	u32 type, u32 data)
 {
@@ -24,13 +31,6 @@ static String program_format_operand(Arena *arena, u16 base,
 		case REL: return push_append_formatted(arena, "$%04X", (u32)(u16)(base + 2 + (i8)data));
 	}
 	return LIT("<internal error>");
-}
-
-static void program_view_clamp_scroll(ViewState *state, rect_f32 viewport, f32 header_height, f32 row_height, u32 instruction_count)
-{
-	f32 max_scroll = Max(header_height + instruction_count * row_height - viewport.h, 0.f);
-	state->scroll_target = Min(state->scroll_target, max_scroll);
-	state->scroll = Min(state->scroll, max_scroll);
 }
 
 static const char *program_addressing_mode_name(NES_AddressingMode mode)
@@ -64,6 +64,13 @@ static const char *program_opcode_class_name(NES_OpcodeClass classification)
 		case NES_OPCODE_HALT: return "HALT";
 	}
 	return "UNKNOWN";
+}
+
+static void program_view_clamp_scroll(ViewState *state, rect_f32 viewport, f32 header_height, f32 row_height, u32 instruction_count)
+{
+	f32 max_scroll = Max(header_height + instruction_count * row_height - viewport.h, 0.f);
+	state->scroll_target = Min(state->scroll_target, max_scroll);
+	state->scroll = Min(state->scroll, max_scroll);
 }
 
 static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_rect, ProgramInstruction instruction, NES_InstructionDesc desc, String formatted_instruction)
@@ -276,6 +283,22 @@ static void program_view_content(ViewFrameData *frame)
 	}
 }
 
+static void program_box_paint(UI_Box *box)
+{
+	ProgramBoxData *data = box->content;
+	Assert(data);
+	Assert(data->frame.ui == box->ui);
+	data->frame.rect = box->viewport;
+	data->frame.content_box = box;
+	ui_push_clip(box->ui, data->clip);
+	program_view_content(&data->frame);
+	ui_pop_clip(box->ui);
+}
+
+static const UI_BoxHooks program_box_hooks = {
+	.paint = program_box_paint,
+};
+
 void program_view_build_ui(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
@@ -297,6 +320,10 @@ void program_view_build_ui(ViewFrameData *frame)
 		}
 	}
 	ViewFrameData content = view_begin_frame(frame, title);
-	program_view_content(&content);
+	ProgramBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
+	data->frame = content;
+	data->clip = frame->rect;
+	content.content_box->ops = &program_box_hooks;
+	content.content_box->content = data;
 	view_end_frame(&content);
 }

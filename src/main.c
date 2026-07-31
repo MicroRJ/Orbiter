@@ -715,6 +715,7 @@ static void app_upload_chr_texture(void)
 
 static void app_publish(void)
 {
+	Assert(debugger_has_cartridge(app.debugger));
 	PROF_BLOCK("publish NES target") nes_target_publish(&app.published, app.debugger);
 	PROF_BLOCK("upload video texture") app_upload_video_texture();
 	PROF_BLOCK("upload CHR texture") app_upload_chr_texture();
@@ -874,7 +875,27 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	style.color = color_srgba_mix(ppu_volume_base_color, app.ui->theme.palette.amber, app.ppu_animation);
 	ui_push(ui);
 	ui_emission(ui, app.ui->theme.palette.emission_high * app.ppu_animation);
-	ui_text_box_sized(app.ui, UI_KEY("volume"), style, LIT("VOL 100%"), "VOL %i%%", (i32) roundf(app.ppu_volume * 100.f));
+	UI_Box *volume_box = ui_text_box_sized(app.ui, UI_KEY("volume"), style, LIT("VOL 100%"), "VOL %i%%", (i32) roundf(app.ppu_volume * 100.f));
+	if (ui_signal_from_box(volume_box).hovered && ui_tooltip_begin(ui, UI_KEY("volume_tooltip"), ui->mouse))
+	{
+		ui_push(ui);
+		ui_axis(ui, AXIS_Y);
+		ui_size(ui, AXIS_X, ui_wrap());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_padd(ui, AXIS_X, 8.f, 8.f);
+		ui_padd(ui, AXIS_Y, 8.f, 8.f);
+		ui_gap(ui, 4.f);
+
+		ui_box_begin(ui, 0, LIT(""));
+		UI_TextStyle style = ui->theme.code;
+		style.color = ui->theme.text_neutral;
+		ui_text_box_string(ui, UI_KEY("1"), style, push_formatted(&ui->frame_arena, "Ctrl+Up Raise Volume"));
+		ui_text_box_string(ui, UI_KEY("2"), style, push_formatted(&ui->frame_arena, "Ctrl+Down Lower Volume"));
+		ui_box_end(ui);
+		ui_pop(ui);
+
+		ui_tooltip_end(ui);
+	}
 	ui_pop(ui);
 	app.ppu_animation *= 0.95f;
 	app.ppu_volume += (app.ppu_volume_target - app.ppu_volume) * 0.35f;
@@ -1102,38 +1123,38 @@ static void app_draw(void)
 	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) {
 		for(u32 i=0;i<4;++i) if(debugger_undo_snapshot(app.debugger)) app_discard_audio(); else break;
 	}
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) {
-		for(u32 i=0;i<4;++i) if(debugger_redo_snapshot(app.debugger)) app_discard_audio(); else break;
-	}
+if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) {
+	for(u32 i=0;i<4;++i) if(debugger_redo_snapshot(app.debugger)) app_discard_audio(); else break;
+}
 
-	GFX_Texture *frame_texture = app_acquire_pass_output(app.os_window->size, GRAPHICS_SAMPLER_POINT, "application frame");
+GFX_Texture *frame_texture = app_acquire_pass_output(app.os_window->size, GRAPHICS_SAMPLER_POINT, "application frame");
 
-	if (app.exclusive_ppu_mode) {
-		app_draw_exclusive_ppu(frame_texture, window_rect);
-	}
-	else {
-		app_draw_debugger(frame_texture, window_rect);
-	}
+if (app.exclusive_ppu_mode) {
+	app_draw_exclusive_ppu(frame_texture, window_rect);
+}
+else {
+	app_draw_debugger(frame_texture, window_rect);
+}
 
-	GFX_Texture *present_texture = frame_texture;
-	if (app.mode == APP_MODE_REWINDING) present_texture = app_rewind_pass(present_texture);
-	if (app.crt_enabled) present_texture = app_crt_barrel_pass(present_texture);
+GFX_Texture *present_texture = frame_texture;
+if (app.mode == APP_MODE_REWINDING) present_texture = app_rewind_pass(present_texture);
+if (app.crt_enabled) present_texture = app_crt_barrel_pass(present_texture);
 
-	gfx_begin_pass(app.draw, (GFX_PassDesc) {
-		.output = gfx_window_texture(app.gfx_window),
-	});
-	draw_blit(app.draw, present_texture);
-	gfx_end_pass(app.draw);
+gfx_begin_pass(app.draw, (GFX_PassDesc) {
+	.output = gfx_window_texture(app.gfx_window),
+});
+draw_blit(app.draw, present_texture);
+gfx_end_pass(app.draw);
 
-	text_gfx_sync(app.text_gfx);
+text_gfx_sync(app.text_gfx);
 
-	gfx_end_frame(app.draw);
+gfx_end_frame(app.draw);
 
-	app_capture_gifs(present_texture);
+app_capture_gifs(present_texture);
 
-	PROF_BLOCK("present wait") gfx_window_present(app.gfx_window);
+PROF_BLOCK("present wait") gfx_window_present(app.gfx_window);
 
-	ui_end_frame(app.ui);
+ui_end_frame(app.ui);
 }
 
 static void app_frame(void)
