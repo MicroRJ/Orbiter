@@ -113,46 +113,6 @@ struct UI_Context
 	f32        active_start_value;
 };
 
-typedef enum
-{
-	UI_TABLE_COLUMN_CONTENT,
-	UI_TABLE_COLUMN_FIXED,
-	UI_TABLE_COLUMN_FLEX,
-}
-UI_TableColumnKind;
-
-typedef struct
-{
-	UI_TableColumnKind kind;
-	f32                value;
-}
-UI_TableColumnSpec;
-
-typedef struct
-{
-	String       text;
-	UI_TextStyle style;
-}
-UI_TableCell;
-
-// Tables are transient current-frame layout data. They measure a small set of
-// cells without introducing persistent nodes or a deferred UI-wide layout pass.
-typedef struct
-{
-	UI_Context        *ui;
-	rect_f32           rect;
-	f32                row_height;
-	f32                column_gap;
-	vec2               cell_padding;
-	u32                row_count;
-	u32                column_count;
-	UI_TableColumnSpec *columns;
-	UI_TableCell       *cells;
-	f32                *resolved_widths;
-	b32                 is_laid_out;
-}
-UI_Table;
-
 UI_Palette ui_default_palette(void);
 UI_Theme ui_default_theme(Font_Handle code_font);
 UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text, Draw_Context *draw, UI_Theme theme);
@@ -187,15 +147,5 @@ void ui_draw_image(UI_Context *ui, Draw_TextureParams params);
 vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text);
 vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text);
 UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_height, f32 *position, f32 content_height);
-
-UI_TableColumnSpec ui_table_column_content(void);
-UI_TableColumnSpec ui_table_column_fixed(f32 width);
-UI_TableColumnSpec ui_table_column_flex(f32 weight);
-UI_Table ui_table_begin(UI_Context *ui, Arena *arena, rect_f32 rect, u32 row_count, u32 column_count, f32 row_height);
-void ui_table_set_column(UI_Table *table, u32 column, UI_TableColumnSpec spec);
-void ui_table_set_text(UI_Table *table, u32 row, u32 column, UI_TextStyle style, String text);
-void ui_table_layout(UI_Table *table);
-rect_f32 ui_table_cell_rect(const UI_Table *table, u32 row, u32 column);
-void ui_table_draw(UI_Table *table);
 
 #endif
