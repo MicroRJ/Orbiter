@@ -31,7 +31,7 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, String title)
 	ui_size(ui, AXIS_Y, ui_box_fill(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
-	ui_box_begin(ui, 2, LIT("view content"));
+	result.content_box = ui_box_begin(ui, 2, LIT("view content"));
 	ui_pop(ui);
 
 	ui_push_clip(ui, frame->rect);

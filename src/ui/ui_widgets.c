@@ -286,7 +286,7 @@ void ui_scroll_end(UI_Scroll *scroll)
 	UI_Context *ui = scroll->ui;
 	UI_BoxBuilder *builder = ui->builder;
 	AXIS axis = scroll->axis;
-	AXIS perp_axis = !axis;
+	AXIS perp = !axis;
 	Assert(builder->parent == scroll->root);
 	Assert(builder->parent_count == scroll->parent_count + 1);
 	Assert(builder->desc_count == scroll->desc_count + 1);
@@ -294,16 +294,17 @@ void ui_scroll_end(UI_Scroll *scroll)
 
 	scroll->viewport = scroll->root->first;
 	Assert(scroll->viewport == scroll->root->last);
-	scroll->viewport->desc.size[perp_axis] = ui_box_fill(1.f);
-	scroll->viewport->desc.min_size.xy[perp_axis] = 0.f;
-	scroll->viewport->desc.max_size.xy[perp_axis] = UI_BOX_INFINITY;
+	scroll->viewport->desc.size[perp] = ui_box_fill(1.f);
+	scroll->viewport->desc.min_size.xy[perp] = 0.f;
+	scroll->viewport->desc.max_size.xy[perp] = UI_BOX_INFINITY;
 	scroll->viewport->desc.overflow[axis] = UI_BOX_OVERFLOW_SCROLL;
 
 	UI_BoxDesc track = ui_box_desc();
 	track.axis = axis;
 	track.size[axis] = ui_box_fill(1.f);
-	track.size[perp_axis] = ui_box_pixels(12.f);
-	track.padd[perp_axis][0] = track.padd[perp_axis][1] = 3.f;
+	track.padd[axis][0] = track.padd[axis][1] = 3.f;
+	track.padd[perp][0] = track.padd[perp][1] = 3.f;
+	track.size[perp] = ui_box_pixels(12.f);
 	scroll->track = ui_box_begin_desc(ui, UI_SCROLL_TRACK_KEY, LIT(""), track);
 
 	UI_BoxDesc piece = ui_box_desc();
