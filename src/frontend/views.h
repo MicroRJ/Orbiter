@@ -127,7 +127,6 @@ typedef struct
 	Arena         *scratch;
 	rect_f32       rect;
 	f32            header_height;
-	void         (*draw_box_tree)(UI_Box *box);
 
 	// The application prepares shared publication resources once per frame.
 	const FrontendPublication *publication;
@@ -140,14 +139,13 @@ ViewFrameData;
 
 ViewFrameData view_begin_frame(ViewFrameData *frame, String title);
 void view_end_frame(ViewFrameData *frame);
-void view_frame(ViewFrameData *frame);
-void video_view_frame(ViewFrameData *frame);
-void program_view_frame(ViewFrameData *frame);
-void cpu_view_frame(ViewFrameData *frame);
-void profiler_view_frame(ViewFrameData *frame);
-void cpu_mapping_view_frame(ViewFrameData *frame);
-void prg_activity_view_frame(ViewFrameData *frame);
-
-void chr_map_view_frame(ViewFrameData *frame);
+void view_build_ui(ViewFrameData *frame);
+void video_view_build_ui(ViewFrameData *frame);
+void program_view_build_ui(ViewFrameData *frame);
+void cpu_view_build_ui(ViewFrameData *frame);
+void profiler_view_build_ui(ViewFrameData *frame);
+void cpu_mapping_view_build_ui(ViewFrameData *frame);
+void prg_activity_view_build_ui(ViewFrameData *frame);
+void chr_map_view_build_ui(ViewFrameData *frame);
 
 #endif

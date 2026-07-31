@@ -58,7 +58,7 @@ static void cpu_mapping_view_content(ViewFrameData *frame)
 	ui_table_draw(&table);
 }
 
-void cpu_mapping_view_frame(ViewFrameData *frame)
+void cpu_mapping_view_build_ui(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("CPU MAPPING — 8 KiB PROBES"));
 	cpu_mapping_view_content(&content);

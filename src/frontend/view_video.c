@@ -18,7 +18,7 @@ static void video_view_content(ViewFrameData *frame)
 	});
 }
 
-void video_view_frame(ViewFrameData *frame)
+void video_view_build_ui(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("VIDEO"));
 	video_view_content(&content);

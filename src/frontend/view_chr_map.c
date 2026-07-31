@@ -181,7 +181,7 @@ static void chr_map_view_content(ViewFrameData *frame)
 	chr_map_draw_sprite_tooltip(frame, atlas, sprite_rect);
 }
 
-void chr_map_view_frame(ViewFrameData *frame)
+void chr_map_view_build_ui(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("CHR MAP — PATTERN TABLES + OAM SPRITES + PALETTE RAM"));
 	chr_map_view_content(&content);

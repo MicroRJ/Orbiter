@@ -17,7 +17,7 @@ global const char debugger_config_path[]  = "data/debugger.cfg";
 global const char debugger_default_config_path[] = "data/default_debugger.cfg";
 global const char debugger_log_path[]     = "data/debugger.log";
 global const char debugger_program_path[] = "data/program.dump";
-global const char app_font_path[]          = "data/fonts/Saira/static/Saira-Medium.ttf";
+global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
 
 #define NES_PALETTE_COLORS(_) \
 _(0x80,0x80,0x80) _(0x00,0x00,0xBB) _(0x37,0x00,0xBF) _(0x84,0x00,0xA6) \
@@ -905,8 +905,9 @@ static void app_draw_box_tree(UI_Box *box)
 	}
 }
 
-static AppShell app_build_shell(rect_f32 window_rect)
+static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 {
+	Assert(frame);
 	AppShell shell = {};
 	UI_BoxDesc root_desc = ui_box_desc();
 	root_desc.axis = AXIS_Y;
@@ -993,8 +994,14 @@ static AppShell app_build_shell(rect_f32 window_rect)
 	ui_push(app.ui);
 	ui_size(app.ui, AXIS_X, ui_box_fill(1.f));
 	ui_size(app.ui, AXIS_Y, ui_box_fill(1.f));
-	shell.panel_host = ui_box_make(app.ui, 2, LIT("panel host"));
+	shell.panel_host = ui_box_begin(app.ui, 2, LIT("panel host"));
 	ui_pop(app.ui);
+
+	rect_f32 panel_rect = window_rect;
+	panel_rect.y += status_height;
+	panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
+	panels_build_ui(app.panels, app.os_window, frame, panel_rect);
+	ui_box_end(app.ui);
 
 	ui_push(app.ui);
 	ui_axis(app.ui, AXIS_X);
@@ -1175,7 +1182,6 @@ static void app_draw_exclusive_ppu(GFX_Texture *frame_texture, rect_f32 window_r
 
 static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 {
-	AppShell shell = app_build_shell(window_rect);
 	ViewFrameData frame = {
 		.debugger = app.debugger,
 		.execution_graph = debugger_execution_graph(app.debugger),
@@ -1185,8 +1191,8 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 		.chr_texture = app.chr_texture,
 		.ui = app.ui,
 		.scratch = &app.ui->frame_arena,
-		.draw_box_tree = app_draw_box_tree,
 	};
+	AppShell shell = app_build_shell(window_rect, &frame);
 
 	gfx_begin_pass(app.draw, (GFX_PassDesc) {
 		.output = frame_texture,
@@ -1197,7 +1203,6 @@ static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 		.rect = window_rect,
 		.color = app.ui->theme.background,
 	});
-	panels_update_and_draw(app.panels, app.os_window, &frame, shell.panel_host->viewport);
 	app_draw_shell(shell);
 	gfx_end_pass(app.draw);
 

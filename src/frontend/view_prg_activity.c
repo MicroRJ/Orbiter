@@ -388,7 +388,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	prg_activity_draw_tooltip(frame, &grid, hovered_cell, hovered_cell_rect, program, program_size);
 }
 
-void prg_activity_view_frame(ViewFrameData *frame)
+void prg_activity_view_build_ui(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("PRG ACTIVITY - EXECUTION FLOW"));
 	PROF_BLOCK("prg activity content") prg_activity_view_content(&content);

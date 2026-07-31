@@ -276,7 +276,7 @@ static void program_view_content(ViewFrameData *frame)
 	}
 }
 
-void program_view_frame(ViewFrameData *frame)
+void program_view_build_ui(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
 	String title = LIT("PROGRAM");

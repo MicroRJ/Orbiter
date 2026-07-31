@@ -429,7 +429,23 @@ static void panel_update_interaction(Panels *panels, OS_Window *window, UI_Conte
 	panel_update_interaction(panels, window, ui, panel->right, second);
 }
 
-static void panel_draw(Panels *panels, Panel *panel, ViewFrameData *source, rect_f32 rect)
+static UI_BoxDesc panel_leaf_desc(rect_f32 rect, vec2 root_position)
+{
+	rect.x -= root_position.x;
+	rect.y -= root_position.y;
+	UI_BoxDesc desc = ui_box_desc();
+	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE, .value = rect.x };
+	desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE, .value = rect.y };
+	desc.size[AXIS_X] = ui_box_pixels(rect.w);
+	desc.size[AXIS_Y] = ui_box_pixels(rect.h);
+	desc.horz_padd[0] = desc.horz_padd[1] = 3.f;
+	desc.vert_padd[0] = desc.vert_padd[1] = 3.f;
+	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
+	desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+	return desc;
+}
+
+static void panel_build_ui(Panels *panels, Panel *panel, ViewFrameData *source, rect_f32 rect, vec2 root_position)
 {
 	UI_Context *ui = source->ui;
 	switch (panel->kind)
@@ -437,18 +453,23 @@ static void panel_draw(Panels *panels, Panel *panel, ViewFrameData *source, rect
 		case PANEL_EMPTY:
 		{
 			ui_draw_panel(ui, rect, panel == panels->focused);
+			ui_box_make_desc(ui, ui_key_child(UI_KEY("empty panel"), panel->id), LIT("empty panel"), panel_leaf_desc(rect, root_position));
 		}
 		break;
 		case PANEL_VIEW:
 		{
 			ui_draw_panel(ui, rect, panel == panels->focused);
+			ui_box_begin_desc(ui, ui_key_child(UI_KEY("view panel"), panel->view->id), LIT("view panel"), panel_leaf_desc(rect, root_position));
+
 			rect_f32 content = rect_f32_inset(rect, 3.f);
 			ui_push_clip(ui, content);
 			ViewFrameData frame = *source;
 			frame.view = panel->view;
 			frame.rect = content;
-			view_frame(&frame);
+			view_build_ui(&frame);
 			ui_pop_clip(ui);
+
+			ui_box_end(ui);
 		}
 		break;
 		case PANEL_SPLIT:
@@ -457,8 +478,8 @@ static void panel_draw(Panels *panels, Panel *panel, ViewFrameData *source, rect
 			rect_f32 second;
 			rect_f32 handle;
 			panel_split_rects(panel, rect, &first, &second, &handle);
-			panel_draw(panels, panel->left, source, first);
-			panel_draw(panels, panel->right, source, second);
+			panel_build_ui(panels, panel->left, source, first, root_position);
+			panel_build_ui(panels, panel->right, source, second, root_position);
 
 			rect_f32 line = rect_f32_from_slice(second, panel->axis, 2.f);
 			line = rect_f32_translate_axis(line, panel->axis, -1.f);
@@ -468,12 +489,21 @@ static void panel_draw(Panels *panels, Panel *panel, ViewFrameData *source, rect
 	}
 }
 
-void panels_update_and_draw(Panels *panels, OS_Window *window, ViewFrameData *frame, rect_f32 rect)
+UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame, rect_f32 rect)
 {
 	Assert(panels);
 	Assert(window);
 	Assert(frame);
 	panels_handle_commands(panels, window);
 	panel_update_interaction(panels, window, frame->ui, panels->root, rect);
-	panel_draw(panels, panels->root, frame, rect);
+
+	UI_BoxDesc desc = ui_box_desc();
+	desc.size[AXIS_X] = ui_box_fill(1.f);
+	desc.size[AXIS_Y] = ui_box_fill(1.f);
+	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
+	desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+	UI_Box *root = ui_box_begin_desc(frame->ui, UI_KEY("panels"), LIT("panels"), desc);
+	panel_build_ui(panels, panels->root, frame, rect, rect.pos);
+	ui_box_end(frame->ui);
+	return root;
 }

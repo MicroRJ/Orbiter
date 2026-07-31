@@ -248,7 +248,6 @@ static void profiler_view_content(ViewFrameData *frame)
 	UI_Context *ui = frame->ui;
 	Profiler_View_State *state = &frame->view->profiler;
 	f32 row_height = ui->theme.code.size + 4.f;
-	Assert(frame->draw_box_tree);
 	UI_BoxDesc root_desc = ui_box_desc();
 	root_desc.axis = AXIS_Y;
 	root_desc.size[AXIS_X] = ui_box_fill(1.f);
@@ -257,7 +256,7 @@ static void profiler_view_content(ViewFrameData *frame)
 	root_desc.vert_padd[0] = root_desc.vert_padd[1] = 12.f;
 	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
-	UI_Box *root = ui_build_begin(ui, ui_key_child(UI_KEY("profiler"), frame->view->id), LIT("profiler"), root_desc);
+	ui_box_begin_desc(ui, ui_key_child(UI_KEY("profiler"), frame->view->id), LIT("profiler"), root_desc);
 
 	const Prof_Frame *snapshot = profiler_build_graph(ui, state);
 
@@ -296,14 +295,10 @@ static void profiler_view_content(ViewFrameData *frame)
 	ui_pop(ui);
 
 	ui_box_end(ui);
-	ui_build_end(ui);
-
-	ui_box_measure(root, (UI_BoxConstraints) { .min = frame->rect.size, .max = frame->rect.size });
-	ui_box_layout(root, frame->rect);
-	frame->draw_box_tree(root);
+	ui_box_end(ui);
 }
 
-void profiler_view_frame(ViewFrameData *frame)
+void profiler_view_build_ui(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("PROFILER"));
 	profiler_view_content(&content);

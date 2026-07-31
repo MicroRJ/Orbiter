@@ -70,7 +70,6 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 static void cpu_view_content(ViewFrameData *frame)
 {
 	Assert(frame->debugger);
-	Assert(frame->draw_box_tree);
 	if (!frame->publication->valid || !debugger_has_cartridge(frame->debugger))
 	{
 		UI_TextStyle style = frame->ui->theme.code;
@@ -92,7 +91,7 @@ static void cpu_view_content(ViewFrameData *frame)
 	UI_BoxDesc root_desc = ui_box_desc();
 	root_desc.size[AXIS_X] = ui_box_fill(1.f);
 	root_desc.size[AXIS_Y] = ui_box_fill(1.f);
-	UI_Box *root = ui_build_begin(frame->ui, ui_key_child(UI_KEY("CPU view"), frame->view->id), LIT("CPU view"), root_desc);
+	ui_box_begin_desc(frame->ui, ui_key_child(UI_KEY("CPU view"), frame->view->id), LIT("CPU view"), root_desc);
 
 	ui_push(frame->ui);
 	ui_size(frame->ui, AXIS_X, ui_box_fill(1.f));
@@ -147,13 +146,10 @@ static void cpu_view_content(ViewFrameData *frame)
 	ui_box_end(frame->ui);
 	ui_scroll_end(scroll);
 	ui_pop(frame->ui);
-	ui_build_end(frame->ui);
-	ui_box_measure(root, (UI_BoxConstraints) { .min = frame->rect.size, .max = frame->rect.size });
-	ui_box_layout(root, frame->rect);
-	frame->draw_box_tree(root);
+	ui_box_end(frame->ui);
 }
 
-void cpu_view_frame(ViewFrameData *frame)
+void cpu_view_build_ui(ViewFrameData *frame)
 {
 	ViewFrameData content = view_begin_frame(frame, LIT("CPU"));
 	cpu_view_content(&content);
