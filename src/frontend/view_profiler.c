@@ -244,7 +244,7 @@ static UI_Box *profiler_build_metric_table(UI_Context *ui, const Prof_Frame *sna
 		ui_box_table_content(),
 	};
 	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_X, ui_flex(0.5f, 2.0f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);

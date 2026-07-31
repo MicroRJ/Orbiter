@@ -64,6 +64,8 @@ typedef enum
 	APP_ACTION_TOGGLE_PPU_CAPTURE,
 	APP_ACTION_TOGGLE_APP_CAPTURE,
 	APP_ACTION_MUTE,
+	APP_LOWER_VOLUME,
+	APP_RAISE_VOLUME,
 }
 AppAction;
 
@@ -86,7 +88,9 @@ typedef struct
 	b32            emulator_running;
 	b32     resume_emulator_running;
 	i32            rewind_direction;
-
+	f32 ppu_volume;
+	f32 ppu_volume_target;
+	f32 ppu_animation;
 	Arena arena;
 	Arena frame_arena;
 	Debugger *debugger;
@@ -403,6 +407,8 @@ KeyBind;
 
 static const KeyBind app_emulator_mode_key_binds[] =
 {
+	{APP_LOWER_VOLUME, {KEY_CHORD_ON_PRESSED, OS_Key_Down , OS_MODIFIER_CONTROL}},
+	{APP_RAISE_VOLUME, {KEY_CHORD_ON_PRESSED, OS_Key_Up   , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_BEGIN_REWINDING_BACKWARDS , {KEY_CHORD_ON_PRESSED, OS_Key_Left , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_BEGIN_REWINDING_FORWARD   , {KEY_CHORD_ON_PRESSED, OS_Key_Right, OS_MODIFIER_CONTROL}},
 	{APP_ACTION_OPEN_ROM                  , {KEY_CHORD_ON_RELEASE, OS_Key_O    , OS_MODIFIER_CONTROL}},
@@ -513,7 +519,18 @@ static b32 app_handle_input(AppInput input)
 			else if (!gif_recorder_begin(&app.app_gif, app.os_window->size, "orbiter_capture")) LOG_ERROR("failed to begin application GIF capture");
 			handled = true;
 		} break;
-
+		case APP_RAISE_VOLUME:
+		{
+			app.ppu_volume_target += 0.1;
+			app.ppu_volume_target = Min(app.ppu_volume_target, 1.f);
+			app.ppu_animation = 1.f;
+		} break;
+		case APP_LOWER_VOLUME:
+		{
+			app.ppu_volume_target -= 0.1;
+			app.ppu_volume_target = Max(app.ppu_volume_target, 0.f);
+			app.ppu_animation = 1.f;
+		} break;
 		case APP_ACTION_BEGIN_REWINDING_BACKWARDS:
 		{
 			Assert(app.mode != APP_MODE_REWINDING);
@@ -612,6 +629,10 @@ static void app_run_with_audio(void)
 
 	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * capacity);
 	u64 nsamples = debugger_run_samples(app.debugger, app.audio_sample_rate, &app.audio_sample_phase, minimum, samples, capacity);
+
+	for (u32 i = 0; i < nsamples; ++ i) {
+		samples[i] *= app.ppu_volume;
+	}
 
 	if (debugger_breakpoint_hit(app.debugger))
 	{
@@ -907,6 +928,7 @@ static void app_draw_box_tree(UI_Box *box)
 
 static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 {
+	UI_Context *ui = app.ui;
 	Assert(frame);
 	AppShell shell = {};
 	UI_BoxDesc root_desc = ui_defaults();
@@ -919,35 +941,31 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	UI_TextStyle style = app.ui->theme.code;
 	style.align.y = 0.5f;
 
-	ui_push(app.ui);
 	ui_axis(app.ui, AXIS_X);
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_size(app.ui, AXIS_Y, ui_fixed(status_height));
 	ui_padd(app.ui, AXIS_X, 6.f, 6.f);
 	shell.top = ui_box_begin(app.ui, 1, LIT("top status"));
-	ui_pop(app.ui);
 
-	ui_push(app.ui);
-	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	style.color = app.ui->theme.palette.cyan;
+	ui_size(app.ui, AXIS_X, ui_wrap());
+	ui_size(app.ui, AXIS_Y, ui_wrap());
 	app_status_text(app.ui, 1, LIT("ORBITER"), style, app.ui->theme.palette.emission_medium);
 
-	ui_push(app.ui);
-	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	style.color = app.ui->theme.text_subtle;
+	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	app_status_text(app.ui, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
-	ui_pop(app.ui);
+
+	f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
 
 	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1)
 	{
 		style.color = app.ui->theme.palette.error;
-		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
 		app_status_text(app.ui, 3, LIT("<< REWINDING"), style, app.ui->theme.palette.emission_high * pulse);
 	}
 	else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1)
 	{
 		style.color = app.ui->theme.palette.amber;
-		f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
 		app_status_text(app.ui, 3, LIT("REPLAYING >>"), style, app.ui->theme.palette.emission_high * pulse);
 	}
 	else if (app.mode == APP_MODE_REWINDING)
@@ -964,7 +982,6 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 		}
 		else
 		{
-			f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f);
 			style.color = app.ui->theme.palette.error;
 			app_status_text(app.ui, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
 		}
@@ -972,30 +989,38 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 
 	style.color = app.ui->theme.text_subtle;
 	if (app.app_gif.recording) app_status_text(app.ui, 4, LIT("   REC APP"), style, 0.f);
-	else if (app.ppu_gif.recording) app_status_text(app.ui, 4, LIT("   REC PPU"), style, 0.f);
-	if (app.apu_muted) app_status_text(app.ui, 5, LIT("   MUTED"), style, 0.f);
+	if (app.ppu_gif.recording) app_status_text(app.ui, 4, LIT("   REC PPU"), style, 0.f);
+	if (app.apu_muted)         app_status_text(app.ui, 5, LIT("   MUTED"), style, 0.f);
 
-	ui_push(app.ui);
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_box_make(app.ui, 6, LIT("top spacer"));
-	ui_pop(app.ui);
 
-	ui_push(app.ui);
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	style.align.x = 0.f;
-	ui_text_box_sized(app.ui, 7, style, LIT("FPS 999.9"), "FPS %02.2f", app.frames_per_second);
-	ui_pop(app.ui);
-	style.align.x = 0.f;
-	ui_text_box_sized(app.ui, 8, style, LIT("FRAME 999999999"), " FRAME %llu", app.published.generation);
-	ui_pop(app.ui);
+
+	Color_SRGBA ppu_volume_base_color = app.ui->theme.text_subtle;
+	if (app.ppu_volume <= 0.01f) {
+		ppu_volume_base_color = app.ui->theme.palette.error;
+	}
+	style.color = color_srgba_mix(ppu_volume_base_color, app.ui->theme.palette.amber, app.ppu_animation);
+	ui_push(ui);
+	ui_emission(ui, app.ui->theme.palette.emission_high * app.ppu_animation);
+	ui_text_box_sized(app.ui, UI_KEY("volume"), style, LIT("VOL 100%"), "VOL %i%%", (i32) roundf(app.ppu_volume * 100.f));
+	ui_pop(ui);
+	app.ppu_animation *= 0.95f;
+	app.ppu_volume += (app.ppu_volume_target - app.ppu_volume) * 0.35f;
+
+	style.color = app.ui->theme.text_subtle;
+	ui_text_box_sized(app.ui, UI_KEY("fps"), style, LIT("FPS 999.9"), "FPS %02.2f", app.frames_per_second);
+
+	style.color = app.ui->theme.text_subtle;
+	ui_text_box_sized(app.ui, UI_KEY("frame"), style, LIT("FRAME 999999999"), " FRAME %llu", app.published.generation);
 
 	ui_box_end(app.ui);
 
-	ui_push(app.ui);
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	shell.panel_host = ui_box_begin(app.ui, 2, LIT("panel host"));
-	ui_pop(app.ui);
 
 	rect_f32 panel_rect = window_rect;
 	panel_rect.y += status_height;
@@ -1003,33 +1028,23 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	panels_build_ui(app.panels, app.os_window, frame, panel_rect);
 	ui_box_end(app.ui);
 
-	ui_push(app.ui);
 	ui_axis(app.ui, AXIS_X);
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_size(app.ui, AXIS_Y, ui_fixed(status_height));
 	ui_padd(app.ui, AXIS_X, 6.f, 6.f);
 	shell.bottom = ui_box_begin(app.ui, 3, LIT("bottom status"));
-	ui_pop(app.ui);
 
-	ui_push(app.ui);
 	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	String rom_name = app_rom_name(app.last_rom_path);
 	String bottom_left = rom_name.size ? push_formatted(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
-	ui_push(app.ui);
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	style.align.x = 0.f;
 	app_status_text(app.ui, 1, bottom_left, style, 0.f);
-	ui_pop(app.ui);
-	ui_push(app.ui);
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_box_make(app.ui, 2, LIT("bottom spacer"));
-	ui_pop(app.ui);
-	ui_push(app.ui);
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 3.f));
 	style.align.x = 1.f;
 	app_status_text(app.ui, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
-	ui_pop(app.ui);
-	ui_pop(app.ui);
 	ui_box_end(app.ui);
 
 	ui_build_end(app.ui);
