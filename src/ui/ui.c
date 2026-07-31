@@ -385,13 +385,6 @@ void ui_pop_emission(UI_Context *ui)
 	draw_list_pop_emission(ui->draw);
 }
 
-void ui_draw_panel(UI_Context *ui, rect_f32 rect, b32 focused)
-{
-	(void)focused;
-	ui_draw_rect(ui, rect, ui->theme.panel_background);
-	ui_draw_inset_shadow(ui, rect, 0.035f);
-}
-
 void ui_draw_splitter(UI_Context *ui, rect_f32 rect, UI_Id id)
 {
 	(void)id;

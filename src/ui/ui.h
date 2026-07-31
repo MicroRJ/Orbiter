@@ -145,7 +145,6 @@ void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SR
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength);
 void ui_draw_backdrop(UI_Context *ui, rect_f32 rect, f32 roundness);
 
-void ui_draw_panel(UI_Context *ui, rect_f32 rect, b32 focused);
 void ui_draw_splitter(UI_Context *ui, rect_f32 rect, UI_Id id);
 void ui_draw_image(UI_Context *ui, Draw_TextureParams params);
 vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text);

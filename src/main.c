@@ -100,7 +100,6 @@ typedef struct
 	b32 exclusive_ppu_mode;
 	b32 fullscreen_mode;
 	b32 crt_enabled;
-	b32 apu_muted;
 	GifRecorder ppu_gif;
 	GifRecorder app_gif;
 	Seconds frame_begin;
@@ -497,17 +496,25 @@ static b32 app_handle_input(AppInput input)
 			else if (!gif_recorder_begin(&app.app_gif, app.os_window->size, "orbiter_capture")) LOG_ERROR("failed to begin application GIF capture");
 			handled = true;
 		} break;
+		case APP_ACTION_MUTE:
+		{
+			app.ppu_volume_target = 0.f;
+			app.ppu_animation = 1.f;
+			handled = true;
+		} break;
 		case APP_RAISE_VOLUME:
 		{
 			app.ppu_volume_target += 0.1;
 			app.ppu_volume_target = Min(app.ppu_volume_target, 1.f);
 			app.ppu_animation = 1.f;
+			handled = true;
 		} break;
 		case APP_LOWER_VOLUME:
 		{
 			app.ppu_volume_target -= 0.1;
 			app.ppu_volume_target = Max(app.ppu_volume_target, 0.f);
 			app.ppu_animation = 1.f;
+			handled = true;
 		} break;
 		case APP_ACTION_BEGIN_REWINDING_BACKWARDS:
 		{
@@ -533,11 +540,7 @@ static b32 app_handle_input(AppInput input)
 			app.emulator_running = app.resume_emulator_running;
 			handled = true;
 		} break;
-		case APP_ACTION_MUTE:
-		{
-			app.apu_muted = !app.apu_muted;
-			handled = true;
-		} break;
+
 		case APP_ACTION_TOGGLE_PPU_FULLSCREEN:
 		{
 			app.exclusive_ppu_mode = !app.exclusive_ppu_mode;
@@ -588,7 +591,6 @@ static void app_run_without_audio(void)
 static void app_run_with_audio(void)
 {
 	Assert(app.audio_backend_available);
-	Assert(!app.apu_muted);
 
 	// NOTE(RJ) We run the emulator enough to fill twice the buffer size of the audio
 	// backend if we've already got enough samples queued then we can return ...
@@ -860,7 +862,6 @@ static AppShell app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	style.color = app.ui->theme.text_subtle;
 	if (app.app_gif.recording) app_status_text(app.ui, 4, LIT("   REC APP"), style, 0.f);
 	if (app.ppu_gif.recording) app_status_text(app.ui, 4, LIT("   REC PPU"), style, 0.f);
-	if (app.apu_muted)         app_status_text(app.ui, 5, LIT("   MUTED"), style, 0.f);
 
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
 	ui_box_make(app.ui, 6, LIT("top spacer"));
@@ -1187,11 +1188,7 @@ static void app_frame(void)
 						PROF_BLOCK("emulation step") debugger_step(app.debugger);
 					}
 					else if (app.emulator_running) {
-						if (app.audio_backend_available && !app.apu_muted) {
-							PROF_BLOCK("emulation") app_run_with_audio();
-						} else {
-							PROF_BLOCK("emulation muted") app_run_without_audio();
-						}
+						PROF_BLOCK("emulation") app_run_with_audio();
 					}
 				}
 				PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);

@@ -72,6 +72,7 @@ typedef struct
 	Arena         *scratch;
 	rect_f32       rect;
 	f32            header_height;
+	UI_Box        *frame_box;
 	UI_Box        *content_box;
 
 	// The application prepares shared publication resources once per frame.

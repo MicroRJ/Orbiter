@@ -342,6 +342,13 @@ void ui_builder_edge_softness(UI_BoxBuilder *builder, f32 edge_softness)
 	builder->paint.edge_softness = Max(0.f, edge_softness);
 }
 
+void ui_builder_inset_shadow(UI_BoxBuilder *builder, f32 strength)
+{
+	Assert(builder);
+	builder->paint.flags |= UI_BOX_DRAW_INSET_SHADOW;
+	builder->paint.inset_shadow = Max(0.f, strength);
+}
+
 void ui_builder_emission(UI_BoxBuilder *builder, f32 emission)
 {
 	Assert(builder);
@@ -523,6 +530,11 @@ void ui_roundness(UI_Context *ui, f32 roundness)
 void ui_edge_softness(UI_Context *ui, f32 edge_softness)
 {
 	ui_builder_edge_softness(ui_box__builder(ui), edge_softness);
+}
+
+void ui_inset_shadow(UI_Context *ui, f32 strength)
+{
+	ui_builder_inset_shadow(ui_box__builder(ui), strength);
 }
 
 void ui_emission(UI_Context *ui, f32 emission)

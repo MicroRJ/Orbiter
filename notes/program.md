@@ -1,5 +1,20 @@
 # Notes on the incremental program discovery process
 
+---
+Over-engineering of Doom.
+
+One of the things I never realized, was that there wasn't really a need to decode the entire
+CPU every frame.
+
+Even if doing so takes 1-2 ms, we could still do it _once_ after the emulator stops running.
+
+The point of the incremental scan was to refine instruction guesses, count instructions and
+build bridges. It does so incrementally over several frames as the emulator runs.
+
+
+
+
+---
 Since the beginning of this project, my main problem was the disassembly view.
 
 Here's the problem.

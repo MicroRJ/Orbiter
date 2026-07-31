@@ -767,14 +767,15 @@ static int playground_run_tests(void)
 		ui_builder_push(&builder);
 		ui_builder_border(&builder, color_srgba(0xABCDEF), 2.f);
 		ui_builder_roundness(&builder, 4.f);
-		UI_Box *background_and_border = ui_builder_box_make(&builder, 2, LIT("background and border"));
+		ui_builder_inset_shadow(&builder, 0.25f);
+		UI_Box *styled = ui_builder_box_make(&builder, 2, LIT("styled"));
 		ui_builder_pop(&builder);
 		UI_Box *restored = ui_builder_box_make(&builder, 3, LIT("restored"));
 		ui_box_builder_end(&builder);
 		CHECK(!root->paint.flags, "the box root snapshots the initial paint description");
 		CHECK(background->paint.flags == UI_BOX_DRAW_BACKGROUND, "a box snapshots the active background");
-		CHECK(background_and_border->paint.flags == (UI_BOX_DRAW_BACKGROUND | UI_BOX_DRAW_BORDER) && playground_near(background_and_border->paint.border_width, 2.f) && playground_near(background_and_border->paint.roundness, 4.f), "nested paint changes compose on a box");
-		CHECK(restored->paint.flags == UI_BOX_DRAW_BACKGROUND && playground_near(restored->paint.roundness, 0.f), "ui_pop restores layout and paint descriptions together");
+		CHECK(styled->paint.flags == (UI_BOX_DRAW_BACKGROUND | UI_BOX_DRAW_BORDER | UI_BOX_DRAW_INSET_SHADOW) && playground_near(styled->paint.border_width, 2.f) && playground_near(styled->paint.roundness, 4.f) && playground_near(styled->paint.inset_shadow, 0.25f), "nested paint changes compose on a box");
+		CHECK(restored->paint.flags == UI_BOX_DRAW_BACKGROUND && playground_near(restored->paint.roundness, 0.f) && playground_near(restored->paint.inset_shadow, 0.f), "ui_pop restores layout and paint descriptions together");
 	}
 
 	ARENA_SCOPE(&arena)

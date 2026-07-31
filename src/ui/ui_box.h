@@ -85,9 +85,10 @@ UI_BoxDesc;
 typedef u32 UI_BoxDrawFlags;
 enum
 {
-	UI_BOX_DRAW_BACKGROUND = 1 << 0,
-	UI_BOX_DRAW_BORDER     = 1 << 1,
-	UI_BOX_DRAW_BACKDROP   = 1 << 2,
+	UI_BOX_DRAW_BACKGROUND   = 1 << 0,
+	UI_BOX_DRAW_BORDER       = 1 << 1,
+	UI_BOX_DRAW_BACKDROP     = 1 << 2,
+	UI_BOX_DRAW_INSET_SHADOW = 1 << 3,
 };
 
 typedef struct
@@ -98,6 +99,7 @@ typedef struct
 	f32 border_width;
 	f32 roundness;
 	f32 edge_softness;
+	f32 inset_shadow;
 	f32 emission;
 	i32 z;
 }
@@ -265,6 +267,7 @@ void ui_background(UI_Context *ui, Color_SRGBA color);
 void ui_border(UI_Context *ui, Color_SRGBA color, f32 width);
 void ui_roundness(UI_Context *ui, f32 roundness);
 void ui_edge_softness(UI_Context *ui, f32 edge_softness);
+void ui_inset_shadow(UI_Context *ui, f32 strength);
 void ui_emission(UI_Context *ui, f32 emission);
 void ui_paint_z(UI_Context *ui, i32 z);
 
@@ -297,6 +300,7 @@ void ui_builder_background(UI_BoxBuilder *builder, Color_SRGBA color);
 void ui_builder_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width);
 void ui_builder_roundness(UI_BoxBuilder *builder, f32 roundness);
 void ui_builder_edge_softness(UI_BoxBuilder *builder, f32 edge_softness);
+void ui_builder_inset_shadow(UI_BoxBuilder *builder, f32 strength);
 void ui_builder_emission(UI_BoxBuilder *builder, f32 emission);
 void ui_builder_paint_z(UI_BoxBuilder *builder, i32 z);
 

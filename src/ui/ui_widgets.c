@@ -82,6 +82,9 @@ void ui_box_paint(UI_Box *box)
 		command->rect.corner_radii = (Draw_CornerRadii) { paint->roundness, paint->roundness, paint->roundness, paint->roundness };
 		command->rect.edge_softness = paint->edge_softness;
 	}
+	if (paint->flags & UI_BOX_DRAW_INSET_SHADOW && paint->inset_shadow > 0.f) {
+		ui_draw_inset_shadow(ui, box->rect, paint->inset_shadow);
+	}
 	if (paint->flags & UI_BOX_DRAW_BORDER && paint->border_width > 0.f) {
 		ui_draw_rect_outline(ui, box->rect, paint->border_width, paint->border);
 	}

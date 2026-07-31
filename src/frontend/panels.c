@@ -447,14 +447,20 @@ static void panel_build_ui(Panels *panels, Panel *panel, ViewFrameData *source, 
 	{
 		case PANEL_EMPTY:
 		{
-			ui_draw_panel(ui, rect, panel == panels->focused);
+			ui_push(ui);
+			ui_background(ui, ui->theme.panel_background);
+			ui_inset_shadow(ui, 0.035f);
 			ui_box_make_desc(ui, ui_key_child(UI_KEY("empty panel"), panel->id), LIT("empty panel"), panel_leaf_desc(rect, root_position));
+			ui_pop(ui);
 		}
 		break;
 		case PANEL_VIEW:
 		{
-			ui_draw_panel(ui, rect, panel == panels->focused);
+			ui_push(ui);
+			ui_background(ui, ui->theme.panel_background);
+			ui_inset_shadow(ui, 0.035f);
 			ui_box_begin_desc(ui, ui_key_child(UI_KEY("view panel"), panel->view->id), LIT("view panel"), panel_leaf_desc(rect, root_position));
+			ui_pop(ui);
 
 			rect_f32 content = rect_f32_inset(rect, 3.f);
 			ui_push_clip(ui, content);

@@ -7,7 +7,16 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, String title)
 	f32 height = ui->theme.code.size + 10.f;
 	result.header_height = height;
 
-	ui_draw_inset_shadow(ui, result.rect, 0.25f);
+	UI_BoxDesc frame_desc = ui_defaults();
+	frame_desc.size[AXIS_X] = ui_grow(1.f);
+	frame_desc.size[AXIS_Y] = ui_grow(1.f);
+	frame_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
+	frame_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+	ui_push(ui);
+	ui_inset_shadow(ui, 0.25f);
+	result.frame_box = ui_box_begin_desc(ui, UI_KEY("view frame"), LIT("view frame"), frame_desc);
+	ui_pop(ui);
+
 	rect_f32 header = rect_f32_inset(rect_f32_slice(&result.rect, AXIS_Y, height + 24.f), 12.f);
 	ui_push_z(ui, UI_Z_HEADER);
 	ui_draw_backdrop(ui, header, 5.f);
@@ -40,6 +49,10 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, String title)
 
 void view_end_frame(ViewFrameData *frame)
 {
+	Assert(frame->frame_box);
+	Assert(frame->content_box);
+	Assert(frame->content_box->parent == frame->frame_box);
+	ui_box_end(frame->ui);
 	ui_box_end(frame->ui);
 	ui_pop_clip(frame->ui);
 }
