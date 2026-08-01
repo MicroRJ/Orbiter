@@ -24,6 +24,9 @@ enum {
 	R_MODE,
 	R_VERT,
 	R_RAM,
+	R_IRQ_RELOAD,
+	R_IRQ_COUNTER,
+	R_IRQ_DISABLED,
 };
 
 NES_MAPPER_RSET_FUNC(mmc3_reset) {
@@ -69,15 +72,29 @@ NES_BusAccess mmc3_cpu(NES_Emulator *nes, NES_BusAccess access)
 				nes_mapper_set_value(nes, selected_register, access.value);
 			}
 			break;
+			case 0xC000: {
+				nes_mapper_set_value(nes, R_IRQ_RELOAD, access.value);
+			}
+			break;
+			case 0xC001: {
+				nes_mapper_set_value(nes, R_IRQ_COUNTER, 0);
+			}
+			break;
+			// """
+			// Writing any value to this register will disable MMC3 interrupts AND acknowledge any pending interrupts.
+			// """
+			case 0xE000: {
+				nes_mapper_set_value(nes, R_IRQ_DISABLED, 1);
+			}
+			break;
+			case 0xE001: {
+				nes_mapper_set_value(nes, R_IRQ_DISABLED, 0);
+			}
+			break;
 		}
 	}
 	else
 	{
-		STATIC_ASSERT((0x0000 ^ 0x02) == 2);
-		STATIC_ASSERT((0x0002 ^ 0x02) == 0);
-		STATIC_ASSERT((0x8000 >> 13) == 4);
-		STATIC_ASSERT((0x8000 ^ (0x40 << 8)) == 0xC000);
-		STATIC_ASSERT((0xC000 ^ (0x40 << 8)) == 0x8000);
 		if (access.address >= 0x8000) {
 			// Bit 6 of the last value written to $8000 swaps the PRG windows at $8000 and $C000
 			u32 index = (access.address >> 13) - 4;

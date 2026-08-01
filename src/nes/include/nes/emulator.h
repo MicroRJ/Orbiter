@@ -202,6 +202,7 @@ NES_State;
 
 typedef struct NES_Emulator NES_Emulator;
 
+// TODO(RJ) this can be removed now!
 typedef struct
 {
 	const u8 *pixels;
@@ -229,10 +230,10 @@ typedef enum
 }
 NES_DeviceId;
 
-// TODO(RJ) REMOVE ALIASES
 typedef struct
 {
 	NES_DeviceId device;
+	// TODO(RJ) REMOVE ALIASES
 	union
 	{
 		u32 offset;
@@ -329,14 +330,12 @@ u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
 
 u32 nes_emulator_step(NES_Emulator *core);
 
-// TODO(RJ) remove!
-u64 nes_emulator_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity);
-
-static u64 nes_sample_rate(NES_Emulator *emulator) {
+static inline u64 nes_sample_rate(const NES_Emulator *emulator) {
+	(void)emulator;
 	return 48 * 1000;
 }
 
-static u64 nes_required_sample_capacity() {
+static inline u64 nes_required_sample_capacity(void) {
 	// 48000 / 60.1 = ~ 799
 	// This is just an extra safe size, so we don't even have to check because
 	// it's impossible ...
@@ -350,7 +349,7 @@ typedef struct
 }
 NES_RunFrameResult;
 
-NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer);
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer, u64 sample_capacity);
 
 
 

@@ -312,7 +312,7 @@ static void ppu_test_clock_and_vblank_events(PPU_TestFixture *fixture)
 
 	ppu->xtick = 340;
 	ppu->ytick = 261;
-	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME, nes_ppu_step(fixture->core));
+	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NONE, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0, ppu->xtick);
 	PPU_EXPECT_EQUAL(0, ppu->ytick);
 
@@ -320,14 +320,14 @@ static void ppu_test_clock_and_vblank_events(PPU_TestFixture *fixture)
 	ppu->PPUSTATUS = 0;
 	ppu->xtick = 1;
 	ppu->ytick = 241;
-	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NONE, nes_ppu_step(fixture->core));
+	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0x80, ppu->PPUSTATUS & 0x80);
 
 	ppu->PPUCTRL = 0x80;
 	ppu->PPUSTATUS = 0;
 	ppu->xtick = 1;
 	ppu->ytick = 241;
-	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NMI, nes_ppu_step(fixture->core));
+	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME | NES_PPU_EVENT_NMI, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0x80, ppu->PPUSTATUS & 0x80);
 
 	ppu->PPUSTATUS = 0xE0;

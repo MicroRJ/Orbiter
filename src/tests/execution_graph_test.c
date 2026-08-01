@@ -1,4 +1,5 @@
 #include "debugger.h"
+#include "debugger_internal.h"
 #include "execution_graph.h"
 #include "nes/isa.h"
 #include <stdio.h>
@@ -171,6 +172,60 @@ static void test_executed_program_marking(void)
 	arena_destroy(&arena);
 }
 
+static void test_debugger_run_frame(void)
+{
+	Arena arena = arena_create(0, "execution graph frame test");
+	u32 rom_size = 16 + KiB(16) + KiB(8);
+	u8 *rom = arena_push_zero(&arena, rom_size);
+	rom[0] = 'N';
+	rom[1] = 'E';
+	rom[2] = 'S';
+	rom[3] = 0x1A;
+	rom[4] = 1;
+	rom[5] = 1;
+	rom[16 + 0] = NOP_IMP;
+	rom[16 + 1] = JMP_ABS;
+	rom[16 + 2] = 0x00;
+	rom[16 + 3] = 0x80;
+	rom[16 + 0x3FFA] = 0x00;
+	rom[16 + 0x3FFB] = 0x80;
+	rom[16 + 0x3FFC] = 0x00;
+	rom[16 + 0x3FFD] = 0x80;
+	rom[16 + 0x3FFE] = 0x00;
+	rom[16 + 0x3FFF] = 0x80;
+
+	Debugger *debugger = debugger_create(&arena);
+	Assert(debugger_open_rom(debugger, byte_span(rom, rom_size)));
+	NES_MapAddr first = debugger_cpu_map(debugger, 0x8000);
+	const Program *observed = debugger_program(debugger);
+	u32 first_offset = program_mapped_instruction_offset(observed, first);
+	Assert(first_offset != MAX_VALUE_U32);
+	Assert(!(observed->bytes[first_offset].flags & PROGRAM_INSTRUCTION_EXECUTED));
+
+	u64 sample_capacity = nes_required_sample_capacity();
+	f32 *samples = arena_push_zero(&arena, sizeof(*samples) * sample_capacity);
+	NES_RunFrameResult frame = debugger_run_frame(debugger, samples, sample_capacity);
+	Assert(frame.samples > 0);
+	observed = debugger_program(debugger);
+	Assert(observed->bytes[first_offset].flags & PROGRAM_INSTRUCTION_EXECUTED);
+	Assert(debugger_execution_graph(debugger)->edge_count > 0);
+
+	DebuggerState before = debugger_capture_state(debugger);
+	u64 clock_before = debugger_scheduler_clock(debugger);
+	u64 phase_before = debugger->emulator->sample_phase;
+	NES_MapAddr breakpoint = debugger_cpu_map(debugger, before.cpu.PC);
+	debugger_set_program_breakpoint(debugger, breakpoint, true);
+	frame = debugger_run_frame(debugger, samples, sample_capacity);
+	Assert(debugger_breakpoint_hit(debugger));
+	Assert(frame.samples == 0);
+	Assert(debugger_scheduler_clock(debugger) == clock_before);
+	Assert(debugger_capture_state(debugger).cpu.PC == before.cpu.PC);
+	Assert(debugger->emulator->sample_phase == phase_before);
+
+	debugger_destroy(debugger);
+	arena_destroy(&arena);
+}
+
 int main(void)
 {
 	Assert(nes_instruction_is_control_flow(BNE_REL));
@@ -180,6 +235,7 @@ int main(void)
 	test_capacity();
 	test_observation();
 	test_executed_program_marking();
+	test_debugger_run_frame();
 	printf("Orbiter execution graph tests passed\n");
 	return 0;
 }

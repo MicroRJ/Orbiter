@@ -5,7 +5,6 @@
 #include "ppu/ppu.h"
 #include "apu/apu.h"
 #include "mappers/mapper.h"
-#include "runtime/scheduler.h"
 #include "nes/state_meta.h"
 #include <stdlib.h>
 
@@ -214,7 +213,12 @@ b32 nes_emulator_load_state(NES_Emulator *emulator, ByteSpan state_wire)
 	NES_Emulator *dummy = calloc(1, sizeof(* dummy));
 	if (!dummy) return false;
 	b32 success = serialize_read_record(state_wire, nes_state_record_map(), NES_RECORD_EMULATOR, dummy);
-	if (!success || !nes_state_valid(& dummy->core)) goto cleanup;
+	if (!success) goto cleanup;
+	if (!nes_state_valid(& dummy->core))
+	{
+		success = false;
+		goto cleanup;
+	}
 	memory_copy(emulator, dummy, sizeof(* dummy));
 	nes_emulator_activate_mapper(emulator);
 cleanup:
@@ -271,87 +275,84 @@ static inline u32 cpu_step(NES_Emulator *emulator)
 	return nes_cpu_step(emulator);
 }
 
-static u32 nes_scheduler_step_internal(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, f32 *samples, u64 capacity, u64 *sample_count)
+typedef struct
 {
-	u32 cpu_cycles = cpu_step(core);
+	u32 cpu_cycles;
+	u32 ppu_events;
+}
+NES_InstructionStep;
+
+typedef struct
+{
+	f32 *samples;
+	u64 sample_count;
+	u64 sample_capacity;
+}
+NES_AudioOutput;
+
+static inline b32 nes_sample_phase_advance(u64 *sample_phase, u64 sample_rate)
+{
+	*sample_phase += sample_rate;
+	if (*sample_phase < NES_CPU_HZ) return false;
+	*sample_phase -= NES_CPU_HZ;
+	return true;
+}
+
+static inline void nes_audio_output_sample(NES_Emulator *emulator, NES_AudioOutput *output)
+{
+	if (output->samples)
+	{
+		Assert(output->sample_count < output->sample_capacity);
+		output->samples[output->sample_count] = nes_apu_dac(&emulator->core.apu);
+	}
+	output->sample_count ++;
+}
+
+static NES_InstructionStep nes_emulator_step_internal(NES_Emulator *emulator, NES_AudioOutput *output)
+{
+	u32 ppu_events = 0;
+	u32 cpu_cycles = cpu_step(emulator);
 	for (u32 cycle = 0; cycle < cpu_cycles; ++cycle)
 	{
 		for (u32 ppu_cycle = 0; ppu_cycle < 3; ++ppu_cycle) {
-			u32 events = nes_ppu_step(core);
-			if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(core);
+			u32 events = nes_ppu_step(emulator);
+			ppu_events |= events;
+			if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(emulator);
 		}
-		nes_apu_clock_cpu_cycle(&core->core.apu);
-		*sample_phase += sample_rate;
-		while (*sample_phase >= NES_CPU_HZ)
-		{
-			*sample_phase -= NES_CPU_HZ;
-			Assert(*sample_count < capacity);
-			samples[(*sample_count)++] = nes_apu_dac(&core->core.apu);
-		}
+
+		nes_apu_clock_cpu_cycle(&emulator->core.apu);
+		b32 emulator_sample = nes_sample_phase_advance(&emulator->sample_phase, nes_sample_rate(emulator));
+		if (output && emulator_sample) nes_audio_output_sample(emulator, output);
 	}
 	prof_add_metric(PROF_METRIC_CPU_CYCLES, cpu_cycles);
-	core->scheduler_clock ++;
-	return cpu_cycles;
+	emulator->scheduler_clock ++;
+	return (NES_InstructionStep) { .cpu_cycles = cpu_cycles, .ppu_events = ppu_events };
 }
 
-u32 nes_emulator_step(NES_Emulator *core)
+u32 nes_emulator_step(NES_Emulator *emulator)
 {
-	u32 sample_phase = 0;
-	return nes_scheduler_step_internal(core, 0, &sample_phase, 0, 0, 0);
+	return nes_emulator_step_internal(emulator, 0).cpu_cycles;
 }
 
-u64 nes_emulator_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity)
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer, u64 sample_capacity)
 {
-	Assert(sample_rate);
-	Assert(sample_rate <= NES_CPU_HZ);
-	Assert(sample_phase);
-	Assert(*sample_phase < NES_CPU_HZ);
-	Assert(samples || capacity == 0);
-	Assert(minimum_samples <= capacity);
-	u32 phase = *sample_phase;
-	u64 sample_count = 0;
-	while (sample_count < minimum_samples)
-	{
-		nes_scheduler_step_internal(core, sample_rate, &phase, samples, capacity, &sample_count);
-	}
-	*sample_phase = phase;
-	return sample_count;
-}
-
-NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer)
-{
-	u64 sample_count = 0;
+	Assert(sample_buffer || !sample_capacity);
+	NES_AudioOutput output = {
+		.samples = sample_buffer,
+		.sample_capacity = sample_capacity,
+	};
 	b32 frame_event = false;
 	u64 steps = 0;
 	while (!frame_event)
 	{
-		u32 cpu_cycles = cpu_step(emulator);
-		for (u32 cpu_cycle = 0; cpu_cycle < cpu_cycles; cpu_cycle ++)
-		{
-			for (u32 ppu_cycle = 0; ppu_cycle < 3; ppu_cycle ++) {
-				u32 events = nes_ppu_step(emulator);
-				if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(emulator);
-				if (events & NES_PPU_EVENT_FRAME) frame_event = true;
-			}
-
-			nes_apu_clock_cpu_cycle(&emulator->core.apu);
-			emulator->sample_phase += 48000;
-			while (emulator->sample_phase >= NES_CPU_HZ)
-			{
-				emulator->sample_phase -= NES_CPU_HZ;
-				sample_buffer[sample_count++] = nes_apu_dac(&emulator->core.apu);
-			}
-		}
-		emulator->scheduler_clock ++;
+		NES_InstructionStep step = nes_emulator_step_internal(emulator, &output);
+		frame_event = !!(step.ppu_events & NES_PPU_EVENT_FRAME);
 		steps ++;
-		prof_add_metric(PROF_METRIC_CPU_CYCLES, cpu_cycles);
 	}
-
 
 	NES_RunFrameResult result = {
 		.steps = steps,
-		.samples = sample_count,
+		.samples = output.sample_count,
 	};
 	return result;
 }
-

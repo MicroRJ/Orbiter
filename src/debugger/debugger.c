@@ -14,8 +14,8 @@ void debugger_capture_snapshot(Debugger *debugger)
 	NES_Emulator *emulator = debugger->emulator;
 	NES_State *state = &emulator->core;
 
-	snapshot->sample_phase = emulator->sample_phase;
 	memory_zero(snapshot, sizeof(*snapshot));
+	snapshot->sample_phase = emulator->sample_phase;
 	memory_copy(snapshot->values, state->values, sizeof(snapshot->values));
 	snapshot->input_state = state->input_state;
 	snapshot->cpu_stall_cycles = state->cpu_stall_cycles;
@@ -306,40 +306,15 @@ u32 debugger_step(Debugger *debugger)
 	return cycles;
 }
 
-NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer)
-{
-	NES_RunFrameResult result = nes_emulator_run_frame(debugger->emulator, sample_buffer);
-	return result;
-}
-
-u64 debugger_run_samples(Debugger *debugger, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity)
+NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer, u64 sample_capacity)
 {
 	Assert(debugger_has_cartridge(debugger));
-	Assert(sample_phase);
+	debugger_capture_snapshot(debugger);
 	debugger_ensure_has_can_restore_in_case_of_breakpoint(debugger);
-	if (!debugger->program_breakpoint_count)
-	{
-		u64 count = nes_emulator_run_samples(debugger->emulator, sample_rate, sample_phase, minimum_samples, samples, capacity);
-		debugger_process_scheduler_trace(debugger);
-		return count;
-	}
-
-	// Note, we have to cap this before we might request so many samples that discard records ...
-	u32 initial_sample_phase = *sample_phase;
-	u64 total = 0;
-	while (total < minimum_samples)
-	{
-		u64 request = Min(minimum_samples - total, 128);
-		u64 count = nes_emulator_run_samples(debugger->emulator, sample_rate, sample_phase, request, samples + total, capacity - total);
-		debugger_process_scheduler_trace(debugger);
-		if (debugger->breakpoint_hit)
-		{
-			*sample_phase = initial_sample_phase;
-			return 0;
-		}
-		total += count;
-	}
-	return total;
+	NES_RunFrameResult result = nes_emulator_run_frame(debugger->emulator, sample_buffer, sample_capacity);
+	debugger_process_scheduler_trace(debugger);
+	if (debugger->breakpoint_hit) return (NES_RunFrameResult) {};
+	return result;
 }
 
 void debugger_set_program_breakpoint(Debugger *debugger, NES_MapAddr address, b32 enabled)

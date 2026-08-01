@@ -85,8 +85,6 @@ typedef struct
 	UI_Context *ui;
 	Panels *panels;
 	Audio_Stream *audio;
-	u32 audio_sample_rate;
-	u32 audio_sample_phase;
 	u32 audio_backend_capacity;
 	u32 audio_min_queued_frames;
 	u64 audio_starved_frames;
@@ -241,7 +239,6 @@ static b32 app_save_state(void)
 
 static void app_discard_audio(void)
 {
-	app.audio_sample_phase = 0;
 	audio_stream_discard(app.audio);
 }
 
@@ -571,38 +568,40 @@ static b32 app_handle_input(AppInput input)
 
 static void app_run_with_audio(void)
 {
-	Assert(app.audio_backend_available);
-
-	// u32 queued = audio_stream_queued_frames(app.audio);
-	// u32 target = Min(app.audio_backend_capacity * 2, audio_stream_capacity_frames(app.audio));
-	// if (queued >= target) {
-	// 	LOG_DEBUG("enough samples are queued already: queued = %u, target = %u", queued, target);
-	// 	return;
-	// }
-	// u32 minimum = target - queued;
-	// u32 capacity = audio_stream_capacity_frames(app.audio);
-
-
-	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * nes_required_sample_capacity());
-	NES_RunFrameResult frame = debugger_run_frame(app.debugger, samples);
-
-
-	// u64 nsamples = debugger_run_samples(app.debugger, app.audio_sample_rate, &app.audio_sample_phase, minimum, samples, capacity);
-
-	for (u32 i = 0; i < frame.samples; ++ i) {
-		samples[i] *= app.ppu_volume;
-	}
-
-	if (debugger_breakpoint_hit(app.debugger))
+	u64 sample_capacity = nes_required_sample_capacity();
+	if (!app.audio_backend_available)
 	{
-		app.emulator_running = false;
-		app_discard_audio();
+		NES_RunFrameResult frame = debugger_run_frame(app.debugger, 0, 0);
+		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
+		if (debugger_breakpoint_hit(app.debugger))
+		{
+			app.emulator_running = false;
+			app_discard_audio();
+		}
 		return;
 	}
 
-	prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
+	u32 stream_capacity = audio_stream_capacity_frames(app.audio);
+	Assert(sample_capacity <= stream_capacity);
+	u32 target_limit = stream_capacity - (u32)sample_capacity;
+	u32 target = Min(app.audio_backend_capacity * 2, target_limit);
+	target = Max(target, 1);
+	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * sample_capacity);
 
-	PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
+	while (audio_stream_queued_frames(app.audio) < target)
+	{
+		NES_RunFrameResult frame = debugger_run_frame(app.debugger, samples, sample_capacity);
+		if (debugger_breakpoint_hit(app.debugger))
+		{
+			app.emulator_running = false;
+			app_discard_audio();
+			return;
+		}
+
+		for (u32 i = 0; i < frame.samples; ++ i) samples[i] *= app.ppu_volume;
+		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
+		PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
+	}
 }
 
 static void app_drain_audio(void)
@@ -1233,6 +1232,12 @@ static void app_init(void)
 
 	OS_AudioInfo audio_info;
 	app.audio_backend_available = os_audio_init(&audio_info);
+	if (app.audio_backend_available && audio_info.sample_rate != nes_sample_rate(0))
+	{
+		LOG_WARN("audio output rate %u Hz is unsupported; expected %llu Hz", audio_info.sample_rate, nes_sample_rate(0));
+		os_audio_shutdown();
+		app.audio_backend_available = false;
+	}
 	if (!app.audio_backend_available)
 	{
 		audio_info = (OS_AudioInfo) {
@@ -1249,7 +1254,6 @@ static void app_init(void)
 		.channels = 1,
 		.frame_capacity = audio_capacity,
 	});
-	app.audio_sample_rate = audio_info.sample_rate;
 	app.audio_backend_capacity = audio_info.buffer_frame_count;
 	app.audio_min_queued_frames = MAX_VALUE_U32;
 	app.audio_stats_begin = seconds_now();

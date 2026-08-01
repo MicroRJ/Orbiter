@@ -289,7 +289,7 @@ static u16 ppu_sprite_pattern_address(const NES_PPUState *ppu, NES_PPUSprite spr
 	return pattern_table | ((u16)sprite.index << 4) | plane | tile_row;
 }
 
-static u8 ppu_sprite_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y, u8 background_pixel)
+static inline u8 ppu_sprite_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y, u8 background_pixel)
 {
 	NES_PPUState *ppu = &core->core.ppu;
 	if (!(ppu->PPUMASK & PPUMASK_SPRITES)) return 0;
@@ -319,7 +319,7 @@ static u8 ppu_sprite_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y, u8 ba
 	return 0;
 }
 
-static void ppu_render_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y)
+static inline void ppu_render_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y)
 {
 	NES_PPUState *ppu = &core->core.ppu;
 	u8 background_pixel = ppu_background_pixel(ppu);
@@ -385,17 +385,14 @@ u32 nes_ppu_step(NES_Emulator *core)
 	if (scanline == 241 && dot == 1)
 	{
 		core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x80);
+		prof_add_metric(PROF_METRIC_PPU_VBLANKS, 1);
+		events |= NES_PPU_EVENT_FRAME;
 		if (ppu->PPUCTRL & PPUCTRL_NMI_ENABLED) events |= NES_PPU_EVENT_NMI;
 	}
 	else if (scanline == 261 && dot == 1)
 	{
 		core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS & 0x1F);
 	}
-	if (scanline == 261 && dot == 340) {
-		prof_add_metric(PROF_METRIC_PPU_VBLANKS, 1);
-		events |= NES_PPU_EVENT_FRAME;
-	}
-
 	b32 visible_scanline   = scanline < 240;
 	b32 prerender_scanline = scanline == 261;
 	b32 rendering_scanline = visible_scanline || prerender_scanline;
