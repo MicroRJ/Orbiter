@@ -290,8 +290,8 @@ static b32 app_open_rom_path(String path)
 		{
 			LOG_INFO("open file: %s", path.text);
 			success = debugger_open_rom(app.debugger, byte_span((void *)rom.data, rom.size));
-			app.mode = APP_MODE_EMULATOR;
 			if (success) {
+				app.mode = APP_MODE_EMULATOR;
 				app_discard_audio();
 				if (!string_match(app.last_rom_path, path)) app.last_rom_path = push_string_copy(&app.arena, path);
 			}
@@ -868,6 +868,103 @@ static void app_draw_box_tree(UI_Box *box)
 	}
 }
 
+typedef struct
+{
+	String name;
+	String path;
+}
+CartridgeCard;
+
+static CartridgeCard dummy_cards[] = {
+	{LIT("Super Mario Bros 1."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 2."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
+};
+
+
+// TODO(RJ) we don't have anything like Android's frame layout, so we can't
+// just stack stuff ...
+static UI_Box *app_build_cart_card(UI_Context *ui, UI_Key key, vec2 size, CartridgeCard card)
+{
+	String name = card.name;
+	String path = card.path;
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_fixed(size.x));
+	ui_size(ui, AXIS_Y, ui_fixed(size.y));
+	ui_background(ui, ui->theme.panel_outline);
+	ui_roundness(ui, size.x * 0.02f);
+	UI_Box *card_box = ui_box_begin(ui, key, LIT("card"));
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_wrap());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_padd(ui, AXIS_X, 16.f, 16.f);
+	ui_padd(ui, AXIS_Y, 16.f, 16.f);
+	UI_TextStyle style = app.ui->theme.code;
+	style.size = 32;
+	ui_text_box_string(ui, UI_KEY("passing id's is so annoying"), style, name);
+	ui_pop(ui);
+
+	ui_box_end(ui);
+	ui_pop(ui);
+	return card_box;
+}
+
+// TODO(RJ) padding hardclips scrolling lists, we need to fade out the edges!
+static void app_build_cart_shelf(UI_Context *ui, String title, vec2 card_size, CartridgeCard *cards, u32 ncards)
+{
+	// @THEME
+	UI_TextStyle title_style = app.ui->theme.code;
+	title_style.color = app.ui->theme.text_subtle;
+	title_style.size = 64;
+	title_style.align.y = 0.5f;
+	title_style.align.x = 0.5f;
+	ui_text_box_string(ui, 1, title_style, title);
+
+
+	// TODO(RJ) #1
+	// this doesn't seem to be working properly ...
+	// if I set it to wrap on the Y axis, it shrinks all the way down
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	UI_Scroll *scroll = ui_scroll_begin(ui, UI_KEY("shelf scroll"), AXIS_X);
+
+	ui_push(ui);
+	ui_axis(ui, AXIS_X);
+	ui_size(ui, AXIS_X, ui_fill());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_gap(ui, 16.f);
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_box_begin(ui, 2, LIT(""));
+
+	for (u32 i = 0; i < ncards; ++ i)
+	{
+		UI_Box *card_box = app_build_cart_card(ui, i, card_size, cards[i]);
+		if (ui_signal_from_box(card_box).pressed) {
+			app_open_rom_path(cards[i].path);
+		}
+	}
+	ui_box_end(ui);
+	ui_pop(ui);
+
+	ui_scroll_end(scroll);
+	ui_pop(ui);
+}
+
+
 static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 {
 	UI_Context *ui = app.ui;
@@ -990,7 +1087,7 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	panel_host_desc.size[AXIS_Y] = ui_grow(1.f);
 	ui_box_begin_desc(ui, 2, LIT("belly"), panel_host_desc);
 	{
-		if (app.mode == APP_MODE_EMULATOR)
+		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
 		{
 			Assert(debugger_armed(app.debugger));
 
@@ -999,7 +1096,7 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 			panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
 			panels_build_ui(app.panels, app.os_window, frame, panel_rect);
 		}
-		else
+		else if (app.mode == APP_MODE_UNARMED)
 		{
 			UI_TextStyle style = app.ui->theme.code;
 			style.color = app.ui->theme.palette.amber;
@@ -1029,56 +1126,11 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 			ui_box_begin(ui, UI_KEY("library shelves"), LIT("library shelves"));
 			ui_pop(ui);
 
-			for (u32 i = 0; i < 3; ++ i)
-			{
-				UI_TextStyle recently_style = app.ui->theme.code;
-				recently_style.color = app.ui->theme.text_subtle;
-				recently_style.size = 64;
-				recently_style.align.y = 0.5f;
-				recently_style.align.x = 0.5f;
-				ui_push(ui);
-				ui_emission(ui, app.ui->theme.palette.emission_high);
-				if (i == 0)
-				{
-					ui_text_box_string(ui, UI_KEY("recently"), recently_style, LIT("Recently Played"));
-				}
-				else if (i == 1)
-				{
-					ui_text_box_string(ui, UI_KEY("favorites"), recently_style, LIT("Your Favorites"));
-				}
-				else if (i == 2) {
-					ui_text_box_string(ui, UI_KEY("folders"), recently_style, LIT("'NES/Roms/Classics'"));
-				}
+			f32 card_width = window_rect.w * 0.20f;
+			f32 card_height = card_width * 0.75f;
 
-				ui_pop(ui);
-				// TODO(RJ) I want support for feathering the edges so that padding doesn't just
-				// hard-clip, we need to draw some sort of dithered gradient that fades the transition
-				ui_push(ui);
-				ui_axis(ui, AXIS_X);
-				ui_size(ui, AXIS_X, ui_fill());
-				ui_size(ui, AXIS_Y, ui_wrap());
-				ui_gap(ui, 16.f);
-				ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-				ui_box_begin(ui, i, LIT("foo"));
-				{
+			app_build_cart_shelf(ui, LIT("Recently Played"), v2(card_width, card_height), dummy_cards, ArrayCount(dummy_cards));
 
-					f32 card_width = window_rect.w * 0.20f;
-					f32 card_height = card_width * 0.75f;
-					for (u32 i = 0; i < 8; ++ i)
-					{
-						ui_push(ui);
-						ui_size(ui, AXIS_X, ui_fixed(card_width));
-						ui_size(ui, AXIS_Y, ui_fixed(card_height));
-						ui_background(ui, ui->theme.palette.amber);
-						ui_roundness(ui, card_width * 0.02f);
-						ui_box_begin(ui, i, LIT("foo"));
-						ui_box_end(ui);
-						ui_pop(ui);
-					}
-				}
-				ui_box_end(ui);
-				ui_pop(ui);
-			}
 			ui_box_end(ui);
 			ui_scroll_end(scroll);
 			ui_pop(ui);
@@ -1330,41 +1382,42 @@ static void app_draw(void)
 
 static void app_frame(void)
 {
-	arena_reset(&app.frame_arena);
-
 	prof_begin_frame();
-	PROF_BLOCK("main frame")
+	ARENA_SCOPE(&app.frame_arena)
 	{
-		AppInput input = app_translate_input_events_based_on_mode();
-		b32 app_consumed_input = app_handle_input(input);
-
-		const Program *program = debugger_program(app.debugger);
-		u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
-
-		if (debugger_armed(app.debugger))
+		PROF_BLOCK("main frame")
 		{
-			if (app.mode == APP_MODE_EMULATOR)
+			AppInput input = app_translate_input_events_based_on_mode();
+			b32 app_consumed_input = app_handle_input(input);
+
+			const Program *program = debugger_program(app.debugger);
+			u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
+
+			if (debugger_armed(app.debugger))
 			{
-				app_clear_debugger_input();
-				if (!app_consumed_input) app_update_debugger_input();
+				if (app.mode == APP_MODE_EMULATOR)
+				{
+					app_clear_debugger_input();
+					if (!app_consumed_input) app_update_debugger_input();
 
-				if (input.action == APP_ACTION_STEP) {
-					app.emulator_running = false;
-					PROF_BLOCK("emulation step") debugger_step(app.debugger);
+					if (input.action == APP_ACTION_STEP) {
+						app.emulator_running = false;
+						PROF_BLOCK("emulation step") debugger_step(app.debugger);
+					}
+					else if (app.emulator_running) {
+						PROF_BLOCK("emulation") app_run_frame();
+					}
 				}
-				else if (app.emulator_running) {
-					PROF_BLOCK("emulation") app_run_frame();
-				}
+				PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
+				PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
+				PROF_BLOCK("drain audio")        app_drain_audio();
+				PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
+				PROF_BLOCK("app publish")        app_publish();
 			}
-			PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
-			PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
-			PROF_BLOCK("drain audio")        app_drain_audio();
-			PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
-			PROF_BLOCK("app publish")        app_publish();
-		}
 
-		PROF_BLOCK("app draw")    app_draw();
-		PROF_BLOCK("pace frame")  app_pace_frame();
+			PROF_BLOCK("app draw")    app_draw();
+			PROF_BLOCK("pace frame")  app_pace_frame();
+		}
 	}
 	prof_close_frame();
 }

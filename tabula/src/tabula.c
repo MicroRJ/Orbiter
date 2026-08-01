@@ -321,6 +321,283 @@ const Tabula_TableEntry *tabula_table_entry_at(
 	return table && index < table->count ? &table->entries[index] : NULL;
 }
 
+static bool tabula_is_digit(char byte);
+static bool tabula_is_identifier_start(char byte);
+static bool tabula_is_identifier_continue(char byte);
+
+typedef struct Tabula_SourceWriter {
+	char *data;
+	size_t length;
+	size_t capacity;
+	bool failed;
+} Tabula_SourceWriter;
+
+typedef struct Tabula_SourceTableParent {
+	const struct Tabula_SourceTableParent *parent;
+	const Tabula_Table *table;
+} Tabula_SourceTableParent;
+
+static bool tabula_source_append(
+	Tabula_SourceWriter *writer, const char *data, size_t length)
+{
+	if (!writer || writer->failed) return false;
+	if ((!data && length) || length > SIZE_MAX - writer->length) {
+		writer->failed = true;
+		return false;
+	}
+	if (writer->data) {
+		if (writer->length > writer->capacity ||
+			length > writer->capacity - writer->length) {
+			writer->failed = true;
+			return false;
+		}
+		if (length) memcpy(writer->data + writer->length, data, length);
+	}
+	writer->length += length;
+	return true;
+}
+
+static bool tabula_source_append_byte(Tabula_SourceWriter *writer, char byte)
+{
+	return tabula_source_append(writer, &byte, 1u);
+}
+
+static bool tabula_source_indent(Tabula_SourceWriter *writer, size_t depth)
+{
+	for (size_t index = 0; index < depth; ++index) {
+		if (!tabula_source_append_byte(writer, '\t')) return false;
+	}
+	return true;
+}
+
+static bool tabula_source_key_is_valid(Tabula_String key)
+{
+	if (!key.data || !key.length || !tabula_is_identifier_start(key.data[0]))
+		return false;
+	for (size_t index = 1; index < key.length; ++index) {
+		if (!tabula_is_identifier_continue(key.data[index])) return false;
+	}
+	return !tabula_string_is(key, "true") &&
+		!tabula_string_is(key, "false") && !tabula_string_is(key, "null");
+}
+
+static bool tabula_source_string(
+	Tabula_SourceWriter *writer, Tabula_String string)
+{
+	if (!string.data && string.length) return false;
+	if (!tabula_source_append_byte(writer, '"')) return false;
+	for (size_t index = 0; index < string.length; ++index)
+	{
+		unsigned char byte = (unsigned char)string.data[index];
+		const char *escape = NULL;
+		switch (byte) {
+		case '\\': escape = "\\\\"; break;
+		case '"':  escape = "\\\""; break;
+		case 0:    escape = "\\0"; break;
+		case '\n': escape = "\\n"; break;
+		case '\r': escape = "\\r"; break;
+		case '\t': escape = "\\t"; break;
+		default: break;
+		}
+		if (escape) {
+			if (!tabula_source_append(writer, escape, 2u)) return false;
+		} else {
+			/* Keep generated source textual. The language has no general byte escape yet. */
+			if (byte < 0x20u || byte == 0x7fu) return false;
+			if (!tabula_source_append_byte(writer, (char)byte)) return false;
+		}
+	}
+	return tabula_source_append_byte(writer, '"');
+}
+
+static bool tabula_source_number(Tabula_SourceWriter *writer, f64 number)
+{
+	/* Negative and non-finite numbers do not have source syntax yet. */
+	if (number != number || number < 0.0 || number > DBL_MAX) return false;
+	if (number == 0.0) return tabula_source_append(writer, "0.0", 3u);
+
+	char formatted[64];
+#if defined(DBL_DECIMAL_DIG)
+	int length = snprintf(formatted, sizeof(formatted), "%.*g", DBL_DECIMAL_DIG, number);
+#else
+	int length = snprintf(formatted, sizeof(formatted), "%.17g", number);
+#endif
+	if (length <= 0 || (size_t)length >= sizeof(formatted)) return false;
+
+	char *exponent_marker = strchr(formatted, 'e');
+	if (!exponent_marker) exponent_marker = strchr(formatted, 'E');
+	if (!exponent_marker) {
+		bool decimal = false;
+		for (int index = 0; index < length; ++index) {
+			if (formatted[index] == '.' && !decimal) decimal = true;
+			else if (!tabula_is_digit(formatted[index])) return false;
+		}
+		if (!tabula_source_append(writer, formatted, (size_t)length)) return false;
+		if (!decimal) return tabula_source_append(writer, ".0", 2u);
+		return true;
+	}
+
+	size_t mantissa_length = (size_t)(exponent_marker - formatted);
+	char digits[32];
+	size_t digit_count = 0;
+	size_t decimal_index = mantissa_length;
+	for (size_t index = 0; index < mantissa_length; ++index) {
+		char byte = formatted[index];
+		if (byte == '.') {
+			decimal_index = digit_count;
+		} else if (tabula_is_digit(byte)) {
+			if (digit_count == sizeof(digits)) return false;
+			digits[digit_count++] = byte;
+		} else {
+			return false;
+		}
+	}
+	if (decimal_index == mantissa_length) decimal_index = digit_count;
+	if (!digit_count) return false;
+
+	const char *exponent_text = exponent_marker + 1;
+	bool negative_exponent = false;
+	if (*exponent_text == '+' || *exponent_text == '-') {
+		negative_exponent = *exponent_text == '-';
+		++exponent_text;
+	}
+	if (!tabula_is_digit(*exponent_text)) return false;
+	size_t exponent = 0;
+	while (tabula_is_digit(*exponent_text)) {
+		unsigned digit = (unsigned)(*exponent_text++ - '0');
+		if (exponent > (SIZE_MAX - digit) / 10u) return false;
+		exponent = exponent * 10u + digit;
+	}
+	if (*exponent_text) return false;
+
+	if (negative_exponent && exponent >= decimal_index) {
+		size_t zeros = exponent - decimal_index;
+		if (!tabula_source_append(writer, "0.", 2u)) return false;
+		for (size_t index = 0; index < zeros; ++index) {
+			if (!tabula_source_append_byte(writer, '0')) return false;
+		}
+		return tabula_source_append(writer, digits, digit_count);
+	}
+
+	size_t output_decimal = negative_exponent
+		? decimal_index - exponent : decimal_index + exponent;
+	if (output_decimal >= digit_count) {
+		if (!tabula_source_append(writer, digits, digit_count)) return false;
+		for (size_t index = digit_count; index < output_decimal; ++index) {
+			if (!tabula_source_append_byte(writer, '0')) return false;
+		}
+		return tabula_source_append(writer, ".0", 2u);
+	}
+
+	return tabula_source_append(writer, digits, output_decimal) &&
+		tabula_source_append_byte(writer, '.') &&
+		tabula_source_append(
+			writer, digits + output_decimal, digit_count - output_decimal);
+}
+
+static bool tabula_source_value(
+	Tabula_SourceWriter *writer,
+	Tabula_Value value,
+	size_t depth,
+	const Tabula_SourceTableParent *parent);
+
+static bool tabula_source_table_entries(
+	Tabula_SourceWriter *writer,
+	const Tabula_Table *table,
+	size_t depth,
+	const Tabula_SourceTableParent *parent)
+{
+	if (!table) return false;
+	for (const Tabula_SourceTableParent *it = parent; it; it = it->parent) {
+		if (it->table == table) return false;
+	}
+	Tabula_SourceTableParent current = { parent, table };
+	for (size_t index = 0; index < table->count; ++index)
+	{
+		const Tabula_TableEntry *entry = &table->entries[index];
+		if (!tabula_source_key_is_valid(entry->key) ||
+			!tabula_source_indent(writer, depth) ||
+			!tabula_source_append(writer, entry->key.data, entry->key.length) ||
+			!tabula_source_append(writer, " = ", 3u) ||
+			!tabula_source_value(writer, entry->value, depth, &current) ||
+			!tabula_source_append_byte(writer, '\n')) return false;
+	}
+	return true;
+}
+
+static bool tabula_source_value(
+	Tabula_SourceWriter *writer,
+	Tabula_Value value,
+	size_t depth,
+	const Tabula_SourceTableParent *parent)
+{
+	char number[32];
+	switch (value.type)
+	{
+	case TABULA_VALUE_NULL:
+		return tabula_source_append(writer, "null", 4u);
+	case TABULA_VALUE_BOOLEAN:
+		return value.as.boolean
+			? tabula_source_append(writer, "true", 4u)
+			: tabula_source_append(writer, "false", 5u);
+	case TABULA_VALUE_INTEGER: {
+		if (value.as.integer < 0) return false;
+		int length = snprintf(
+			number, sizeof(number), "%" PRId64, (int64_t)value.as.integer);
+		return length > 0 && (size_t)length < sizeof(number) &&
+			tabula_source_append(writer, number, (size_t)length);
+	}
+	case TABULA_VALUE_NUMBER:
+		return tabula_source_number(writer, value.as.number);
+	case TABULA_VALUE_STRING:
+		return tabula_source_string(writer, value.as.string);
+	case TABULA_VALUE_COLOR: {
+		int length;
+		if (value.as.color.a == 255u) {
+			length = snprintf(number, sizeof(number), "#%02x%02x%02x",
+				(unsigned)value.as.color.r, (unsigned)value.as.color.g,
+				(unsigned)value.as.color.b);
+		} else {
+			length = snprintf(number, sizeof(number), "#%02x%02x%02x%02x",
+				(unsigned)value.as.color.r, (unsigned)value.as.color.g,
+				(unsigned)value.as.color.b, (unsigned)value.as.color.a);
+		}
+		return (length == 7 || length == 9) &&
+			tabula_source_append(writer, number, (size_t)length);
+	}
+	case TABULA_VALUE_TABLE:
+		if (!value.as.table) return false;
+		if (!value.as.table->count) return tabula_source_append(writer, "{}", 2u);
+		if (!tabula_source_append(writer, "{\n", 2u) ||
+			!tabula_source_table_entries(
+				writer, value.as.table, depth + 1u, parent) ||
+			!tabula_source_indent(writer, depth)) return false;
+		return tabula_source_append_byte(writer, '}');
+	}
+	return false;
+}
+
+Tabula_String tabula_table_to_source(
+	Tabula_Context *context, const Tabula_Table *table)
+{
+	Tabula_String source = { 0 };
+	if (!context || !table || context->out_of_memory) return source;
+
+	Tabula_SourceWriter measure = { 0 };
+	if (!tabula_source_table_entries(&measure, table, 0u, NULL) ||
+		measure.failed || measure.length == SIZE_MAX) return source;
+	char *data = tabula_allocate(context, measure.length + 1u);
+	if (!data) return source;
+
+	Tabula_SourceWriter write = { data, 0u, measure.length, false };
+	if (!tabula_source_table_entries(&write, table, 0u, NULL) ||
+		write.failed || write.length != measure.length) return source;
+	data[write.length] = 0;
+	source.data = data;
+	source.length = write.length;
+	return source;
+}
+
 static size_t tabula_environment_find_index(
 	const Tabula_Environment *environment, Tabula_String name)
 {

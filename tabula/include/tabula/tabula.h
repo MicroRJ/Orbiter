@@ -179,6 +179,12 @@ const Tabula_TableEntry *tabula_table_get_entry(
 size_t tabula_table_count(const Tabula_Table *table);
 const Tabula_TableEntry *tabula_table_entry_at(
 	const Tabula_Table *table, size_t index);
+/* Emits canonical source for the table's supported contents in insertion order.
+	Table alias identity is not preserved. The result is owned by context.
+	A null data pointer indicates an invalid key, cycle, unsupported value, or
+	allocation failure. A serialized empty root has non-null data and zero length. */
+Tabula_String tabula_table_to_source(
+	Tabula_Context *context, const Tabula_Table *table);
 
 Tabula_Environment *tabula_environment_create(Tabula_Context *context);
 b32 tabula_environment_add_constant(

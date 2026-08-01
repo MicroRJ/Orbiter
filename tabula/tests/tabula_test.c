@@ -1,5 +1,6 @@
 #include "tabula/tabula.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,43 @@ static Tabula_ParseResult parse_text(Tabula_Context *context, const char *text)
 static const Tabula_Value *field(const Tabula_Table *table, const char *name)
 {
 	return tabula_table_get(table, (Tabula_String){ name, strlen(name) });
+}
+
+static b32 values_equal(Tabula_Value a, Tabula_Value b)
+{
+	if (a.type != b.type) return 0;
+	switch (a.type)
+	{
+	case TABULA_VALUE_NULL: return 1;
+	case TABULA_VALUE_BOOLEAN: return a.as.boolean == b.as.boolean;
+	case TABULA_VALUE_INTEGER: return a.as.integer == b.as.integer;
+	case TABULA_VALUE_NUMBER: return a.as.number == b.as.number;
+	case TABULA_VALUE_STRING:
+		return a.as.string.length == b.as.string.length &&
+			(!a.as.string.length ||
+			 memcmp(a.as.string.data, b.as.string.data, a.as.string.length) == 0);
+	case TABULA_VALUE_COLOR:
+		return memcmp(&a.as.color, &b.as.color, sizeof(a.as.color)) == 0;
+	case TABULA_VALUE_TABLE:
+		if (!a.as.table || !b.as.table ||
+			tabula_table_count(a.as.table) != tabula_table_count(b.as.table))
+			return 0;
+		for (size_t index = 0; index < tabula_table_count(a.as.table); ++index)
+		{
+			const Tabula_TableEntry *a_entry =
+				tabula_table_entry_at(a.as.table, index);
+			const Tabula_TableEntry *b_entry =
+				tabula_table_entry_at(b.as.table, index);
+			if (!a_entry || !b_entry ||
+				a_entry->key.length != b_entry->key.length ||
+				(a_entry->key.length &&
+				 memcmp(a_entry->key.data, b_entry->key.data,
+					a_entry->key.length) != 0) ||
+				!values_equal(a_entry->value, b_entry->value)) return 0;
+		}
+		return 1;
+	}
+	return 0;
 }
 
 static b32 add_integers(
@@ -278,6 +316,164 @@ static void test_embedded_nul_is_not_eof(Tabula_Context *context)
 	CHECK(message_contains(parsed.diagnostics, "NUL byte"));
 }
 
+static void test_table_to_source_round_trip(Tabula_Context *context)
+{
+	const char *text =
+		"private := 9\n"
+		"user = {\n"
+		"  recents = {\n"
+		"    metroid = {\n"
+		"      path = 'D:\\ROMs\\Metroid.nes'\n"
+		"      favorite = true\n"
+		"    }\n"
+		"  }\n"
+		"  empty = {}\n"
+		"  volume = 50%\n"
+		"  zero = 0f\n"
+		"  whole = 42f\n"
+		"  large = 100000000000000000000f\n"
+		"  opaque = #010203\n"
+		"  translucent = #04050607\n"
+		"  none = null\n"
+		"}\n";
+	Tabula_ParseResult parsed = parse_text(context, text);
+	CHECK(parsed.success);
+	Tabula_EvalResult evaluated = tabula_evaluate(context, parsed.ast, NULL);
+	CHECK(evaluated.success);
+
+	Tabula_Context *output_context = tabula_context_create(NULL);
+	CHECK(output_context != NULL);
+	Tabula_String source =
+		tabula_table_to_source(output_context, evaluated.value.as.table);
+	CHECK(source.data != NULL);
+	const char *expected =
+		"user = {\n"
+		"\trecents = {\n"
+		"\t\tmetroid = {\n"
+		"\t\t\tpath = \"D:\\\\ROMs\\\\Metroid.nes\"\n"
+		"\t\t\tfavorite = true\n"
+		"\t\t}\n"
+		"\t}\n"
+		"\tempty = {}\n"
+		"\tvolume = 0.5\n"
+		"\tzero = 0.0\n"
+		"\twhole = 42.0\n"
+		"\tlarge = 100000000000000000000.0\n"
+		"\topaque = #010203\n"
+		"\ttranslucent = #04050607\n"
+		"\tnone = null\n"
+		"}\n";
+	CHECK(string_equal(source, expected));
+
+	Tabula_ParseResult reparsed = tabula_parse(context, (Tabula_Source) {
+		TABULA_STRING_LITERAL("generated.tab"), source,
+	});
+	CHECK(reparsed.success);
+	tabula_context_destroy(output_context);
+	Tabula_EvalResult reevaluated =
+		tabula_evaluate(context, reparsed.ast, NULL);
+	CHECK(reevaluated.success);
+	CHECK(values_equal(evaluated.value, reevaluated.value));
+}
+
+static void test_table_to_source_escapes(Tabula_Context *context)
+{
+	Tabula_Table *table = tabula_table_create(context);
+	const char text[] = { 'a', '\\', '"', '\n', '\r', '\t', 0, 'z' };
+	CHECK(tabula_table_set(table, TABULA_STRING_LITERAL("text"),
+		tabula_value_string(context, (Tabula_String){ text, sizeof(text) })));
+
+	Tabula_String source = tabula_table_to_source(context, table);
+	CHECK(source.data != NULL);
+	Tabula_ParseResult parsed = tabula_parse(context, (Tabula_Source) {
+		TABULA_STRING_LITERAL("escaped.tab"), source,
+	});
+	CHECK(parsed.success);
+	Tabula_EvalResult evaluated = tabula_evaluate(context, parsed.ast, NULL);
+	CHECK(evaluated.success);
+	const Tabula_Value *value = field(evaluated.value.as.table, "text");
+	CHECK(value && value->type == TABULA_VALUE_STRING);
+	CHECK(value && value->as.string.length == sizeof(text));
+	CHECK(value && memcmp(value->as.string.data, text, sizeof(text)) == 0);
+}
+
+static void test_table_to_source_rejects_unrepresentable_values(
+	Tabula_Context *context)
+{
+	Tabula_Table *invalid_key = tabula_table_create(context);
+	CHECK(tabula_table_set(invalid_key,
+		TABULA_STRING_LITERAL("invalid-key"), tabula_value_null()));
+	CHECK(tabula_table_to_source(context, invalid_key).data == NULL);
+
+	Tabula_Table *reserved_key = tabula_table_create(context);
+	CHECK(tabula_table_set(reserved_key,
+		TABULA_STRING_LITERAL("null"), tabula_value_null()));
+	CHECK(tabula_table_to_source(context, reserved_key).data == NULL);
+
+	Tabula_Table *negative = tabula_table_create(context);
+	CHECK(tabula_table_set(negative,
+		TABULA_STRING_LITERAL("value"), tabula_value_integer(-1)));
+	CHECK(tabula_table_to_source(context, negative).data == NULL);
+	CHECK(tabula_table_set(negative,
+		TABULA_STRING_LITERAL("value"), tabula_value_number(-1.0)));
+	CHECK(tabula_table_to_source(context, negative).data == NULL);
+	CHECK(tabula_table_set(negative,
+		TABULA_STRING_LITERAL("value"), tabula_value_number(NAN)));
+	CHECK(tabula_table_to_source(context, negative).data == NULL);
+	CHECK(tabula_table_set(negative,
+		TABULA_STRING_LITERAL("value"), tabula_value_number(INFINITY)));
+	CHECK(tabula_table_to_source(context, negative).data == NULL);
+
+	Tabula_Table *control_string = tabula_table_create(context);
+	const char bell[] = { '\a' };
+	CHECK(tabula_table_set(control_string,
+		TABULA_STRING_LITERAL("value"),
+		tabula_value_string(context, (Tabula_String){ bell, sizeof(bell) })));
+	CHECK(tabula_table_to_source(context, control_string).data == NULL);
+
+	Tabula_Table *cyclic = tabula_table_create(context);
+	Tabula_Value self = { TABULA_VALUE_TABLE, { 0 } };
+	self.as.table = cyclic;
+	CHECK(tabula_table_set(cyclic, TABULA_STRING_LITERAL("self"), self));
+	CHECK(tabula_table_to_source(context, cyclic).data == NULL);
+}
+
+static void test_empty_table_to_source(Tabula_Context *context)
+{
+	Tabula_Table *table = tabula_table_create(context);
+	Tabula_String source = tabula_table_to_source(context, table);
+	CHECK(source.data != NULL);
+	CHECK(source.length == 0u);
+
+	Tabula_ParseResult parsed = tabula_parse(context, (Tabula_Source) {
+		TABULA_STRING_LITERAL("empty.tab"), source,
+	});
+	CHECK(parsed.success);
+	Tabula_EvalResult evaluated = tabula_evaluate(context, parsed.ast, NULL);
+	CHECK(evaluated.success);
+	CHECK(tabula_table_count(evaluated.value.as.table) == 0u);
+}
+
+static void test_table_to_source_allocation_failure(Tabula_Context *table_context)
+{
+	Tabula_Table *table = tabula_table_create(table_context);
+	CHECK(tabula_table_set(table,
+		TABULA_STRING_LITERAL("value"), tabula_value_integer(42)));
+
+	FailingAllocator allocator = { 0 };
+	allocator.fail_at = 2u;
+	Tabula_ContextDesc description = {
+		{ failing_allocate, failing_deallocate, &allocator },
+	};
+	Tabula_Context *output_context = tabula_context_create(&description);
+	CHECK(output_context != NULL);
+	Tabula_String source = tabula_table_to_source(output_context, table);
+	CHECK(source.data == NULL);
+	CHECK(tabula_context_out_of_memory(output_context));
+	tabula_context_destroy(output_context);
+	CHECK(allocator.allocations == allocator.deallocations);
+}
+
 static void test_allocation_failures_are_observable(void)
 {
 	b32 reached_success = 0;
@@ -326,6 +522,11 @@ int main(void)
 	test_immutable_local(context);
 	test_local_and_global_are_distinct(context);
 	test_embedded_nul_is_not_eof(context);
+	test_table_to_source_round_trip(context);
+	test_table_to_source_escapes(context);
+	test_table_to_source_rejects_unrepresentable_values(context);
+	test_empty_table_to_source(context);
+	test_table_to_source_allocation_failure(context);
 	test_allocation_failures_are_observable();
 
 	tabula_context_destroy(context);
