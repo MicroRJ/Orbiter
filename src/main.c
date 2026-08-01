@@ -971,7 +971,8 @@ static u8 app_linear_to_srgb_u8(f32 value)
 static void app_capture_gifs(GFX_Texture *frame_texture)
 {
 	enum { GIF_CAPTURE_MAX_FRAMES = 60 * 30 };
-	if (app.ppu_gif.recording)
+
+	PROF_BLOCK("ppu gif recording") if (app.ppu_gif.recording)
 	{
 		if (!gif_recorder_frame(&app.ppu_gif, app.published.video, NES_VIDEO_WIDTH * sizeof(*app.published.video))) {
 			LOG_ERROR("PPU GIF capture failed");
@@ -980,7 +981,7 @@ static void app_capture_gifs(GFX_Texture *frame_texture)
 			gif_recorder_end(&app.ppu_gif);
 		}
 	}
-	if (app.app_gif.recording)
+	PROF_BLOCK("app gif recording") if (app.app_gif.recording)
 	{
 		vec2i size = gfx_texture_size(frame_texture);
 		if (size.x != app.app_gif.size.x || size.y != app.app_gif.size.y)

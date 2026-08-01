@@ -1,9 +1,6 @@
+cc ::= "clang-cl"
 
-common_compile_options := {
-	"/nologo",
-	"/MD",
-	"/D_DEBUG",
-	"-Zi",
+warnings := {
 	"-Wfloat-conversion",
 	"-Wint-conversion",
 	"-Wuninitialized",
@@ -12,18 +9,13 @@ common_compile_options := {
 	"-Wshift-negative-value",
 }
 
-release_compile_options := {
-	"/nologo",
-	"/MT",
-	"/O2",
-	"/Zi",
-	"-Wfloat-conversion",
-	"-Wint-conversion",
-	"-Wuninitialized",
-	"-Wshift-overflow",
-	"-Wshift-count-overflow",
-	"-Wshift-negative-value",
-}
+common_compile_options := warnings:clone():extend({
+	"/nologo", "/MD", "/D_DEBUG", "-Zi",
+})
+
+release_compile_options := warnings:clone():extend({
+	"/nologo", "/MT", "/O2", "/Zi",
+})
 
 optimized_object_names := {
 	"nes",
@@ -126,42 +118,33 @@ objects := {
 	{ name = "panels",            input = "src/frontend/panels.c" },
 }
 
-executables := {
+tests := {
 	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
-	{ name = "nes_cpu_test",    input = "src/tests/nes_cpu_test.c" },
-	{ name = "nes_ppu_test",    input = "src/tests/nes_ppu_test.c" },
-	{ name = "nes_mapper_test", input = "src/tests/nes_mapper_test.c" },
-	{ name = "nes_apu_test",    input = "src/tests/nes_apu_test.c" },
-	{ name = "nes_audio_test",  input = "src/tests/nes_audio_test.c" },
-	{ name = "execution_graph_test", input = "src/tests/execution_graph_test.c" },
-	{ name = "nes_test_runner", input = "src/tests/nes_test_runner.c" },
-	{ name = "nes_headless",    input = "tools/headless/main.c" },
-	// { name = "nes_benchmark",   input = "tools/benchmark/main.c" },
-	{ name = "ui_playground",   input = "tools/ui_playground/main.c" },
-	{ name = "main",              input = "src/main.c" },
+	{ name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
+	{ name = "nes_ppu_test",        input = "src/tests/nes_ppu_test.c" },
+	{ name = "nes_mapper_test",     input = "src/tests/nes_mapper_test.c" },
+	{ name = "nes_apu_test",        input = "src/tests/nes_apu_test.c" },
+	{ name = "nes_audio_test",      input = "src/tests/nes_audio_test.c" },
 }
+
+executables := tests:clone():extend({
+	{ name = "nes_headless",    input = "tools/headless/main.c" },
+	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
+	{ name = "ui_playground",   input = "tools/ui_playground/main.c" },
+	{ name = "main",            input = "src/main.c" },
+})
 
 shader_tasks := {}
 object_tasks := {}
 object_outputs := {}
 executable_tasks := {}
+test_executable_tasks := {}
 object_files := ""
-
-add_task := fun(name, command_line, inputs, outputs, dependencies) {
-	task := {
-		name = name,
-		command_line = command_line,
-		inputs = inputs,
-		outputs = outputs,
-		dependencies = dependencies,
-	}
-	ret task
-}
 
 join_prefixed := fun(values, prefix) {
 	result := ""
 	for value := values[0 ... values:length()] ? {
-		result += " " + prefix + value
+		result += f" ${prefix}${value}"
 	}
 	ret result
 }
@@ -170,39 +153,35 @@ common_options := join_prefixed(common_compile_options, "")
 release_options := join_prefixed(release_compile_options, "")
 /* Select one optimization mode per translation unit; combining /Od and /O2
 	makes the effective mode depend on argument order. */
-debug_options := common_options + " /Od"
-optimized_options := common_options + " /O2"
+debug_options := f"${common_options} /Od"
+optimized_options := f"${common_options} /O2"
 includes := join_prefixed(include_directories, "/I")
-release_includes := " /Ibuild/release/generated" + includes
+release_includes := f" /Ibuild/release/generated${includes}"
 
-prepare_build := add_task(
-	"prepare build directory",
-	"cmd /c if not exist build\\generated mkdir build\\generated",
-	{},
-	{ "build/generated" },
-	{}
-)
+prepare_build := {
+	name = "prepare build directory",
+	command_line = "cmd /c if not exist build\\generated mkdir build\\generated",
+	inputs = {},
+	outputs = { "build/generated" },
+	dependencies = {},
+}
 
 for shader := shaders[...] ? {
-	output := "build/generated/" + shader.output
-	listing := "build/generated/" + shader.name + ".cod"
-	task := add_task(
-		shader.name,
-		"fxc /nologo /Od /Zi /Fc" + listing +
-		" /T" + shader.model +
-		" src/graphics/shaders.hlsl" +
-		" /Fh" + output +
-		" /E" + shader.entry,
-		{ "build.elf", "src/graphics/shaders.hlsl" },
-		{ output, listing },
-		{ prepare_build }
-	)
+	output := f"build/generated/${shader.output}"
+	listing := f"build/generated/${shader.name}.cod"
+	task := {
+		name = shader.name,
+		command_line = f"fxc /nologo /Od /Zi /Fc${listing} /T${shader.model} src/graphics/shaders.hlsl /Fh${output} /E${shader.entry}",
+		inputs = { "build.elf", "src/graphics/shaders.hlsl" },
+		outputs = { output, listing },
+		dependencies = { prepare_build },
+	}
 	shader_tasks:add(task)
 }
 
 for object := objects[...] ? {
-	output := "build/" + object.name + ".obj"
-	compiler_pdb := "build/" + object.name + ".compiler.pdb"
+	output := f"build/${object.name}.obj"
+	compiler_pdb := f"build/${object.name}.compiler.pdb"
 	object_options := debug_options
 	for optimized_object_name := optimized_object_names[0 ... optimized_object_names:length()] ? {
 		if object.name == optimized_object_name ? {
@@ -216,43 +195,37 @@ for object := objects[...] ? {
 			dependencies:add(shader_task)
 		}
 	}
-	task := add_task(
-		object.name,
-		"clang-cl -c " + object.input +
-		" /Fo" + output +
-		" /Fd" + compiler_pdb +
-		object_options + includes,
-		inputs,
-		{ output },
-		dependencies
-	)
+	task := {
+		name = object.name,
+		command_line = f"${cc} -c ${object.input} /Fo${output} /Fd${compiler_pdb}${object_options}${includes}",
+		inputs = inputs,
+		outputs = { output },
+		dependencies = dependencies,
+	}
 	object_tasks:add(task)
 	object_outputs:add(output)
-	object_files += " " + output
+	object_files += f" ${output}"
 }
 
 for executable := executables[...] ? {
-	output := "build/" + executable.name
-	entry_object := output + ".entry.obj"
-	compiler_pdb := output + ".compiler.pdb"
-	linker_pdb := output + ".pdb"
-	incremental_link := output + ".ilk"
+	output := f"build/${executable.name}"
+	entry_object := f"${output}.entry.obj"
+	compiler_pdb := f"${output}.compiler.pdb"
+	linker_pdb := f"${output}.pdb"
+	incremental_link := f"${output}.ilk"
 	entry_inputs := { "build.elf", executable.input }
 	if executable.name == "ui_playground" ? {
 		entry_inputs:add("tools/ui_playground/demo_basics.c")
 		entry_inputs:add("tools/ui_playground/demo_profiler.c")
 		entry_inputs:add("tools/ui_playground/demo_scroll_history.c")
 	}
-	entry_task := add_task(
-		executable.name + " entry",
-		"clang-cl -c " + executable.input +
-		" /Fo" + entry_object +
-		" /Fd" + compiler_pdb +
-		debug_options + includes,
-		entry_inputs,
-		{ entry_object },
-		{ prepare_build }
-	)
+	entry_task := {
+		name = f"${executable.name} entry",
+		command_line = f"${cc} -c ${executable.input} /Fo${entry_object} /Fd${compiler_pdb}${debug_options}${includes}",
+		inputs = entry_inputs,
+		outputs = { entry_object },
+		dependencies = { prepare_build },
+	}
 
 	link_inputs := { "build.elf", "src/fonts/ttf/freetype/freetype.lib", entry_object }
 	for object_output := object_outputs[...] ? {
@@ -262,19 +235,19 @@ for executable := executables[...] ? {
 	for object_task := object_tasks[...] ? {
 		link_dependencies:add(object_task)
 	}
-	link_task := add_task(
-		executable.name,
-		"clang-cl /nologo" +
-		" /Fe" + output + ".exe" +
-		" " + entry_object + object_files +
-		" src/fonts/ttf/freetype/freetype.lib" +
-		" /link /DEBUG /PDB:" + linker_pdb +
-		" /ILK:" + incremental_link,
-		link_inputs,
-		{ output + ".exe", linker_pdb, incremental_link },
-		link_dependencies
-	)
+	link_task := {
+		name = executable.name,
+		command_line = f"${cc} /nologo /Fe${output}.exe ${entry_object}${object_files} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:${linker_pdb} /ILK:${incremental_link}",
+		inputs = link_inputs,
+		outputs = { f"${output}.exe", linker_pdb, incremental_link },
+		dependencies = link_dependencies,
+	}
 	executable_tasks:add(link_task)
+	for test := tests[...] ? {
+		if executable.name == test.name ? {
+			test_executable_tasks:add(link_task)
+		}
+	}
 }
 
 release_object_tasks := {}
@@ -282,33 +255,29 @@ release_object_outputs := {}
 release_object_files := ""
 release_shader_tasks := {}
 
-prepare_release := add_task(
-	"prepare release build directory",
-	"cmd /c if not exist build\\release\\generated mkdir build\\release\\generated",
-	{},
-	{ "build/release", "build/release/generated" },
-	{}
-)
+prepare_release := {
+	name = "prepare release build directory",
+	command_line = "cmd /c if not exist build\\release\\generated mkdir build\\release\\generated",
+	inputs = {},
+	outputs = { "build/release", "build/release/generated" },
+	dependencies = {},
+}
 
 for shader := shaders[...] ? {
-	output := "build/release/generated/" + shader.output
-	task := add_task(
-		"release " + shader.name,
-		"fxc /nologo /O3 /Qstrip_debug" +
-		" /T" + shader.model +
-		" src/graphics/shaders.hlsl" +
-		" /Fh" + output +
-		" /E" + shader.entry,
-		{ "build.elf", "src/graphics/shaders.hlsl" },
-		{ output },
-		{ prepare_release }
-	)
+	output := f"build/release/generated/${shader.output}"
+	task := {
+		name = f"release ${shader.name}",
+		command_line = f"fxc /nologo /O3 /Qstrip_debug /T${shader.model} src/graphics/shaders.hlsl /Fh${output} /E${shader.entry}",
+		inputs = { "build.elf", "src/graphics/shaders.hlsl" },
+		outputs = { output },
+		dependencies = { prepare_release },
+	}
 	release_shader_tasks:add(task)
 }
 
 for object := objects[...] ? {
-	output := "build/release/" + object.name + ".obj"
-	compiler_pdb := "build/release/" + object.name + ".compiler.pdb"
+	output := f"build/release/${object.name}.obj"
+	compiler_pdb := f"build/release/${object.name}.compiler.pdb"
 	inputs := { "build.elf", object.input }
 	dependencies := { prepare_release }
 	if object.name == "renderer" ? {
@@ -316,33 +285,27 @@ for object := objects[...] ? {
 			dependencies:add(shader_task)
 		}
 	}
-	task := add_task(
-		"release " + object.name,
-		"clang-cl -c " + object.input +
-		" /Fo" + output +
-		" /Fd" + compiler_pdb +
-		release_options + release_includes,
-		inputs,
-		{ output },
-		dependencies
-	)
+	task := {
+		name = f"release ${object.name}",
+		command_line = f"${cc} -c ${object.input} /Fo${output} /Fd${compiler_pdb}${release_options}${release_includes}",
+		inputs = inputs,
+		outputs = { output },
+		dependencies = dependencies,
+	}
 	release_object_tasks:add(task)
 	release_object_outputs:add(output)
-	release_object_files += " " + output
+	release_object_files += f" ${output}"
 }
 
 release_entry_object := "build/release/main.entry.obj"
 release_entry_compiler_pdb := "build/release/main.entry.compiler.pdb"
-release_entry_task := add_task(
-	"release main entry",
-	"clang-cl -c src/main.c" +
-	" /Fo" + release_entry_object +
-	" /Fd" + release_entry_compiler_pdb +
-	release_options + release_includes,
-	{ "build.elf", "src/main.c" },
-	{ release_entry_object },
-	{ prepare_release }
-)
+release_entry_task := {
+	name = "release main entry",
+	command_line = f"${cc} -c src/main.c /Fo${release_entry_object} /Fd${release_entry_compiler_pdb}${release_options}${release_includes}",
+	inputs = { "build.elf", "src/main.c" },
+	outputs = { release_entry_object },
+	dependencies = { prepare_release },
+}
 
 release_link_inputs := {
 	"build.elf",
@@ -358,26 +321,51 @@ for release_object_task := release_object_tasks[...] ? {
 	release_link_dependencies:add(release_object_task)
 }
 
-release_executable := add_task(
-	"Orbiter release",
-	"clang-cl /nologo /MT" +
-	" /Febuild/release/Orbiter.exe" +
-	" " + release_entry_object + release_object_files +
-	" src/fonts/ttf/freetype/freetype.lib" +
-	" /link /DEBUG /PDB:build/release/Orbiter.pdb" +
-	" /PDBALTPATH:Orbiter.pdb" +
-	" /INCREMENTAL:NO /OPT:REF /OPT:ICF" +
-	" /NODEFAULTLIB:MSVCRT /INCLUDE:getenv /INCLUDE:strncpy" +
-	" /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup",
-	release_link_inputs,
-	{ "build/release/Orbiter.exe", "build/release/Orbiter.pdb" },
-	release_link_dependencies
-)
+release_executable := {
+	name = "Orbiter release",
+	command_line = f"${cc} /nologo /MT /Febuild/release/Orbiter.exe ${release_entry_object}${release_object_files} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:build/release/Orbiter.pdb /PDBALTPATH:Orbiter.pdb /INCREMENTAL:NO /OPT:REF /OPT:ICF /NODEFAULTLIB:MSVCRT /INCLUDE:getenv /INCLUDE:strncpy /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup",
+	inputs = release_link_inputs,
+	outputs = { "build/release/Orbiter.exe", "build/release/Orbiter.pdb" },
+	dependencies = release_link_dependencies,
+}
 
 entries := {}
 entries.build = fun() {
 	success := bob.build({targets=executable_tasks,workers=8})
 	ret success
+}
+
+entries.test = fun() {
+	success := bob.build({targets=test_executable_tasks,workers=8})
+	if success == 0 ? {
+		ret false
+	}
+
+	failures := 0
+	for test := tests[...] ? {
+		elf.printl(f"[ RUN  ] ${test.name}")
+		result := elf.process.run(f"build\\${test.name}.exe")
+		elf.print(result.stdout)
+		elf.print(result.stderr)
+
+		if result.success == 1 ? {
+			elf.printl(f"[ PASS ] ${test.name}")
+		}
+		if result.success == 0 ? {
+			elf.printl(f"[ FAIL ] ${test.name}: exited with code ${result.exit_code}")
+			failures += 1
+		}
+		elf.printl("")
+	}
+
+	if failures == 0 ? {
+		elf.printl(f"Test suite passed: all ${tests:length()} test executables passed")
+		ret true
+	}
+
+	elf.printl(f"Test suite failed: ${failures} of ${tests:length()} test executables failed")
+	elf.process.exit(1)
+	ret false
 }
 
 entries.release = fun() {
