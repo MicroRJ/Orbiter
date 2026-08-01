@@ -180,7 +180,7 @@ b32 nes_emulator_load_state(NES_Emulator *emulator, ByteSpan state_wire)
 	if (!dummy) return false;
 	b32 success = serialize_read_record(state_wire, nes_state_record_map(), NES_RECORD_EMULATOR, dummy);
 	if (!success) goto cleanup;
-	if (!nes_state_valid(& dummy->core))
+	if (!nes_state_valid(& dummy->core) || dummy->sample_phase >= NES_CPU_HZ)
 	{
 		success = false;
 		goto cleanup;
