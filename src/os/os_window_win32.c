@@ -221,7 +221,7 @@ static b32 os_win32_window_init(void)
 		.hInstance = GetModuleHandleW(0),
 		.lpszClassName = OS_WIN32_WINDOW_CLASS,
 		.hCursor = os_win32.cursors[OS_CURSOR_POINTER],
-		.hIcon = LoadIconW(NULL, IDI_APPLICATION),
+		.hIcon = LoadIconA(NULL, IDI_APPLICATION),
 	};
 	if (!RegisterClassExW(&window_class))
 	{

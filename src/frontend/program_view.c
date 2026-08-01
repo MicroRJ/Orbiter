@@ -142,7 +142,7 @@ static void program_view_content(ViewFrameData *frame)
 	u32 instruction_count = program_mapped_instruction_count(debugger);
 	f32 row_height = font.size;
 
-	NES_CPUState cpu = frame->publication->state.cpu;
+	NES_CPUState cpu = frame->publication->cpu;
 
 	rect_f32_slice(&main_rect, AXIS_X, 32);
 	f32 scroll_height = frame->header_height + instruction_count * row_height;
@@ -305,7 +305,7 @@ void program_view_build_ui(ViewFrameData *frame)
 	String title = LIT("PROGRAM");
 	if (debugger_armed(debugger) && frame->publication->valid)
 	{
-		u16 cpu_address = frame->publication->state.cpu.PC;
+		u16 cpu_address = frame->publication->cpu.PC;
 		NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);
 		u32 instruction_index = 0;
 		const char *mode = seconds_now().seconds >= frame->view->program.tracking_resume_time.seconds ? "tracking" : "manual";

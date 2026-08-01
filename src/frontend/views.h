@@ -77,7 +77,7 @@ struct ViewFrameData
 	UI_Box        *content_box;
 
 	// The application prepares shared publication resources once per frame.
-	const NES_TargetSnapshot *publication;
+	const NES_TargetPublication *publication;
 	const ExecutionGraph *execution_graph;
 	const ExecutionActivity *execution_activity;
 	GFX_Texture *video_texture;

@@ -572,7 +572,6 @@ void r_resize_output_targets(GFX_Window *window, vec2i reso) {
 	}
 }
 
-APIFUNC
 void r_clear_output(GFX_Renderer *renderer, GFX_Texture *output, Color_SRGBA color) {
 	Assert(output);
 
@@ -590,7 +589,7 @@ void r_clear_output(GFX_Renderer *renderer, GFX_Texture *output, Color_SRGBA col
 void gfx_present_window(GFX_Window *window)
 {
 	GFX_Renderer *renderer = window->renderer;
-	IDXGISwapChain_Present(window->swapchain, 1u, 0);
+	IDXGISwapChain_Present(window->swapchain, 0, 0);
 	// output target is unbound on present
 	g.state.output = 0;
 }

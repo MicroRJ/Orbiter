@@ -64,7 +64,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	rows->slate = slate;
 	rows->title_style = (UI_TextStyle) { .font = font, .size = 16, .color = text_color };
 	rows->subtitle_style = subtle;
-	UI_Box *list_box = ui_box_make_virtual_list(ui, 1, LIT("50,000 FIXED-EXTENT BOX SUBTREES"), (UI_BoxVirtualListDesc) {
+	UI_Box *list_box = ui_virtual_list(ui, 1, LIT("50,000 FIXED-EXTENT BOX SUBTREES"), (UI_VirtualListDesc) {
 		.item_count = 50000,
 		.user = rows,
 		.build_item = playground_build_profiler_row,

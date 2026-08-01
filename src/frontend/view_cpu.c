@@ -84,7 +84,7 @@ static void cpu_view_content(ViewFrameData *frame)
 
 	// Published state is observational. A future editable CPU view must send a
 	// debugger command instead of modifying this copy or the core directly.
-	const NES_CPUState *cpu = &frame->publication->state.cpu;
+	const NES_CPUState *cpu = &frame->publication->cpu;
 	UI_TextStyle label_style = frame->ui->theme.code;
 	label_style.color = frame->ui->theme.text_subtle;
 	UI_TextStyle value_style = frame->ui->theme.code;

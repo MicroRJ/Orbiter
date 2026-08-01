@@ -28,7 +28,7 @@ CHRMapSelection;
 
 typedef struct
 {
-	const NES_TargetSnapshot *publication;
+	const NES_TargetPublication *publication;
 	GFX_Texture *texture;
 	CHRMapSelection selection;
 	b32 available;
@@ -98,7 +98,7 @@ static rect_f32 chr_map_sprite_rect(CHRMapLayout layout, const NES_TargetSprite 
 	};
 }
 
-static CHRMapSelection chr_map_selection_from_mouse(UI_Context *ui, const NES_TargetSnapshot *publication, CHRMapLayout layout)
+static CHRMapSelection chr_map_selection_from_mouse(UI_Context *ui, const NES_TargetPublication *publication, CHRMapLayout layout)
 {
 	if (rect_f32_contains(layout.patterns, ui->mouse))
 	{
@@ -156,7 +156,7 @@ static void chr_map_build_tooltip(ViewFrameData *frame, CHRMapSelection selectio
 	ui_tooltip_end(ui);
 }
 
-static void chr_map_draw_palettes(UI_Context *ui, const NES_TargetSnapshot *publication, rect_f32 rect)
+static void chr_map_draw_palettes(UI_Context *ui, const NES_TargetPublication *publication, rect_f32 rect)
 {
 	UI_TextStyle style = ui->theme.code;
 	style.color = ui->theme.text_subtle;

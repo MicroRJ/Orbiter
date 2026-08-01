@@ -52,6 +52,7 @@ include_directories := {
 	"src/lz4",
 	"src/text",
 	"tools/ui_playground",
+	"tabula/include",
 	"platform/include",
 	"src/fonts/ttf/freetype/include",
 }
@@ -103,6 +104,7 @@ objects := {
 	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
 	{ name = "nes_cartridge",    input = "src/nes/src/cartridge.c" },
 	{ name = "serialize",         input = "src/serialize/serialize.c" },
+	{ name = "tabula",            input = "tabula/src/tabula.c" },
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
@@ -120,6 +122,7 @@ objects := {
 }
 
 tests := {
+	{ name = "tabula_test",         input = "tabula/tests/tabula_test.c" },
 	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
 	{ name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
 	{ name = "nes_ppu_test",        input = "src/tests/nes_ppu_test.c" },

@@ -95,8 +95,9 @@ static void ui_box__append_child(UI_Box *parent, UI_Box *child)
 	parent->child_count++;
 }
 
-static void ui_box__clear_children(UI_Box *parent)
+void ui_box_clear_children(UI_Box *parent)
 {
+	Assert(parent);
 	for (UI_Box *child = parent->first, *next; child; child = next)
 	{
 		next = child->next;
@@ -191,37 +192,6 @@ void ui_builder_pop_id(UI_BoxBuilder *builder)
 	Assert(builder);
 	Assert(builder->id_count);
 	builder->id = builder->id_stack[--builder->id_count];
-}
-
-UI_Box *ui_builder_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
-{
-	Assert(builder);
-	Assert(builder->ui);
-	Assert(list.build_item);
-	desc.overflow[desc.axis] = UI_BOX_OVERFLOW_SCROLL;
-	UI_Box *box = ui_builder_box_begin_desc(builder, key, name, desc);
-	box->virtual_list.arena = builder->arena;
-	box->virtual_list.build_item = list.build_item;
-	box->virtual_list.user = list.user;
-	box->virtual_list.item_count = list.item_count;
-	if (list.item_count)
-	{
-		ui_builder_push_id(builder, 0);
-		list.build_item(builder->ui, 0, list.user);
-		ui_builder_pop_id(builder);
-		Assert(box->child_count == 1);
-	}
-	ui_builder_box_end(builder);
-	if (list.item_count) {
-		box->virtual_list.sizing_item = box->first;
-	}
-	ui_box__clear_children(box);
-	return box;
-}
-
-UI_Box *ui_builder_box_make_virtual_list(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxVirtualListDesc list)
-{
-	return ui_builder_box_make_virtual_list_desc(builder, key, name, builder->desc, list);
 }
 
 void ui_builder_push(UI_BoxBuilder *builder)
@@ -419,11 +389,6 @@ UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, String name)
 	return ui_builder_box_begin(ui_box__builder(ui), key, name);
 }
 
-UI_Box *ui_box_make_virtual_list(UI_Context *ui, UI_Key key, String name, UI_BoxVirtualListDesc list)
-{
-	return ui_builder_box_make_virtual_list(ui_box__builder(ui), key, name, list);
-}
-
 UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc)
 {
 	return ui_builder_box_make_desc(ui_box__builder(ui), key, name, desc);
@@ -432,11 +397,6 @@ UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc des
 UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc)
 {
 	return ui_builder_box_begin_desc(ui_box__builder(ui), key, name, desc);
-}
-
-UI_Box *ui_box_make_virtual_list_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list)
-{
-	return ui_builder_box_make_virtual_list_desc(ui_box__builder(ui), key, name, desc, list);
 }
 
 void ui_box_end(UI_Context *ui)
@@ -581,29 +541,7 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 		natural.x = Max(natural.x, measured_content.x);
 		natural.y = Max(natural.y, measured_content.y);
 	}
-	if (box->virtual_list.build_item)
-	{
-		AXIS main_axis = box->desc.axis;
-		AXIS perp_axis = !main_axis;
-		content = v2(0.f, 0.f);
-		box->virtual_list.item_extent = 0.f;
-		if (box->virtual_list.item_count)
-		{
-			vec2 available = v2(Max(0.f, constraints.max.x - box->desc.horz_padd[0] - box->desc.horz_padd[1]), Max(0.f, constraints.max.y - box->desc.vert_padd[0] - box->desc.vert_padd[1]));
-			UI_BoxConstraints item_constraints = { .max = available };
-			item_constraints.max.xy[main_axis] = UI_BOX_INFINITY;
-			UI_Box *item = box->virtual_list.sizing_item;
-			vec2 item_size = ui_box_measure(item, item_constraints);
-			item_size.xy[main_axis] += item->desc.margin[main_axis][0] + item->desc.margin[main_axis][1];
-			item_size.xy[perp_axis] += item->desc.margin[perp_axis][0] + item->desc.margin[perp_axis][1];
-			box->virtual_list.item_extent = item_size.xy[main_axis];
-			content.xy[main_axis] = box->virtual_list.item_extent * box->virtual_list.item_count + box->desc.gap * (box->virtual_list.item_count - 1);
-			content.xy[perp_axis] = item_size.xy[perp_axis];
-		}
-		natural.x = Max(natural.x, content.x);
-		natural.y = Max(natural.y, content.y);
-	}
-	else if (box->ops && box->ops->measure_children)
+	if (box->ops && box->ops->measure_children)
 	{
 		content = box->ops->measure_children(box, content_constraints);
 		natural.x = Max(natural.x, content.x);
@@ -752,115 +690,7 @@ static void ui_box__finish_layout(UI_Box *box)
 	ui_box__commit_state(box);
 }
 
-static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip);
-
-static void ui_box__materialize_virtual_list(UI_Box *box, u32 first_item, u32 one_past_item)
-{
-	Assert(box->ui);
-	UI_BoxBuilder builder = {
-		.arena = box->virtual_list.arena,
-		.ui = box->ui,
-		.root = box,
-		.parent = box,
-		.id = box->id,
-		.desc = ui_defaults(),
-		.paint = ui_default_paint(),
-	};
-	builder.paint.z = box->paint.z;
-	UI_BoxBuilder *previous_builder = box->ui->builder;
-	box->ui->builder = &builder;
-	ui_box__clear_children(box);
-	for (u32 item_index = first_item; item_index < one_past_item; item_index ++)
-	{
-		u32 child_count = box->child_count;
-		ui_box_push_id(box->ui, item_index);
-		box->virtual_list.build_item(box->ui, item_index, box->virtual_list.user);
-		ui_box_pop_id(box->ui);
-		Assert(builder.parent == box);
-		Assert(builder.parent_count == 0);
-		Assert(box->child_count == child_count + 1);
-	}
-	ui_box_builder_end(&builder);
-	box->ui->builder = previous_builder;
-	u32 child_index = 0;
-	for (UI_Box *child = box->first; child; child = child->next) {
-		child->virtual_index = first_item + child_index++;
-	}
-	box->virtual_list.first_item = first_item;
-	box->virtual_list.one_past_item = one_past_item;
-}
-
-static void ui_box__layout_virtual_list(UI_Box *box, rect_f32 clip)
-{
-	AXIS main_axis = box->desc.axis;
-	AXIS perp_axis = !main_axis;
-	u32 item_count = box->virtual_list.item_count;
-	f32 item_extent = box->virtual_list.item_extent;
-	f32 stride = item_extent + box->desc.gap;
-	box->content_size = v2(0.f, 0.f);
-	if (item_count)
-	{
-		UI_Box *item = box->virtual_list.sizing_item;
-		f32 perp_before = item->desc.margin[perp_axis][0];
-		f32 perp_after = item->desc.margin[perp_axis][1];
-		f32 perp_size = item->measured_size.xy[perp_axis];
-		if (item->desc.size[perp_axis].kind == UI_BOX_SIZE_FILL) {
-			perp_size = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
-		}
-		box->content_size.xy[main_axis] = item_extent * item_count + box->desc.gap * (item_count - 1);
-		box->content_size.xy[perp_axis] = perp_size + perp_before + perp_after;
-	}
-	box->content_bounds = (rect_f32) { .pos = box->viewport.pos, .size = box->content_size };
-
-	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
-	{
-		box->scroll_min.xy[axis] = 0.f;
-		box->scroll_max.xy[axis] = Max(box->content_size.xy[axis] - box->viewport.wh[axis], 0.f);
-		if (box->desc.overflow[axis] == UI_BOX_OVERFLOW_SCROLL) {
-			box->scroll_offset.xy[axis] = ui_box__clamp(box->scroll_offset.xy[axis], box->scroll_min.xy[axis], box->scroll_max.xy[axis]);
-		}
-	}
-	rect_f32 child_clip = ui_box__child_clip(box, clip);
-
-	u32 first_item = 0;
-	u32 one_past_item = 0;
-	if (item_count && stride > 0.001f && box->viewport.wh[main_axis] > 0.f)
-	{
-		first_item = Min((u32)(box->scroll_offset.xy[main_axis] / stride), item_count);
-		one_past_item = Min((u32)ceilf((box->scroll_offset.xy[main_axis] + box->viewport.wh[main_axis]) / stride), item_count);
-		first_item = first_item > 2 ? first_item - 2 : 0;
-		one_past_item = Min(one_past_item + 2, item_count);
-	}
-	ui_box__materialize_virtual_list(box, first_item, one_past_item);
-
-	vec2 available = box->viewport.size;
-	for (UI_Box *child = box->first; child; child = child->next)
-	{
-		UI_BoxConstraints constraints = { .max = available };
-		constraints.max.xy[main_axis] = item_extent;
-		ui_box_measure(child, constraints);
-
-		f32 main_before = child->desc.margin[main_axis][0];
-		f32 main_after = child->desc.margin[main_axis][1];
-		f32 perp_before = child->desc.margin[perp_axis][0];
-		f32 perp_after = child->desc.margin[perp_axis][1];
-		f32 perp_available = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
-		f32 perp_size = child->measured_size.xy[perp_axis];
-		if (child->desc.size[perp_axis].kind == UI_BOX_SIZE_FILL) {
-			perp_size = perp_available;
-		}
-		perp_size = ui_box__clamp(perp_size, ui_box__local_min(child, perp_axis), ui_box__local_max(child, perp_axis));
-
-		rect_f32 child_rect = {};
-		child_rect.xy[main_axis] = box->viewport.xy[main_axis] - box->scroll_offset.xy[main_axis] + child->virtual_index * stride + main_before;
-		child_rect.wh[main_axis] = Max(0.f, item_extent - main_before - main_after);
-		child_rect.xy[perp_axis] = box->viewport.xy[perp_axis] - box->scroll_offset.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
-		child_rect.wh[perp_axis] = perp_size;
-		ui_box__layout(child, child_rect, child_clip);
-	}
-}
-
-static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
+void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 {
 	box->rect = rect;
 	box->arranged_size = rect.size;
@@ -881,9 +711,9 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 			box->scroll_offset.xy[axis] = 0.f;
 		}
 	}
-	if (box->virtual_list.build_item)
+	if (box->ops && box->ops->layout)
 	{
-		ui_box__layout_virtual_list(box, clip);
+		box->ops->layout(box, clip);
 		ui_box__finish_layout(box);
 		return;
 	}
@@ -954,7 +784,7 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		child_rect.wh[main_axis] = child->arranged_size.xy[main_axis];
 		child_rect.xy[perp_axis] = ui_box__is_absolute(child, perp_axis) ? box->viewport.xy[perp_axis] + child->desc.position[perp_axis].value - box->scroll_offset.xy[perp_axis] : box->viewport.xy[perp_axis] - box->scroll_offset.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
 		child_rect.wh[perp_axis] = perp_size;
-		ui_box__layout(child, child_rect, child_clip);
+		ui_box_layout_clipped(child, child_rect, child_clip);
 		if (!ui_box__is_absolute(child, main_axis)) cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;
 	}
 	ui_box__finish_layout(box);
@@ -963,13 +793,13 @@ static void ui_box__layout(UI_Box *box, rect_f32 rect, rect_f32 clip)
 void ui_box_layout(UI_Box *box, rect_f32 rect)
 {
 	Assert(box);
-	ui_box__layout(box, rect, rect);
+	ui_box_layout_clipped(box, rect, rect);
 }
 
 void ui_box_relayout(UI_Box *box)
 {
 	Assert(box);
-	ui_box__layout(box, box->rect, box->clip_rect);
+	ui_box_layout_clipped(box, box->rect, box->clip_rect);
 }
 
 UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)

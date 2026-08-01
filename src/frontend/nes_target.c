@@ -31,17 +31,17 @@ static u32 nes_target_sprite_tile_index(const NES_PPUState *ppu, const NES_PPUSp
 	return !!(ppu->PPUCTRL & 0x08) * NES_PATTERN_TABLE_TILE_COUNT + sprite->index;
 }
 
-static void nes_target_publish_sprites(NES_TargetSnapshot *snapshot)
+static void nes_target_publish_sprites(NES_TargetPublication *publication)
 {
-	const NES_PPUState *ppu = &snapshot->state.ppu;
+	const NES_PPUState *ppu = &publication->ppu;
 	u32 sprite_height = ppu->PPUCTRL & 0x20 ? 16 : 8;
-	for (u32 index = 0; index < ArrayCount(snapshot->sprites); ++index)
+	for (u32 index = 0; index < ArrayCount(publication->sprites); ++index)
 	{
 		const NES_PPUSprite *source = &ppu->OAM[index];
 		u32 tile_index = nes_target_sprite_tile_index(ppu, source, 0);
 		i32 cell_x = (i32)(index % 16 * 16);
 		i32 cell_y = (i32)(NES_TARGET_CHR_PATTERN_HEIGHT + index / 16 * 16);
-		snapshot->sprites[index] = (NES_TargetSprite) {
+		publication->sprites[index] = (NES_TargetSprite) {
 			.texture_region = {
 				.x = cell_x + 4,
 				.y = cell_y + (16 - (i32)sprite_height) / 2,
@@ -49,7 +49,7 @@ static void nes_target_publish_sprites(NES_TargetSnapshot *snapshot)
 				.h = (i32)sprite_height,
 			},
 			.selection_region = { cell_x, cell_y, 16, 16 },
-			.pattern_mapping = snapshot->chr_map.mappings[tile_index],
+			.pattern_mapping = publication->chr_map.mappings[tile_index],
 			.ppu_address = (u16)(tile_index * NES_PATTERN_TILE_SIZE * 2),
 			.oam_index = (u8)index,
 			.x = source->xpos,
@@ -63,19 +63,19 @@ static void nes_target_publish_sprites(NES_TargetSnapshot *snapshot)
 	}
 }
 
-static void nes_target_publish_palettes(NES_TargetSnapshot *snapshot)
+static void nes_target_publish_palettes(NES_TargetPublication *publication)
 {
-	for (u32 index = 0; index < ArrayCount(snapshot->palettes); ++index)
+	for (u32 index = 0; index < ArrayCount(publication->palettes); ++index)
 	{
-		NES_TargetPalette *palette = &snapshot->palettes[index];
+		NES_TargetPalette *palette = &publication->palettes[index];
 		palette->index = (u8)(index & 3);
 		palette->is_sprite = index >= 4;
 		for (u32 slot = 0; slot < ArrayCount(palette->colors); ++slot)
 		{
 			u8 address = (u8)((index >= 4 ? 0x10 : 0) + (index & 3) * 4 + slot);
-			u8 color_index = snapshot->chr_map.palette[address];
+			u8 color_index = publication->chr_map.palette[address];
 			palette->colors[slot] = (NES_TargetPaletteColor) {
-				.color = snapshot->palette[color_index & 63],
+				.color = publication->palette[color_index & 63],
 				.palette_address = address,
 				.color_index = color_index,
 			};
@@ -83,18 +83,18 @@ static void nes_target_publish_palettes(NES_TargetSnapshot *snapshot)
 	}
 }
 
-static void nes_target_colorize_video(NES_TargetSnapshot *snapshot)
+static void nes_target_colorize_video(NES_TargetPublication *publication)
 {
 	for (u32 index = 0; index < NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT; ++index) {
-		snapshot->video[index] = snapshot->palette[snapshot->video_indices[index] & 63];
+		publication->video[index] = publication->palette[publication->palletised_video[index] & 63];
 	}
 }
 
-static void nes_target_render_chr(NES_TargetSnapshot *snapshot)
+static void nes_target_render_chr(NES_TargetPublication *publication)
 {
-	const NES_CHRMap *map = &snapshot->chr_map;
-	const NES_PPUState *ppu = &snapshot->state.ppu;
-	memory_zero(snapshot->chr_image, sizeof(snapshot->chr_image));
+	const NES_CHRMap *map = &publication->chr_map;
+	const NES_PPUState *ppu = &publication->ppu;
+	memory_zero(publication->chr_image, sizeof(publication->chr_image));
 	for (u32 tile_index = 0; tile_index < NES_PATTERN_TILE_COUNT; ++tile_index)
 	{
 		u32 table = tile_index / NES_PATTERN_TABLE_TILE_COUNT;
@@ -104,7 +104,7 @@ static void nes_target_render_chr(NES_TargetSnapshot *snapshot)
 		for (u32 y = 0; y < NES_PATTERN_TILE_SIZE; ++y) {
 			for (u32 x = 0; x < NES_PATTERN_TILE_SIZE; ++x) {
 				u8 color = map->palette[map->tiles[tile_index].pixels[y][x]];
-				snapshot->chr_image[(tile_y + y) * NES_TARGET_CHR_WIDTH + tile_x + x] = snapshot->palette[color & 63];
+				publication->chr_image[(tile_y + y) * NES_TARGET_CHR_WIDTH + tile_x + x] = publication->palette[color & 63];
 			}
 		}
 	}
@@ -113,7 +113,7 @@ static void nes_target_render_chr(NES_TargetSnapshot *snapshot)
 	for (u32 sprite_index = 0; sprite_index < ArrayCount(ppu->OAM); ++sprite_index)
 	{
 		const NES_PPUSprite *sprite = &ppu->OAM[sprite_index];
-		rect_i32 texture_region = snapshot->sprites[sprite_index].texture_region;
+		rect_i32 texture_region = publication->sprites[sprite_index].texture_region;
 		for (u32 y = 0; y < sprite_height; ++y)
 		{
 			u32 source_y = sprite->attrs & 0x80 ? sprite_height - 1 - y : y;
@@ -125,28 +125,62 @@ static void nes_target_render_chr(NES_TargetSnapshot *snapshot)
 				if (palette_slot)
 				{
 					u8 color = map->palette[0x10 + (sprite->attrs & 3) * 4 + palette_slot];
-					snapshot->chr_image[(texture_region.y + y) * NES_TARGET_CHR_WIDTH + texture_region.x + x] = snapshot->palette[color & 63];
+					publication->chr_image[(texture_region.y + y) * NES_TARGET_CHR_WIDTH + texture_region.x + x] = publication->palette[color & 63];
 				}
 			}
 		}
 	}
 }
 
-void nes_target_publish(NES_TargetSnapshot *snapshot, Debugger *debugger)
+static NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index)
 {
-	Assert(snapshot);
-	Assert(debugger);
-	Assert(debugger_armed(debugger));
+	Assert(index < NES_PATTERN_TILE_COUNT);
+	NES_PatternTile tile = {};
+	u32 address = index << 4;
+	for (u32 y = 0; y < 8; ++y)
+	{
+		u32 lo = nes_ppu_bus_peek(core, address + y);
+		u32 hi = nes_ppu_bus_peek(core, address + 8 + y);
+		for (u32 x = 0; x < 8; ++x)
+		{
+			u32 palette_index = ((lo >> (7 - x)) & 1) | (((hi >> (7 - x)) & 1) << 1);
+			tile.pixels[y][x] = (u8)palette_index;
+		}
+	}
+	return tile;
+}
 
-	snapshot->valid = false;
-	snapshot->state = debugger_capture_state(debugger);
-	PROF_BLOCK("capture video") debugger_capture_video(debugger, snapshot->video_indices, NES_VIDEO_WIDTH);
-	PROF_BLOCK("capture CHR map") debugger_capture_chr_map(debugger, &snapshot->chr_map);
-	memory_copy(snapshot->palette, nes_target_palette, sizeof(snapshot->palette));
-	PROF_BLOCK("publish sprites") nes_target_publish_sprites(snapshot);
-	PROF_BLOCK("publish palettes") nes_target_publish_palettes(snapshot);
-	PROF_BLOCK("colorize video") nes_target_colorize_video(snapshot);
-	PROF_BLOCK("render CHR image") nes_target_render_chr(snapshot);
-	snapshot->generation++;
-	snapshot->valid = true;
+void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map)
+{
+	Assert(map);
+	for (u32 index = 0; index < NES_PATTERN_TILE_COUNT; ++index)
+	{
+		map->tiles[index] = nes_emulator_pattern_tile(core, index);
+		map->mappings[index] = nes_ppu_bus_map(core, (u16)(index << 4));
+	}
+	for (u32 index = 0; index < NES_PALETTE_RAM_SIZE; ++index) {
+		map->palette[index] = nes_ppu_bus_peek(core, 0x3F00 + index);
+	}
+}
+
+
+void nes_target_publish(NES_TargetPublication *publication, NES_Emulator *emulator)
+{
+	Assert(publication);
+	Assert(emulator);
+	Assert(nes_emulator_has_cartridge(emulator));
+
+	publication->valid = false;
+	publication->cpu = emulator->core.cpu;
+	publication->ppu = emulator->core.ppu;
+	publication->apu = emulator->core.apu;
+	PROF_BLOCK("capture video") memory_copy(publication->palletised_video, emulator->video, sizeof(publication->palletised_video));
+	PROF_BLOCK("capture CHR map") nes_emulator_capture_chr_map(emulator, &publication->chr_map);
+	memory_copy(publication->palette, nes_target_palette, sizeof(publication->palette));
+	PROF_BLOCK("publish sprites") nes_target_publish_sprites(publication);
+	PROF_BLOCK("publish palettes") nes_target_publish_palettes(publication);
+	PROF_BLOCK("colorize video") nes_target_colorize_video(publication);
+	PROF_BLOCK("render CHR image") nes_target_render_chr(publication);
+	publication->generation++;
+	publication->valid = true;
 }

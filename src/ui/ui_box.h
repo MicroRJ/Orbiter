@@ -116,10 +116,12 @@ typedef struct UI_Box UI_Box;
 typedef struct UI_BoxState UI_BoxState;
 typedef struct UI_BoxBuilder UI_BoxBuilder;
 typedef struct UI_Context UI_Context;
-typedef void UI_BoxVirtualBuildItem(UI_Context *ui, u32 item_index, void *user);
 typedef vec2 UI_BoxMeasure(UI_Box *box, UI_BoxConstraints constraints);
 typedef vec2 UI_BoxMeasureChildren(UI_Box *box, UI_BoxConstraints constraints);
 typedef void UI_BoxPrepareLayout(UI_Box *box);
+// Runs after the box rectangle and viewport are established. A custom layout
+// owns child arrangement; the core still finishes and commits the box state.
+typedef void UI_BoxLayout(UI_Box *box, rect_f32 clip);
 // Runs after the box and all of its children have current rectangles.
 typedef void UI_BoxFinishLayout(UI_Box *box);
 typedef void UI_BoxPaint(UI_Box *box);
@@ -129,18 +131,11 @@ typedef struct
 	UI_BoxMeasure *measure;
 	UI_BoxMeasureChildren *measure_children;
 	UI_BoxPrepareLayout *prepare_layout;
+	UI_BoxLayout *layout;
 	UI_BoxFinishLayout *finish_layout;
 	UI_BoxPaint *paint;
 }
 UI_BoxHooks;
-
-typedef struct
-{
-	u32 item_count;
-	void *user;
-	UI_BoxVirtualBuildItem *build_item;
-}
-UI_BoxVirtualListDesc;
 
 // Context-owned state for a keyed box. Geometry describes the most recently
 // completed layout until the current box commits its new geometry.
@@ -191,19 +186,6 @@ struct UI_Box
 	vec2 scroll_offset;
 	vec2 scroll_min;
 	vec2 scroll_max;
-	struct
-	{
-		Arena *arena;
-		UI_Box *sizing_item;
-		UI_BoxVirtualBuildItem *build_item;
-		void *user;
-		u32 item_count;
-		u32 first_item;
-		u32 one_past_item;
-		f32 item_extent;
-	}
-	virtual_list;
-	u32 virtual_index;
 	UI_Context *ui;
 	const UI_BoxHooks *ops;
 	void *content;
@@ -232,6 +214,9 @@ UI_BoxSize ui_wrap(void);
 UI_BoxSize ui_fixed(f32 value);
 UI_BoxSize ui_grow(f32 grow);
 UI_BoxSize ui_flex(f32 grow, f32 shrink);
+static inline UI_BoxSize ui_fill() {
+	return ui_grow(1.f);
+}
 UI_BoxDesc ui_defaults(void);
 UI_BoxPaintDesc ui_default_paint(void);
 
@@ -242,10 +227,8 @@ UI_Box *ui_box_make(UI_Context *ui, UI_Key key, String name);
 void ui_box_end(UI_Context *ui);
 UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, String name);
 
-UI_Box *ui_box_make_virtual_list(UI_Context *ui, UI_Key key, String name, UI_BoxVirtualListDesc list);
 UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc);
 UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc);
-UI_Box *ui_box_make_virtual_list_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list);
 
 void ui_box_push_id(UI_Context *ui, UI_Key key);
 void ui_box_pop_id(UI_Context *ui);
@@ -275,12 +258,12 @@ void ui_paint_z(UI_Context *ui, i32 z);
 // Low-level builder API used by the box implementation and its focused tests.
 UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc);
 UI_Box *ui_box_builder_end(UI_BoxBuilder *builder);
+void ui_box_clear_children(UI_Box *box);
+void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip);
 UI_Box *ui_builder_box_make(UI_BoxBuilder *builder, UI_Key key, String name);
 UI_Box *ui_builder_box_begin(UI_BoxBuilder *builder, UI_Key key, String name);
-UI_Box *ui_builder_box_make_virtual_list(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxVirtualListDesc list);
 UI_Box *ui_builder_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc);
 UI_Box *ui_builder_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc);
-UI_Box *ui_builder_box_make_virtual_list_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc, UI_BoxVirtualListDesc list);
 void ui_builder_box_end(UI_BoxBuilder *builder);
 void ui_builder_push_id(UI_BoxBuilder *builder, UI_Key key);
 void ui_builder_pop_id(UI_BoxBuilder *builder);

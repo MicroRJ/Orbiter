@@ -126,7 +126,7 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	profiler_rows->slate = slate;
 	profiler_rows->title_style = (UI_TextStyle) { .font = font, .size = 16, .color = color_srgba(0xD6E7E4) };
 	profiler_rows->subtitle_style = (UI_TextStyle) { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	UI_Box *inspector_box = ui_box_make_virtual_list_desc(ui, 1, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_BoxVirtualListDesc) {
+	UI_Box *inspector_box = ui_virtual_list_desc(ui, 1, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_VirtualListDesc) {
 		.item_count = 10000,
 		.user = profiler_rows,
 		.build_item = playground_build_profiler_row,

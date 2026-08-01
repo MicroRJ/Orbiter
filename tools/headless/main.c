@@ -1,4 +1,5 @@
 #include "debugger.h"
+#include "nes_target.h"
 #include "os.h"
 
 #include <errno.h>
@@ -61,7 +62,7 @@ static ByteSpan capture_state(Debugger *debugger, Arena *arena)
 	return byte_span(start, (u64)((u8 *)arena_top(arena) - start));
 }
 
-static b32 check_determinism(Debugger *debugger, Arena *arena, u32 frame)
+static b32 check_determinism(Debugger *debugger, NES_TargetPublication *publication, Arena *arena, u32 frame)
 {
 	ARENA_SCOPE(arena)
 	{
@@ -99,10 +100,10 @@ static b32 check_determinism(Debugger *debugger, Arena *arena, u32 frame)
 				expected_frame.samples * sizeof(*expected_samples)) ||
 			!memory_match(expected.data, replayed.data, expected.size))
 		{
-			DebuggerState state = debugger_capture_state(debugger);
+			debugger_publish_target(debugger, publication);
 			LOG_ERROR("determinism mismatch at frame %u: samples %llu/%llu, steps %llu/%llu, replay PC $%04X, PPU %u,%u",
 				frame, expected_frame.samples, replayed_frame.samples, expected_frame.steps, replayed_frame.steps,
-				state.cpu.PC, state.ppu.xtick, state.ppu.ytick);
+				publication->cpu.PC, publication->ppu.xtick, publication->ppu.ytick);
 			headless_write_file(
 				"determinism_expected.dump", expected.data, expected.size);
 			headless_write_file(
@@ -151,6 +152,7 @@ int main(int argc, char **argv)
 	int exit_code = 1;
 	Arena arena = arena_create(0, "headless debugger arena");
 	Debugger *debugger = debugger_create(&arena);
+	NES_TargetPublication *publication = arena_push_zero(&arena, sizeof(*publication));
 	String rom = headless_read_file(&arena, argv[1]);
 	if (!rom.text || !rom.size)
 	{
@@ -175,15 +177,17 @@ int main(int argc, char **argv)
 	f32 *samples = arena_push(&arena, sizeof(*samples) * sample_capacity);
 	if (check_replay)
 	{
-		u16 breakpoint_pc = debugger_capture_state(debugger).cpu.PC;
+		debugger_publish_target(debugger, publication);
+		u16 breakpoint_pc = publication->cpu.PC;
 		u64 breakpoint_clock = debugger_scheduler_clock(debugger);
 		NES_MapAddr breakpoint = debugger_cpu_map(debugger, breakpoint_pc);
 		debugger_set_program_breakpoint(debugger, breakpoint, true);
 		debugger_capture_snapshot(debugger);
 		NES_RunFrameResult breakpoint_frame = debugger_run_frame(debugger, samples, sample_capacity);
+		debugger_publish_target(debugger, publication);
 		if (breakpoint_frame.samples ||
 			!debugger_breakpoint_hit(debugger) || debugger_scheduler_clock(debugger) != breakpoint_clock ||
-			debugger_capture_state(debugger).cpu.PC != breakpoint_pc)
+			publication->cpu.PC != breakpoint_pc)
 		{
 			LOG_ERROR("snapshot breakpoint replay failed at CPU $%04X", breakpoint_pc);
 			goto done;
@@ -196,7 +200,7 @@ int main(int argc, char **argv)
 	{
 		if (check_replay)
 		{
-			if (!check_determinism(debugger, &arena, frame)) goto done;
+			if (!check_determinism(debugger, publication, &arena, frame)) goto done;
 			debugger_capture_snapshot(debugger);
 			debugger_run_frame(debugger, samples, sample_capacity);
 			continue;
@@ -208,7 +212,8 @@ int main(int argc, char **argv)
 		u32 refinement_budget = program->refinement_pass_count < 2 ? 2048 : 128;
 		debugger_run_program_crawler(debugger, refinement_budget);
 
-		u16 pc = debugger_capture_state(debugger).cpu.PC;
+		debugger_publish_target(debugger, publication);
+		u16 pc = publication->cpu.PC;
 		u32 instruction_index = 0;
 		if (!program_index_from_cpu_address(debugger, pc, &instruction_index))
 		{
@@ -223,7 +228,7 @@ int main(int argc, char **argv)
 	if (check_replay) {
 		LOG_INFO("deterministic replay passed for '%s' across %u frames", argv[1], frame_count);
 	} else {
-		LOG_INFO("executed '%s' for %u frames; PC $%04X, %llu instructions observed, refinement lap %llu", argv[1], frame_count, debugger_capture_state(debugger).cpu.PC, program->executed_instruction_count, program->refinement_pass_count);
+		LOG_INFO("executed '%s' for %u frames; PC $%04X, %llu instructions observed, refinement lap %llu", argv[1], frame_count, publication->cpu.PC, program->executed_instruction_count, program->refinement_pass_count);
 	}
 	exit_code = 0;
 

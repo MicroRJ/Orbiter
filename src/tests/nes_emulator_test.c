@@ -189,12 +189,12 @@ int main(int argc, char **argv)
 	Assert(!nes_emulator_has_cartridge(core));
 	Assert(nes_emulator_load_cartridge(core, parsed_cartridge));
 	Assert(nes_emulator_has_cartridge(core));
-	NES_CHRMap chr_map = {};
-	nes_emulator_capture_chr_map(core, &chr_map);
-	Assert(chr_map.tiles[0].pixels[0][0] == 1);
-	Assert(chr_map.tiles[0].pixels[0][1] == 0);
-	Assert(chr_map.mappings[0].device == NES_DEVICE_CHR_ROM);
-	Assert(chr_map.mappings[0].address == 0);
+	//	NES_CHRMap chr_map = {};
+	//	nes_emulator_capture_chr_map(core, &chr_map);
+	//	Assert(chr_map.tiles[0].pixels[0][0] == 1);
+	//	Assert(chr_map.tiles[0].pixels[0][1] == 0);
+	//	Assert(chr_map.mappings[0].device == NES_DEVICE_CHR_ROM);
+	//	Assert(chr_map.mappings[0].address == 0);
 	u8 obsolete_state_header[12] = {};
 	Assert(!nes_emulator_load_state(core, byte_span(obsolete_state_header, sizeof(obsolete_state_header))));
 	Assert(nes_emulator_has_cartridge(core));
@@ -295,8 +295,7 @@ int main(int argc, char **argv)
 		Assert(memory_match(disk_state.text, state.data, state.size));
 		nes_emulator_step(core);
 		core->video[7][11] = 0;
-		Assert(nes_emulator_load_state(core,
-			byte_span(disk_state.text, disk_state.size)));
+		Assert(nes_emulator_load_state(core, byte_span(disk_state.text, disk_state.size)));
 		state_after_load_ppu = core->core.ppu;
 	}
 	assert_serialized_fields_equal(ppu_record, &state_before_save_ppu, &state_after_load_ppu);

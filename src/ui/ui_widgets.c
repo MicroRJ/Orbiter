@@ -33,6 +33,17 @@ typedef struct
 }
 UI_TooltipData;
 
+typedef struct
+{
+	Arena *arena;
+	UI_Box *sizing_item;
+	UI_VirtualListBuildItem *build_item;
+	void *user;
+	u32 item_count;
+	f32 item_extent;
+}
+UI_VirtualListData;
+
 static vec2 ui_box__measure_text(UI_Box *box, UI_BoxConstraints constraints)
 {
 	(void)constraints;
@@ -211,6 +222,195 @@ UI_Response ui_button(UI_Context *ui, UI_Key key, String text)
 		box->paint.border = palette->teal;
 	}
 	return response;
+}
+
+static const u32 UI_VIRTUAL_LIST_OVERSCAN = 2;
+
+static f32 ui_virtual_list__local_min(const UI_Box *box, AXIS axis)
+{
+	return Max(0.f, box->desc.min_size.xy[axis]);
+}
+
+static f32 ui_virtual_list__local_max(const UI_Box *box, AXIS axis)
+{
+	return Max(ui_virtual_list__local_min(box, axis), box->desc.max_size.xy[axis]);
+}
+
+static rect_f32 ui_virtual_list__child_clip(UI_Box *box, rect_f32 clip)
+{
+	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+	{
+		if (box->desc.overflow[axis] == UI_BOX_OVERFLOW_VISIBLE || box->content_size.xy[axis] <= box->viewport.wh[axis] + 0.001f) continue;
+		f32 minimum = Max(clip.xy[axis], box->viewport.xy[axis]);
+		f32 maximum = Min(clip.xy[axis] + clip.wh[axis], box->viewport.xy[axis] + box->viewport.wh[axis]);
+		clip.xy[axis] = minimum;
+		clip.wh[axis] = Max(0.f, maximum - minimum);
+	}
+	return clip;
+}
+
+static vec2 ui_virtual_list__measure_children(UI_Box *box, UI_BoxConstraints constraints)
+{
+	UI_VirtualListData *list = box->content;
+	Assert(list);
+	AXIS axis = box->desc.axis;
+	AXIS perp = !axis;
+	vec2 content = {};
+	list->item_extent = 0.f;
+	if (list->item_count)
+	{
+		UI_BoxConstraints item_constraints = { .max = constraints.max };
+		item_constraints.max.xy[axis] = UI_BOX_INFINITY;
+		vec2 item_size = ui_box_measure(list->sizing_item, item_constraints);
+		item_size.xy[axis] += list->sizing_item->desc.margin[axis][0] + list->sizing_item->desc.margin[axis][1];
+		item_size.xy[perp] += list->sizing_item->desc.margin[perp][0] + list->sizing_item->desc.margin[perp][1];
+		list->item_extent = item_size.xy[axis];
+		content.xy[axis] = list->item_extent * list->item_count + box->desc.gap * (list->item_count - 1);
+		content.xy[perp] = item_size.xy[perp];
+	}
+	return content;
+}
+
+static void ui_virtual_list__materialize(UI_Box *box, u32 first_item, u32 one_past_item)
+{
+	UI_VirtualListData *list = box->content;
+	Assert(list);
+	UI_BoxBuilder builder = {
+		.arena = list->arena,
+		.ui = box->ui,
+		.root = box,
+		.parent = box,
+		.id = box->id,
+		.desc = ui_defaults(),
+		.paint = ui_default_paint(),
+	};
+	builder.paint.z = box->paint.z;
+	UI_BoxBuilder *previous_builder = box->ui->builder;
+	box->ui->builder = &builder;
+	ui_box_clear_children(box);
+	for (u32 item_index = first_item; item_index < one_past_item; item_index ++)
+	{
+		u32 child_count = box->child_count;
+		ui_box_push_id(box->ui, item_index);
+		list->build_item(box->ui, item_index, list->user);
+		ui_box_pop_id(box->ui);
+		Assert(builder.parent == box);
+		Assert(builder.parent_count == 0);
+		Assert(box->child_count == child_count + 1);
+	}
+	ui_box_builder_end(&builder);
+	box->ui->builder = previous_builder;
+}
+
+static void ui_virtual_list__layout(UI_Box *box, rect_f32 clip)
+{
+	UI_VirtualListData *list = box->content;
+	Assert(list);
+	AXIS axis = box->desc.axis;
+	AXIS perp = !axis;
+	f32 stride = list->item_extent + box->desc.gap;
+	box->content_size = v2(0.f, 0.f);
+	if (list->item_count)
+	{
+		UI_Box *item = list->sizing_item;
+		f32 perp_before = item->desc.margin[perp][0];
+		f32 perp_after = item->desc.margin[perp][1];
+		f32 perp_size = item->measured_size.xy[perp];
+		if (item->desc.size[perp].kind == UI_BOX_SIZE_FILL) {
+			perp_size = Max(0.f, box->viewport.wh[perp] - perp_before - perp_after);
+		}
+		box->content_size.xy[axis] = list->item_extent * list->item_count + box->desc.gap * (list->item_count - 1);
+		box->content_size.xy[perp] = perp_size + perp_before + perp_after;
+	}
+	box->content_bounds = (rect_f32) { .pos = box->viewport.pos, .size = box->content_size };
+
+	for (AXIS scroll_axis = AXIS_X; scroll_axis <= AXIS_Y; scroll_axis ++)
+	{
+		box->scroll_min.xy[scroll_axis] = 0.f;
+		box->scroll_max.xy[scroll_axis] = Max(box->content_size.xy[scroll_axis] - box->viewport.wh[scroll_axis], 0.f);
+		if (box->desc.overflow[scroll_axis] == UI_BOX_OVERFLOW_SCROLL) {
+			box->scroll_offset.xy[scroll_axis] = CLAMP(box->scroll_offset.xy[scroll_axis], box->scroll_min.xy[scroll_axis], box->scroll_max.xy[scroll_axis]);
+		}
+	}
+	rect_f32 child_clip = ui_virtual_list__child_clip(box, clip);
+
+	u32 first_item = 0;
+	u32 one_past_item = 0;
+	if (list->item_count && stride > 0.001f && box->viewport.wh[axis] > 0.f)
+	{
+		first_item = Min((u32)(box->scroll_offset.xy[axis] / stride), list->item_count);
+		one_past_item = Min((u32)ceilf((box->scroll_offset.xy[axis] + box->viewport.wh[axis]) / stride), list->item_count);
+		first_item = first_item > UI_VIRTUAL_LIST_OVERSCAN ? first_item - UI_VIRTUAL_LIST_OVERSCAN : 0;
+		one_past_item = Min(one_past_item + UI_VIRTUAL_LIST_OVERSCAN, list->item_count);
+	}
+	ui_virtual_list__materialize(box, first_item, one_past_item);
+
+	vec2 available = box->viewport.size;
+	u32 item_index = first_item;
+	for (UI_Box *item = box->first; item; item = item->next, item_index ++)
+	{
+		UI_BoxConstraints constraints = { .max = available };
+		constraints.max.xy[axis] = list->item_extent;
+		ui_box_measure(item, constraints);
+
+		f32 main_before = item->desc.margin[axis][0];
+		f32 main_after = item->desc.margin[axis][1];
+		f32 perp_before = item->desc.margin[perp][0];
+		f32 perp_after = item->desc.margin[perp][1];
+		f32 perp_available = Max(0.f, box->viewport.wh[perp] - perp_before - perp_after);
+		f32 perp_size = item->measured_size.xy[perp];
+		if (item->desc.size[perp].kind == UI_BOX_SIZE_FILL) {
+			perp_size = perp_available;
+		}
+		perp_size = CLAMP(perp_size, ui_virtual_list__local_min(item, perp), ui_virtual_list__local_max(item, perp));
+
+		rect_f32 item_rect = {};
+		item_rect.xy[axis] = box->viewport.xy[axis] - box->scroll_offset.xy[axis] + item_index * stride + main_before;
+		item_rect.wh[axis] = Max(0.f, list->item_extent - main_before - main_after);
+		item_rect.xy[perp] = box->viewport.xy[perp] - box->scroll_offset.xy[perp] + perp_before + (perp_available - perp_size) * CLAMP(item->desc.perp_align, 0.f, 1.f);
+		item_rect.wh[perp] = perp_size;
+		ui_box_layout_clipped(item, item_rect, child_clip);
+	}
+}
+
+static const UI_BoxHooks ui_virtual_list__ops = {
+	.measure_children = ui_virtual_list__measure_children,
+	.layout = ui_virtual_list__layout,
+};
+
+UI_Box *ui_virtual_list_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc, UI_VirtualListDesc list)
+{
+	Assert(ui);
+	Assert(ui->builder);
+	Assert(list.build_item);
+	desc.overflow[desc.axis] = UI_BOX_OVERFLOW_SCROLL;
+	UI_VirtualListData *data = arena_push_zero(ui->builder->arena, sizeof(*data));
+	data->arena = ui->builder->arena;
+	data->build_item = list.build_item;
+	data->user = list.user;
+	data->item_count = list.item_count;
+
+	UI_Box *box = ui_box_begin_desc(ui, key, name, desc);
+	box->ops = &ui_virtual_list__ops;
+	box->content = data;
+	if (list.item_count)
+	{
+		ui_box_push_id(ui, 0);
+		list.build_item(ui, 0, list.user);
+		ui_box_pop_id(ui);
+		Assert(box->child_count == 1);
+		data->sizing_item = box->first;
+		ui_box_clear_children(box);
+	}
+	ui_box_end(ui);
+	return box;
+}
+
+UI_Box *ui_virtual_list(UI_Context *ui, UI_Key key, String name, UI_VirtualListDesc list)
+{
+	Assert(ui);
+	Assert(ui->builder);
+	return ui_virtual_list_desc(ui, key, name, ui->builder->desc, list);
 }
 
 static void ui_tooltip__prepare_layout(UI_Box *box)

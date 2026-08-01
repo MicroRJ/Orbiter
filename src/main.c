@@ -88,6 +88,7 @@ AppMode;
 typedef struct
 {
 	AppMode                    mode;
+	f64            time_when_transition_to_library_panel;
 	b32            emulator_running;
 	b32     resume_emulator_running;
 	i32            rewind_direction;
@@ -98,7 +99,7 @@ typedef struct
 	Arena frame_arena;
 	Debugger *debugger;
 	ExecutionActivity execution_activity;
-	NES_TargetSnapshot published;
+	NES_TargetPublication published;
 	GFX_Texture *video_texture;
 	GFX_Texture *chr_texture;
 	OS_Window *os_window;
@@ -780,7 +781,7 @@ static void app_upload_chr_texture(void)
 static void app_publish(void)
 {
 	Assert(debugger_armed(app.debugger));
-	PROF_BLOCK("publish NES target") nes_target_publish(&app.published, app.debugger);
+	PROF_BLOCK("publish NES target") debugger_publish_target(app.debugger, &app.published);
 	PROF_BLOCK("upload video texture") app_upload_video_texture();
 	PROF_BLOCK("upload CHR texture") app_upload_chr_texture();
 }
@@ -989,8 +990,10 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	panel_host_desc.size[AXIS_Y] = ui_grow(1.f);
 	ui_box_begin_desc(ui, 2, LIT("belly"), panel_host_desc);
 	{
-		if (debugger_armed(app.debugger))
+		if (app.mode == APP_MODE_EMULATOR)
 		{
+			Assert(debugger_armed(app.debugger));
+
 			rect_f32 panel_rect = window_rect;
 			panel_rect.y += status_height;
 			panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
@@ -1007,6 +1010,77 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 			ui_padd(ui, AXIS_X, 24.f, 24.f);
 			ui_padd(ui, AXIS_Y, 24.f, 24.f);
 			ui_text_box_string(ui, UI_KEY("no_cart"), style, LIT("Ctrl+O - Insert Cartridge"));
+			ui_pop(ui);
+
+			ui_push(ui);
+			ui_size(ui, AXIS_X, ui_grow(1.f));
+			ui_size(ui, AXIS_Y, ui_grow(1.f));
+			UI_Scroll *scroll = ui_scroll_begin(ui, UI_KEY("library vertical scroll"), AXIS_Y);
+
+			ui_push(ui);
+			ui_axis(ui, AXIS_Y);
+			ui_size(ui, AXIS_X, ui_fill());
+			ui_size(ui, AXIS_Y, ui_fill());
+			ui_padd(ui, AXIS_X, 32.f, 32.f);
+			ui_padd(ui, AXIS_Y, 32.f, 32.f);
+			ui_gap(ui, 16.f);
+			ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+			ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
+			ui_box_begin(ui, UI_KEY("library shelves"), LIT("library shelves"));
+			ui_pop(ui);
+
+			for (u32 i = 0; i < 3; ++ i)
+			{
+				UI_TextStyle recently_style = app.ui->theme.code;
+				recently_style.color = app.ui->theme.text_subtle;
+				recently_style.size = 64;
+				recently_style.align.y = 0.5f;
+				recently_style.align.x = 0.5f;
+				ui_push(ui);
+				ui_emission(ui, app.ui->theme.palette.emission_high);
+				if (i == 0)
+				{
+					ui_text_box_string(ui, UI_KEY("recently"), recently_style, LIT("Recently Played"));
+				}
+				else if (i == 1)
+				{
+					ui_text_box_string(ui, UI_KEY("favorites"), recently_style, LIT("Your Favorites"));
+				}
+				else if (i == 2) {
+					ui_text_box_string(ui, UI_KEY("folders"), recently_style, LIT("'NES/Roms/Classics'"));
+				}
+
+				ui_pop(ui);
+				// TODO(RJ) I want support for feathering the edges so that padding doesn't just
+				// hard-clip, we need to draw some sort of dithered gradient that fades the transition
+				ui_push(ui);
+				ui_axis(ui, AXIS_X);
+				ui_size(ui, AXIS_X, ui_fill());
+				ui_size(ui, AXIS_Y, ui_wrap());
+				ui_gap(ui, 16.f);
+				ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+				ui_box_begin(ui, i, LIT("foo"));
+				{
+
+					f32 card_width = window_rect.w * 0.20f;
+					f32 card_height = card_width * 0.75f;
+					for (u32 i = 0; i < 8; ++ i)
+					{
+						ui_push(ui);
+						ui_size(ui, AXIS_X, ui_fixed(card_width));
+						ui_size(ui, AXIS_Y, ui_fixed(card_height));
+						ui_background(ui, ui->theme.palette.amber);
+						ui_roundness(ui, card_width * 0.02f);
+						ui_box_begin(ui, i, LIT("foo"));
+						ui_box_end(ui);
+						ui_pop(ui);
+					}
+				}
+				ui_box_end(ui);
+				ui_pop(ui);
+			}
+			ui_box_end(ui);
+			ui_scroll_end(scroll);
 			ui_pop(ui);
 		}
 	}
@@ -1256,47 +1330,43 @@ static void app_draw(void)
 
 static void app_frame(void)
 {
-	ARENA_SCOPE(&app.frame_arena)
+	arena_reset(&app.frame_arena);
+
+	prof_begin_frame();
+	PROF_BLOCK("main frame")
 	{
-		prof_begin_frame();
-		PROF_BLOCK("main frame")
+		AppInput input = app_translate_input_events_based_on_mode();
+		b32 app_consumed_input = app_handle_input(input);
+
+		const Program *program = debugger_program(app.debugger);
+		u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
+
+		if (debugger_armed(app.debugger))
 		{
-			AppInput input = app_translate_input_events_based_on_mode();
-			b32 app_consumed_input = app_handle_input(input);
-
-			const Program *program = debugger_program(app.debugger);
-			u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
-
-			// TODO(RJ) remove app debugger orchestration from the app itself, this
-			// is order sensitive, should be done by the debugger itself in one atomic
-			// step and the app just passes in options.
-			if (debugger_armed(app.debugger))
+			if (app.mode == APP_MODE_EMULATOR)
 			{
-				if (app.mode == APP_MODE_EMULATOR)
-				{
-					app_clear_debugger_input();
-					if (!app_consumed_input) app_update_debugger_input();
+				app_clear_debugger_input();
+				if (!app_consumed_input) app_update_debugger_input();
 
-					if (input.action == APP_ACTION_STEP) {
-						app.emulator_running = false;
-						PROF_BLOCK("emulation step") debugger_step(app.debugger);
-					}
-					else if (app.emulator_running) {
-						PROF_BLOCK("emulation") app_run_frame();
-					}
+				if (input.action == APP_ACTION_STEP) {
+					app.emulator_running = false;
+					PROF_BLOCK("emulation step") debugger_step(app.debugger);
 				}
-				PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
-				PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
-				PROF_BLOCK("drain audio")        app_drain_audio();
-				PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
-				PROF_BLOCK("app publish")        app_publish();
+				else if (app.emulator_running) {
+					PROF_BLOCK("emulation") app_run_frame();
+				}
 			}
-
-			PROF_BLOCK("app draw")    app_draw();
-			PROF_BLOCK("pace frame")  app_pace_frame();
+			PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
+			PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
+			PROF_BLOCK("drain audio")        app_drain_audio();
+			PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
+			PROF_BLOCK("app publish")        app_publish();
 		}
-		prof_close_frame();
+
+		PROF_BLOCK("app draw")    app_draw();
+		PROF_BLOCK("pace frame")  app_pace_frame();
 	}
+	prof_close_frame();
 }
 
 static void app_init(void)

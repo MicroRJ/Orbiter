@@ -125,41 +125,6 @@ NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address)
 	return nes_cpu_bus_map(core, address);
 }
 
-// TODO(RJ) REMOVE, this can be done by the adapter directly
-//	Pattern tiles are made up of two faces, each is 8 bytes.
-//	To create a palette index you join the two faces.
-static NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index)
-{
-	Assert(index < NES_PATTERN_TILE_COUNT);
-	NES_PatternTile tile = {};
-	u32 address = index << 4;
-	for (u32 y = 0; y < 8; ++y)
-	{
-		u32 lo = nes_ppu_bus_peek(core, address + y);
-		u32 hi = nes_ppu_bus_peek(core, address + 8 + y);
-		for (u32 x = 0; x < 8; ++x)
-		{
-			u32 palette_index = ((lo >> (7 - x)) & 1) | (((hi >> (7 - x)) & 1) << 1);
-			tile.pixels[y][x] = (u8)palette_index;
-		}
-	}
-	return tile;
-}
-
-// TODO(RJ) REMOVE, this can be done by the adapter directly
-void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map)
-{
-	Assert(map);
-	for (u32 index = 0; index < NES_PATTERN_TILE_COUNT; ++index)
-	{
-		map->tiles[index] = nes_emulator_pattern_tile(core, index);
-		map->mappings[index] = nes_ppu_bus_map(core, (u16)(index << 4));
-	}
-	for (u32 index = 0; index < NES_PALETTE_RAM_SIZE; ++index) {
-		map->palette[index] = nes_ppu_bus_peek(core, 0x3F00 + index);
-	}
-}
-
 NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core)
 {
 	return (NES_SchedulerTraceView) { .trace = core->scheduler_trace, .index = core->scheduler_trace_index, .scheduler_clock = core->scheduler_clock };

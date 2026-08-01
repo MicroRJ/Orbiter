@@ -417,6 +417,41 @@ static void playground_build_test_virtual_item(UI_Context *ui, u32 item_index, v
 	ui_box_end(ui);
 }
 
+static void playground_build_counted_test_virtual_item(UI_Context *ui, u32 item_index, void *user)
+{
+	u32 *build_count = user;
+	(*build_count)++;
+	playground_build_test_virtual_item(ui, item_index, 0);
+}
+
+static void playground_build_test_horizontal_virtual_item(UI_Context *ui, u32 item_index, void *user)
+{
+	(void)item_index;
+	(void)user;
+	UI_BoxDesc item = ui_defaults();
+	item.axis = AXIS_Y;
+	item.size[AXIS_X] = ui_fixed(30.f);
+	item.size[AXIS_Y] = ui_grow(1.f);
+	ui_box_begin_desc(ui, 1, LIT("item"), item);
+	UI_BoxDesc child = ui_defaults();
+	child.size[AXIS_X] = ui_grow(1.f);
+	child.size[AXIS_Y] = ui_grow(1.f);
+	ui_box_make_desc(ui, 1, LIT("nested child"), child);
+	ui_box_end(ui);
+}
+
+static void playground_build_test_margined_virtual_item(UI_Context *ui, u32 item_index, void *user)
+{
+	(void)item_index;
+	(void)user;
+	UI_BoxDesc item = ui_defaults();
+	item.size[AXIS_X] = ui_grow(1.f);
+	item.size[AXIS_Y] = ui_fixed(32.f);
+	item.vert_margin[0] = 5.f;
+	item.vert_margin[1] = 7.f;
+	ui_box_make_desc(ui, 1, LIT("item"), item);
+}
+
 static UI_Scroll *playground_build_test_scroll(Arena *arena, UI_Context *ui, UI_Box **root_out)
 {
 	(void)arena;
@@ -546,7 +581,7 @@ static int playground_run_tests(void)
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		CHECK(playground_near(root_state->rect.w, 112.f) && playground_near(root_state->rect.h, 100.f), "layout commits finished box geometry into persistent state");
 		CHECK(!scroll->has_previous && playground_near(scroll->viewport->scroll_max.y, 300.f), "a new scroll scope computes its geometry into box state");
-		CHECK(playground_near(scroll->thumb->rect.h, 25.f), "the first layout resolves the scrollbar thumb");
+		CHECK(playground_near(scroll->thumb->rect.h, 24.f), "the first layout resolves the scrollbar thumb");
 		CHECK(scroll->track->paint.flags == UI_BOX_DRAW_BACKGROUND && scroll->thumb->paint.flags == UI_BOX_DRAW_BACKGROUND, "scrollbar track and thumb carry generic box appearance");
 		ui_end_frame(ui);
 
@@ -579,7 +614,7 @@ static int playground_run_tests(void)
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
-		CHECK(playground_near(scroll->offset, 224.f), "thumb dragging maps mouse travel into the persistent logical range");
+		CHECK(playground_near(scroll->offset, 24.f + 50.f * 300.f / 70.f), "thumb dragging maps mouse travel into the persistent logical range");
 		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
 		ui_end_frame(ui);
 
@@ -977,16 +1012,17 @@ static int playground_run_tests(void)
 		ui_build_begin(ui, 1, LIT("root"), root_desc);
 		UI_BoxDesc list_desc = ui_defaults();
 		list_desc.gap = 8.f;
-		UI_Box *list = ui_box_make_virtual_list_desc(ui, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
+		UI_Box *list = ui_virtual_list_desc(ui, 1, LIT("list"), list_desc, (UI_VirtualListDesc) {
 			.item_count = 1,
 			.build_item = playground_build_test_virtual_item,
 		});
 		ui_build_end(ui);
 		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 100.f) });
-		ui_box_layout(list, rect_f32_from_size(list->measured_size));
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, list->measured_size.y });
 		CHECK(playground_near(list->measured_size.y, 42.f) && playground_near(list->content_size.y, 42.f), "a short virtual list wraps its logical items");
 		CHECK(list->child_count == 1 && list->first->child_count == 1, "a virtual item materializes as an arbitrary box subtree");
 		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 0), 1)), "a virtual item ID includes its logical item scope");
+		CHECK(playground_near(list->first->rect.w, 100.f), "a virtual item can fill the viewport perpendicular to the list axis");
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
 	}
@@ -1000,7 +1036,7 @@ static int playground_run_tests(void)
 		ui_build_begin(ui, 1, LIT("root"), root_desc);
 		UI_BoxDesc list_desc = ui_defaults();
 		list_desc.gap = 8.f;
-		UI_Box *list = ui_box_make_virtual_list_desc(ui, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
+		UI_Box *list = ui_virtual_list_desc(ui, 1, LIT("list"), list_desc, (UI_VirtualListDesc) {
 			.item_count = 1000,
 			.build_item = playground_build_test_virtual_item,
 		});
@@ -1008,11 +1044,79 @@ static int playground_run_tests(void)
 		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 100.f) });
 		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
 		CHECK(playground_near(list->measured_size.y, 100.f) && playground_near(list->content_size.y, 49992.f), "a long virtual list clamps while preserving its full logical extent");
-		CHECK(list->child_count == 4 && list->virtual_list.first_item == 0 && list->virtual_list.one_past_item == 4, "a virtual list materializes only visible and overscan items");
+		CHECK(list->child_count == 4 && ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 0), 1)) && ui_id_equal(list->last->id, ui_id_child(ui_id_child(list->id, 3), 1)), "a virtual list materializes only visible and overscan items");
 		list->scroll_offset.y = 500.f;
 		ui_box_relayout(list);
-		CHECK(list->child_count == 6 && list->first->virtual_index == 8 && list->last->virtual_index == 13 && !list->first->prev && !list->last->next, "scrolling rematerializes a valid linked range of logical items");
-		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 8), 1)), "rematerialized virtual items retain deterministic IDs");
+		CHECK(list->child_count == 6 && !list->first->prev && !list->last->next, "scrolling rematerializes a valid linked range of logical items");
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 8), 1)) && ui_id_equal(list->last->id, ui_id_child(ui_id_child(list->id, 13), 1)), "rematerialized virtual items retain deterministic IDs");
+		list->scroll_offset.y = 100000.f;
+		ui_box_relayout(list);
+		CHECK(playground_near(list->scroll_offset.y, 49892.f) && ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 995), 1)) && ui_id_equal(list->last->id, ui_id_child(ui_id_child(list->id, 999), 1)), "a virtual list clamps and realizes its final items at the bottom boundary");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	ARENA_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		u32 build_count = 0;
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
+		UI_Box *list = ui_virtual_list(ui, 1, LIT("empty list"), (UI_VirtualListDesc) {
+			.user = &build_count,
+			.build_item = playground_build_counted_test_virtual_item,
+		});
+		ui_build_end(ui);
+		list->scroll_offset.y = 75.f;
+		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 100.f) });
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(!build_count && playground_near(list->content_size.y, 0.f), "an empty virtual list does not invoke its item builder or invent content");
+		CHECK(playground_near(list->scroll_max.y, 0.f) && playground_near(list->scroll_offset.y, 0.f), "an empty virtual list clamps stale scrolling to zero");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	ARENA_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 60) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
+		UI_BoxDesc list_desc = ui_defaults();
+		list_desc.axis = AXIS_X;
+		list_desc.gap = 5.f;
+		UI_Box *list = ui_virtual_list_desc(ui, 1, LIT("horizontal list"), list_desc, (UI_VirtualListDesc) {
+			.item_count = 10,
+			.build_item = playground_build_test_horizontal_virtual_item,
+		});
+		ui_build_end(ui);
+		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 60.f) });
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 60.f });
+		CHECK(playground_near(list->content_size.x, 345.f) && playground_near(list->first->rect.h, 60.f), "virtual-list extent and perpendicular fill work on the horizontal axis");
+		list->scroll_offset.x = 175.f;
+		ui_box_relayout(list);
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 3), 1)), "a horizontal virtual list rematerializes the current logical range");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	ARENA_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 60) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
+		UI_BoxDesc list_desc = ui_defaults();
+		list_desc.gap = 4.f;
+		UI_Box *list = ui_virtual_list_desc(ui, 1, LIT("margined list"), list_desc, (UI_VirtualListDesc) {
+			.item_count = 3,
+			.build_item = playground_build_test_margined_virtual_item,
+		});
+		ui_build_end(ui);
+		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 60.f) });
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 60.f });
+		CHECK(playground_near(list->content_size.y, 140.f) && playground_near(list->first->rect.y, 5.f) && playground_near(list->first->next->rect.y, 53.f), "virtual-list item extent includes margins exactly once");
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
 	}

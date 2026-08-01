@@ -290,7 +290,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 		return;
 	}
 
-	u16 pc = frame->publication->state.cpu.PC;
+	u16 pc = frame->publication->cpu.PC;
 	b32 hovered = rect_f32_contains(frame->rect, ui->mouse);
 	b32 control = !!(ui->window->keys[OS_Key_LeftControl] & OS_KEY_DOWN) || !!(ui->window->keys[OS_Key_RightControl] & OS_KEY_DOWN);
 	i32 wheel = ui->window->mouse_wheel.y;

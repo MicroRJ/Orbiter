@@ -7,14 +7,7 @@
 #include "execution_graph.h"
 
 typedef struct Debugger Debugger;
-
-typedef struct
-{
-	NES_CPUState cpu;
-	NES_PPUState ppu;
-	NES_APUState apu;
-}
-DebuggerState;
+struct NES_TargetPublication;
 
 enum
 {
@@ -45,10 +38,6 @@ void debugger_capture_snapshot(Debugger *debugger);
 b32 debugger_undo_snapshot(Debugger *debugger);
 b32 debugger_redo_snapshot(Debugger *debugger);
 
-DebuggerState debugger_capture_state(const Debugger *debugger);
-void debugger_capture_video(const Debugger *debugger, u8 *pixels, u32 stride);
-void debugger_capture_chr_map(Debugger *debugger, NES_CHRMap *map);
-
 const Program *debugger_program(const Debugger *debugger);
 const ExecutionGraph *debugger_execution_graph(const Debugger *debugger);
 
@@ -56,5 +45,7 @@ u32 debugger_cpu_peek(Debugger *debugger, u16 address, NES_MapAddr *mapped);
 u32 debugger_cpu_peek_word(Debugger *debugger, u16 address);
 NES_MapAddr debugger_cpu_map(Debugger *debugger, u16 address);
 NES_MapAddr debugger_cpu_mapping_chunk(const Debugger *debugger, u32 chunk);
+
+void debugger_publish_target(Debugger *debugger, struct NES_TargetPublication *publication);
 
 #endif

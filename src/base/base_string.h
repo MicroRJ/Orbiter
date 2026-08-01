@@ -4,7 +4,7 @@
 //
 
 typedef struct {
-	union { const char *text, *data; };
+	union { char *text, *data; };
 	u32         size;
 } String;
 

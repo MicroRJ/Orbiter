@@ -1,4 +1,5 @@
 #include "debugger_internal.h"
+#include "nes_target.h"
 
 void debugger_capture_snapshot(Debugger *debugger)
 {
@@ -353,26 +354,10 @@ void debugger_run_program_crawler(Debugger *debugger, u32 instruction_budget)
 	program_refine(debugger, instruction_budget);
 }
 
-DebuggerState debugger_capture_state(const Debugger *debugger)
+void debugger_publish_target(Debugger *debugger, NES_TargetPublication *publication)
 {
-	return (DebuggerState) {
-		.cpu = debugger->emulator.core.cpu,
-		.ppu = debugger->emulator.core.ppu,
-		.apu = debugger->emulator.core.apu,
-	};
-}
-
-void debugger_capture_video(const Debugger *debugger, u8 *pixels, u32 stride)
-{
-	Assert(pixels);
-	Assert(stride >= NES_VIDEO_WIDTH);
-	for (u32 y = 0; y < NES_VIDEO_HEIGHT; ++y) memory_copy(pixels + y * stride, debugger->emulator.video[y], NES_VIDEO_WIDTH);
-}
-
-void debugger_capture_chr_map(Debugger *debugger, NES_CHRMap *map)
-{
-	Assert(map);
-	nes_emulator_capture_chr_map(&debugger->emulator, map);
+	Assert(debugger);
+	nes_target_publish(publication, &debugger->emulator);
 }
 
 const Program *debugger_program(const Debugger *debugger)

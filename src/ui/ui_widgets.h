@@ -26,6 +26,21 @@ void ui_tooltip_end(UI_Context *ui);
 
 void ui_box_paint(UI_Box *box);
 
+typedef void UI_VirtualListBuildItem(UI_Context *ui, u32 item_index, void *user);
+
+typedef struct
+{
+	u32 item_count;
+	void *user;
+	UI_VirtualListBuildItem *build_item;
+}
+UI_VirtualListDesc;
+
+// The first item supplies the fixed extent along the list axis. The callback
+// must append exactly one item box, which may contain any box subtree.
+UI_Box *ui_virtual_list(UI_Context *ui, UI_Key key, String name, UI_VirtualListDesc list);
+UI_Box *ui_virtual_list_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc, UI_VirtualListDesc list);
+
 typedef struct
 {
 	UI_Context *ui;
