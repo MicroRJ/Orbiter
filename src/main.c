@@ -600,8 +600,8 @@ static void app_run_with_audio(void)
 
 		for (u32 i = 0; i < frame.samples; ++ i) samples[i] *= app.ppu_volume;
 		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
-		PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
-	}
+	PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
+}
 }
 
 static void app_drain_audio(void)
@@ -921,12 +921,29 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	UI_BoxDesc panel_host_desc = ui_defaults();
 	panel_host_desc.size[AXIS_X] = ui_grow(1.f);
 	panel_host_desc.size[AXIS_Y] = ui_grow(1.f);
-	ui_box_begin_desc(ui, 2, LIT("panel host"), panel_host_desc);
-
-	rect_f32 panel_rect = window_rect;
-	panel_rect.y += status_height;
-	panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
-	panels_build_ui(app.panels, app.os_window, frame, panel_rect);
+	ui_box_begin_desc(ui, 2, LIT("belly"), panel_host_desc);
+	{
+		if (debugger_has_cartridge(app.debugger))
+		{
+			rect_f32 panel_rect = window_rect;
+			panel_rect.y += status_height;
+			panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
+			panels_build_ui(app.panels, app.os_window, frame, panel_rect);
+		}
+		else
+		{
+			UI_TextStyle style = app.ui->theme.code;
+			style.color = app.ui->theme.palette.amber;
+			style.align.y = 0.5f;
+			style.align.x = 0.5f;
+			ui_push(ui);
+			ui_emission(ui, app.ui->theme.palette.emission_high * pulse);
+			ui_padd(ui, AXIS_X, 24.f, 24.f);
+			ui_padd(ui, AXIS_Y, 24.f, 24.f);
+			ui_text_box_string(ui, UI_KEY("no_cart"), style, LIT("Ctrl+O - Insert Cartridge"));
+			ui_pop(ui);
+		}
+	}
 	ui_box_end(ui);
 
 	app_status_bar_begin(ui, 3, LIT("bottom status"), status_height);
@@ -1024,6 +1041,7 @@ static void app_resize_graphics_outputs(vec2i size)
 
 // Render passes
 
+// TODO(RJ) we need to free intermediate textures!
 static GFX_Texture *app_acquire_pass_output(vec2i size, GFX_Sampler sampler, const char *label)
 {
 	return gfx_acquire_transient_texture(app.renderer, (GFX_TextureDesc) {

@@ -107,12 +107,12 @@ GFX_DrawData;
 
 GFX_Renderer *r_renderer_create(Arena *owner);
 void r_begin_frame(GFX_Renderer *renderer);
-GFX_Window *r_window_create(Arena *owner, GFX_Renderer *renderer, OS_Window *window);
+GFX_Window *gfx_create_window(Arena *owner, GFX_Renderer *renderer, OS_Window *window);
 GFX_Texture *r_get_window_output(GFX_Window *window);
 GFX_Texture *r_get_fallback_texture(GFX_Renderer *renderer);
 void r_resize_output_targets(GFX_Window *window, vec2i resolution);
 void r_clear_output(GFX_Renderer *renderer, GFX_Texture *output, Color_SRGBA color);
-void r_draw(GFX_Renderer *renderer, GFX_DrawData draw);
-void r_present(GFX_Window *window);
+void gfx_submit_draw(GFX_Renderer *renderer, GFX_DrawData draw);
+void gfx_present_window(GFX_Window *window);
 
 #endif

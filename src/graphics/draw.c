@@ -219,7 +219,7 @@ GFX_Renderer *gfx_renderer_create(Arena *owner)
 
 GFX_Window *gfx_window_create(Arena *owner, GFX_Renderer *renderer, OS_Window *window)
 {
-	return r_window_create(owner, renderer, window);
+	return gfx_create_window(owner, renderer, window);
 }
 
 GFX_Texture *gfx_window_texture(GFX_Window *window)
@@ -237,7 +237,7 @@ void gfx_window_resize(GFX_Window *window, vec2i size)
 void gfx_window_present(GFX_Window *window)
 {
 	Assert(window);
-	r_present(window);
+	gfx_present_window(window);
 }
 
 Draw_Context *draw_create(Arena *owner, GFX_Renderer *renderer)
@@ -354,7 +354,7 @@ void gfx_end_frame(Draw_Context *draw)
 	prof_add_metric(PROF_METRIC_DRAW_BATCH_SHADER, draw->batch_metrics.shader);
 	prof_add_metric(PROF_METRIC_DRAW_BATCH_TEXTURE_MODE, draw->batch_metrics.texture_mode);
 	prof_add_metric(PROF_METRIC_DRAW_BATCH_SHADER_BLOCK, draw->batch_metrics.shader_block);
-	PROF_BLOCK("renderer submit") r_draw(draw->renderer, data);
+	PROF_BLOCK("renderer submit") gfx_submit_draw(draw->renderer, data);
 	draw->frame_active = false;
 }
 

@@ -1,4 +1,5 @@
 cc ::= "clang-cl"
+orbiter_version ::= "0.1.0"
 
 warnings := {
 	"-Wfloat-conversion",
@@ -329,6 +330,47 @@ release_executable := {
 	dependencies = release_link_dependencies,
 }
 
+package_name := f"Orbiter-${orbiter_version}-windows-x64"
+package_stage := f"build/package/${package_name}"
+package_archive_name := f"${package_name}.zip"
+package_archive := f"dist/${package_archive_name}"
+package_checksum := f"dist/${package_name}.sha256"
+
+package_files := {
+	{ source = "build/release/Orbiter.exe", destination = "Orbiter.exe" },
+	{ source = "README.md", destination = "README.md" },
+	{ source = "LICENSE", destination = "LICENSE" },
+	{ source = "THIRD_PARTY_NOTICES.md", destination = "THIRD_PARTY_NOTICES.md" },
+	{ source = "data/default_debugger.cfg", destination = "data/default_debugger.cfg" },
+	{ source = "data/fonts/Saira/static/Saira-Medium.ttf", destination = "data/fonts/Saira/static/Saira-Medium.ttf" },
+	{ source = "src/fonts/ttf/freetype/FTL.TXT", destination = "licenses/FreeType-FTL.txt" },
+	{ source = "data/fonts/Saira/OFL.txt", destination = "licenses/Saira-OFL.txt" },
+	{ source = "licenses/MSF-GIF-MIT.txt", destination = "licenses/MSF-GIF-MIT.txt" },
+	{ source = "platform/LICENSE", destination = "licenses/platform-MIT.txt" },
+}
+
+package_fail := fun(message) {
+	elf.printl(f"[ FAIL ] ${message}")
+	elf.process.exit(1)
+}
+
+package_require := fun(condition, message) {
+	if condition == 0 ? {
+		package_fail(message)
+	}
+}
+
+package_run := fun(name, command_line) {
+	elf.printl(f"[ RUN  ] ${name}")
+	result := elf.process.run(command_line)
+	elf.print(result.stdout)
+	elf.print(result.stderr)
+	if result.success == 0 ? {
+		package_fail(name)
+	}
+	elf.printl(f"[ PASS ] ${name}")
+}
+
 entries := {}
 entries.build = fun() {
 	success := bob.build({targets=executable_tasks,workers=8})
@@ -366,6 +408,41 @@ entries.test = fun() {
 	elf.printl(f"Test suite failed: ${failures} of ${tests:length()} test executables failed")
 	elf.process.exit(1)
 	ret false
+}
+
+entries.package = fun() {
+	elf.printl(f"Packaging ${package_name}")
+
+	package_require(elf.fs.remove_tree("build/release"), "could not clean release directory")
+	success := bob.build({targets={release_executable},workers=8})
+	if success == 0 ? {
+		ret false
+	}
+
+	package_require(elf.fs.remove_tree(package_stage), "could not clean package staging directory")
+	package_require(elf.fs.create_directories(package_stage), "could not create package staging directory")
+
+	for package_file := package_files[...] ? {
+		package_require(elf.fs.file_exists(package_file.source), f"missing package input '${package_file.source}'")
+		destination := f"${package_stage}/${package_file.destination}"
+		package_require(elf.fs.create_directories(elf.path.parent(destination)), f"could not create directory for '${package_file.destination}'")
+		package_require(elf.fs.copy_file(package_file.source, destination), f"could not stage '${package_file.source}'")
+	}
+
+	package_require(elf.fs.create_directories("dist"), "could not create distribution directory")
+	package_require(elf.fs.remove_file(package_archive), "could not remove the previous package archive")
+	package_require(elf.fs.remove_file(package_checksum), "could not remove the previous package checksum")
+
+	zip_command := f"powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"& { $ErrorActionPreference = 'Stop'; Compress-Archive -LiteralPath '${package_stage}' -DestinationPath '${package_archive}' -CompressionLevel Optimal -Force }\""
+	package_run("create package archive", zip_command)
+
+	hash_command := f"powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"& { $ErrorActionPreference = 'Stop'; $archive = '${package_archive}'; $checksum = '${package_checksum}'; $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant(); $name = [IO.Path]::GetFileName($archive); $line = '{0}  {1}' -f $hash, $name; [IO.File]::WriteAllText($checksum, $line + [char]10, [Text.Encoding]::ASCII) }\""
+	package_run("write SHA-256 checksum", hash_command)
+
+	elf.printl("")
+	elf.printl(f"Package:  ${package_archive}")
+	elf.printl(f"Checksum: ${package_checksum}")
+	ret true
 }
 
 entries.release = fun() {

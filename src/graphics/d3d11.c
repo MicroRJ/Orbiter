@@ -90,26 +90,25 @@ enum {
 	VBUFFER_INITIAL_CAPACITY = MB(1),
 };
 
-typedef struct {
-	GFX_Texture    *output;
+typedef struct
+{
+	GFX_Texture         *output;
 	rect_i32           viewport;
-	GFX_Texture   *texture;
+	GFX_Texture        *texture;
 	rect_i32            scissor;
-	GFX_Sampler     sampler;
-	GFX_Blender           blender;
+	GFX_Sampler         sampler;
+	GFX_Blender         blender;
 	ID3D11PixelShader  *pshader;
-	ID3D11VertexShader *vshader;
 	ID3D11Buffer       *vbuffer;
-	ID3D11InputLayout  *ilayout;
-	u32                 vstride;
-} R_PipelineState;
+}
+D3D_Pipeline;
 
 struct GFX_Renderer {
 	Arena                    main_arena;
 	ID3D11InfoQueue         *info;
 	ID3D11Device            *device;
 	ID3D11DeviceContext     *context;
-	R_PipelineState          state;
+	D3D_Pipeline          state;
 	GFX_Texture        *fallback_texture;
 	D3D_Texture             *free_textures;
 	GFX_TransientTexture    *transient_textures;
@@ -121,11 +120,10 @@ struct GFX_Renderer {
 	ID3D11DepthStencilState *default_depth_stencil;
 	ID3D11Buffer            *cbuffer;
 
+	ID3D11VertexShader      *vshader;
+	ID3D11InputLayout       *ilayout;
 	ID3D11PixelShader       *pshaders[GFX_SHADER_COUNT];
-	ID3D11VertexShader      *vshaders[GFX_SHADER_COUNT];
-	u32                      vstrides[GFX_SHADER_COUNT];
 	ID3D11BlendState        *blenders[GFX_BLENDER_COUNT];
-	ID3D11InputLayout       *ilayouts[GFX_SHADER_COUNT];
 	ID3D11SamplerState      *samplers[GRAPHICS_SAMPLER_COUNT];
 };
 
@@ -197,19 +195,19 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 
 	g.main_arena = arena_create(0, "r main arena");
 
-	HRESULT hr;
 
-	i32 device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT |
-		D3D11_CREATE_DEVICE_SINGLETHREADED;
+	u32 device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_SINGLETHREADED;
+
 #if defined(_DEBUG)
 	device_flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
 
+	HRESULT hr;
 	{
 		D3D_FEATURE_LEVEL requires[] = {D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
 		hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, 0, device_flags
-		, requires, _countof(requires), D3D11_SDK_VERSION
+		, requires, ArrayCount(requires), D3D11_SDK_VERSION
 		, &g.device, NULL, &g.context);
 	}
 
@@ -220,7 +218,7 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		device_flags &= ~D3D11_CREATE_DEVICE_DEBUG;
 		D3D_FEATURE_LEVEL requires[] = {D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
 		hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, 0, device_flags
-		, requires, _countof(requires), D3D11_SDK_VERSION
+		, requires, ArrayCount(requires), D3D11_SDK_VERSION
 		, &g.device, NULL, &g.context);
 	}
 
@@ -229,7 +227,7 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		// renderer must provide the same feature level as the hardware path.
 		D3D_FEATURE_LEVEL requires[] = {D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
 		hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, 0, device_flags
-		, requires, _countof(requires), D3D11_SDK_VERSION
+		, requires, ArrayCount(requires), D3D11_SDK_VERSION
 		, &g.device, NULL, &g.context);
 	}
 
@@ -393,13 +391,13 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		};
 
 		hr = ID3D11Device_CreateInputLayout(g.device
-		, layout_desc, _countof(layout_desc), g_VS_Rect, sizeof(g_VS_Rect), &ilayout);
+		, layout_desc, ArrayCount(layout_desc), g_VS_Rect, sizeof(g_VS_Rect), &ilayout);
 		Assert(SUCCEEDED(hr));
 
+		g.vshader = vshader;
+		g.ilayout = ilayout;
+
 		g.pshaders[GFX_SHADER_SDF_RECT] = pshader;
-		g.vshaders[GFX_SHADER_SDF_RECT] = vshader;
-		g.ilayouts[GFX_SHADER_SDF_RECT] = ilayout;
-		g.vstrides[GFX_SHADER_SDF_RECT] = sizeof(GFX_RectInst);
 	}
 
 	// TEXT MASK SHADER
@@ -410,9 +408,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		Assert(SUCCEEDED(hr));
 
 		g.pshaders[GFX_SHADER_TEXT_MASK] = pshader;
-		g.vshaders[GFX_SHADER_TEXT_MASK] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_TEXT_MASK] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_TEXT_MASK] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 
 	// FINAL LINEAR-TO-SRGB BLIT
@@ -423,9 +418,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		Assert(SUCCEEDED(hr));
 
 		g.pshaders[GFX_SHADER_BLIT] = pshader;
-		g.vshaders[GFX_SHADER_BLIT] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_BLIT] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_BLIT] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 	// BARREL DISTORTION
 	{
@@ -435,9 +427,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		Assert(SUCCEEDED(hr));
 
 		g.pshaders[GFX_SHADER_BARREL] = pshader;
-		g.vshaders[GFX_SHADER_BARREL] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_BARREL] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_BARREL] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 	// SEPARABLE GAUSSIAN BLUR
 	{
@@ -445,9 +434,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		hr = ID3D11Device_CreatePixelShader(g.device, g_PS_Gaussian, sizeof(g_PS_Gaussian), NULL, &pshader);
 		Assert(SUCCEEDED(hr));
 		g.pshaders[GFX_SHADER_GAUSSIAN] = pshader;
-		g.vshaders[GFX_SHADER_GAUSSIAN] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_GAUSSIAN] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_GAUSSIAN] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 	// TEXTURE COPY
 	{
@@ -455,9 +441,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		hr = ID3D11Device_CreatePixelShader(g.device, g_PS_Copy, sizeof(g_PS_Copy), NULL, &pshader);
 		Assert(SUCCEEDED(hr));
 		g.pshaders[GFX_SHADER_COPY] = pshader;
-		g.vshaders[GFX_SHADER_COPY] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_COPY] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_COPY] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 	// BLURRED MATERIAL COMPOSITE
 	{
@@ -465,9 +448,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		hr = ID3D11Device_CreatePixelShader(g.device, g_PS_BlurMaterial, sizeof(g_PS_BlurMaterial), NULL, &pshader);
 		Assert(SUCCEEDED(hr));
 		g.pshaders[GFX_SHADER_BLUR_MATERIAL] = pshader;
-		g.vshaders[GFX_SHADER_BLUR_MATERIAL] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_BLUR_MATERIAL] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_BLUR_MATERIAL] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 	// #SHADER FROSTED GLASS COMPOSITE
 	{
@@ -475,9 +455,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		hr = ID3D11Device_CreatePixelShader(g.device, g_PS_Glass, sizeof(g_PS_Glass), NULL, &pshader);
 		Assert(SUCCEEDED(hr));
 		g.pshaders[GFX_SHADER_GLASS] = pshader;
-		g.vshaders[GFX_SHADER_GLASS] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_GLASS] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_GLASS] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 
 	// CRT SCANLINES AND MASK
@@ -486,9 +463,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		hr = ID3D11Device_CreatePixelShader(g.device, g_PS_CRTScanlines, sizeof(g_PS_CRTScanlines), NULL, &pshader);
 		Assert(SUCCEEDED(hr));
 		g.pshaders[GFX_SHADER_CRT_SCANLINES] = pshader;
-		g.vshaders[GFX_SHADER_CRT_SCANLINES] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_CRT_SCANLINES] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_CRT_SCANLINES] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 	// LUMINANCE EXTRACTION
 	{
@@ -496,9 +470,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		hr = ID3D11Device_CreatePixelShader(g.device, g_PS_Luminance, sizeof(g_PS_Luminance), NULL, &pshader);
 		Assert(SUCCEEDED(hr));
 		g.pshaders[GFX_SHADER_LUMINANCE] = pshader;
-		g.vshaders[GFX_SHADER_LUMINANCE] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_LUMINANCE] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_LUMINANCE] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 	// ANALOG REWIND
 	{
@@ -506,9 +477,6 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		hr = ID3D11Device_CreatePixelShader(g.device, g_PS_Rewind, sizeof(g_PS_Rewind), NULL, &pshader);
 		Assert(SUCCEEDED(hr));
 		g.pshaders[GFX_SHADER_REWIND] = pshader;
-		g.vshaders[GFX_SHADER_REWIND] = g.vshaders[GFX_SHADER_SDF_RECT];
-		g.ilayouts[GFX_SHADER_REWIND] = g.ilayouts[GFX_SHADER_SDF_RECT];
-		g.vstrides[GFX_SHADER_REWIND] = g.vstrides[GFX_SHADER_SDF_RECT];
 	}
 
 	// Todo, free this?
@@ -523,16 +491,23 @@ GFX_Renderer *r_renderer_create(Arena *owner) {
 		.label = "fallback texture",
 	});
 
-	// DEFAULT PIPELINE STATE
+	// INVARIANT PIPELINE STATE
 	ID3D11DeviceContext_OMSetDepthStencilState(g.context, 0, 0);
 	ID3D11DeviceContext_RSSetState(g.context, g.default_rasterizer);
 	ID3D11DeviceContext_VSSetConstantBuffers(g.context, 0, 1, &g.cbuffer);
 	ID3D11DeviceContext_PSSetConstantBuffers(g.context, 0, 1, &g.cbuffer);
 	ID3D11DeviceContext_IASetPrimitiveTopology(g.context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+	ID3D11DeviceContext_VSSetShader(g.context, g.vshader, 0, 0);
+	ID3D11DeviceContext_IASetInputLayout(g.context, g.ilayout);
+
+	u32 stride = sizeof(GFX_RectInst);
+	u32 offset = 0;
+	ID3D11DeviceContext_IASetVertexBuffers(g.context, 0, 1, &g.vbuffer, &stride, &offset);
 	return renderer;
 }
 
-GFX_Window *r_window_create(Arena *owner, GFX_Renderer *renderer, OS_Window *os_window)
+GFX_Window *gfx_create_window(Arena *owner, GFX_Renderer *renderer, OS_Window *os_window)
 {
 	Assert(owner);
 	Assert(renderer);
@@ -612,21 +587,17 @@ void r_clear_output(GFX_Renderer *renderer, GFX_Texture *output, Color_SRGBA col
 }
 
 // Clair De Lune 10/16/2025
-APIFUNC
-void r_present(GFX_Window *window) {
+void gfx_present_window(GFX_Window *window)
+{
 	GFX_Renderer *renderer = window->renderer;
 	IDXGISwapChain_Present(window->swapchain, 1u, 0);
-
 	// output target is unbound on present
 	g.state.output = 0;
 }
 
-static
-void r_update_pipeline(GFX_Renderer *renderer, R_PipelineState state) {
+static void update_pipeline_state(GFX_Renderer *renderer, D3D_Pipeline state) {
 	Assert(state.sampler != GRAPHICS_SAMPLER_NONE);
 	Assert(state.pshader != 0);
-	Assert(state.vshader != 0);
-	Assert(state.ilayout != 0);
 	Assert(state.texture);
 
 
@@ -662,11 +633,6 @@ void r_update_pipeline(GFX_Renderer *renderer, R_PipelineState state) {
 		ID3D11DeviceContext_RSSetScissorRects(g.context, 1, &rect);
 	}
 
-	if (g.state.vshader != state.vshader) {
-		ID3D11VertexShader *vshader = state.vshader;
-		ID3D11DeviceContext_VSSetShader(g.context, vshader, 0, 0);
-	}
-
 	if (g.state.pshader != state.pshader) {
 		ID3D11PixelShader *pshader = state.pshader;
 		ID3D11DeviceContext_PSSetShader(g.context, pshader, 0, 0);
@@ -684,21 +650,10 @@ void r_update_pipeline(GFX_Renderer *renderer, R_PipelineState state) {
 		ID3D11DeviceContext_PSSetSamplers(g.context, 0, 1, &sampler);
 	}
 
-	if (g.state.ilayout != state.ilayout) {
-		ID3D11DeviceContext_IASetInputLayout(g.context, state.ilayout);
-	}
-
-	if (g.state.vstride != state.vstride || g.state.vbuffer != state.vbuffer) {
-		u32 stride = state.vstride;
-		u32 offset = 0;
-		ID3D11DeviceContext_IASetVertexBuffers(g.context, 0, 1, &g.vbuffer, &stride, &offset);
-	}
-
 	g.state = state;
 }
 
-static
-void d3d_mapped_write_discard(GFX_Renderer *renderer, ID3D11Resource *resource, void *data, u32 size)
+static void d3d_mapped_write_discard(GFX_Renderer *renderer, ID3D11Resource *resource, void *data, u32 size)
 {
 	D3D11_MAPPED_SUBRESOURCE mapped;
 
@@ -710,18 +665,15 @@ void d3d_mapped_write_discard(GFX_Renderer *renderer, ID3D11Resource *resource, 
 	ID3D11DeviceContext_Unmap(g.context, resource, 0);
 }
 
-static
-ID3D11Resource *r_resource_from_d3d_buffer(ID3D11Buffer *buffer) {
+static ID3D11Resource *r_resource_from_d3d_buffer(ID3D11Buffer *buffer) {
 	return (ID3D11Resource *) buffer;
 }
 
-static
-ID3D11Resource *r_resource_from_d3d_texture(ID3D11Texture2D *texture) {
+static ID3D11Resource *r_resource_from_d3d_texture(ID3D11Texture2D *texture) {
 	return (ID3D11Resource *) texture;
 }
 
-APIFUNC
-void r_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
+void gfx_submit_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
 	Assert(draw.pass_count > 0);
 	if (draw.instances_size > 0)
 	{
@@ -744,7 +696,7 @@ void r_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
 		u32 length = draw.batches[i].instance_count;
 
 		{
-			R_PipelineState pipeline_state = {
+			D3D_Pipeline pipeline_state = {
 				.output   = pass->desc.output,
 				.texture  = desc.texture,
 				.viewport = pass->desc.viewport,
@@ -752,12 +704,9 @@ void r_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
 				.sampler  = desc.sampler,
 				.blender  = desc.blender,
 				.pshader  = g.pshaders[desc.shader],
-				.vshader  = g.vshaders[desc.shader],
-				.ilayout  = g.ilayouts[desc.shader],
-				.vstride  = g.vstrides[desc.shader],
 				.vbuffer  = g.vbuffer,
 			};
-			r_update_pipeline(renderer, pipeline_state);
+			update_pipeline_state(renderer, pipeline_state);
 		}
 		{
 			vec2 viewport_size = v2_from_v2i(pass->desc.viewport.size);
@@ -874,15 +823,13 @@ b32 gfx_read_texture(GFX_Texture *pub, void *data, u32 stride)
 	return true;
 }
 
-static
-GFX_Texture *d3d_new_texture(GFX_Renderer *renderer, GFX_TextureUsage usage, GFX_TextureBindFlags bind_flags, GFX_Format format, vec2i size, u32 stride, void *data)
+static GFX_Texture *d3d_new_texture(GFX_Renderer *renderer, GFX_TextureUsage usage, GFX_TextureBindFlags bind_flags, GFX_Format format, vec2i size, u32 stride, void *data)
 {
-	// Some drivers mishandle 1x1 shader-resource textures. Keep the minimum at
-	// 2x2 even though D3D11 nominally permits a one-pixel dimension.
+	// I've had problems with 1x1 textures in the past, some drivers seem to mishandle 1x1 shader-resource textures.
+	// Keep the minimum at 2x2 even though D3D11 nominally permits a one-pixel dimension.
 	Assert(size.x > 1 && size.x < (u16) ~0);
 	Assert(size.y > 1 && size.y < (u16) ~0);
-	Assert(usage == GRAPHICS_TEXTURE_USAGE_RARE_UPDATES ||
-		usage == GRAPHICS_TEXTURE_USAGE_PER_FRAME);
+	Assert(usage == GRAPHICS_TEXTURE_USAGE_RARE_UPDATES || usage == GRAPHICS_TEXTURE_USAGE_PER_FRAME);
 	Assert(bind_flags & (GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT));
 	Assert(usage != GRAPHICS_TEXTURE_USAGE_PER_FRAME || !(bind_flags & GFX_TEXTURE_BIND_OUTPUT));
 
@@ -1034,7 +981,6 @@ GFX_Texture *gfx_acquire_transient_texture(GFX_Renderer *renderer, GFX_TextureDe
 	return entry->texture;
 }
 
-APIFUNC
 void gfx_destroy_texture(GFX_Texture *pub)
 {
 	if (!pub) return;
