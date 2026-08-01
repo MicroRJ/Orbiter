@@ -250,7 +250,7 @@ void chr_map_view_build_ui(ViewFrameData *frame)
 	CHRMapBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
 	data->publication = frame->publication;
 	data->texture = frame->chr_texture;
-	data->available = frame->publication->valid && debugger_has_cartridge(frame->debugger);
+	data->available = frame->publication->valid && debugger_armed(frame->debugger);
 	if (data->available && content.content_box->has_previous) {
 		data->selection = chr_map_selection_from_mouse(frame->ui, frame->publication, chr_map_layout(content.content_box->state->viewport));
 	}

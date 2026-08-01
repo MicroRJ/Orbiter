@@ -132,7 +132,7 @@ static void program_view_content(ViewFrameData *frame)
 	main_rect.h += frame->header_height;
 	Arena *scratch = frame->scratch;
 	UI_TextStyle font = ui->theme.code;
-	if (!frame->publication->valid || !debugger_has_cartridge(debugger))
+	if (!frame->publication->valid || !debugger_armed(debugger))
 	{
 		ui_draw_text(ui, main_rect, font, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
@@ -303,7 +303,7 @@ void program_view_build_ui(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
 	String title = LIT("PROGRAM");
-	if (debugger_has_cartridge(debugger) && frame->publication->valid)
+	if (debugger_armed(debugger) && frame->publication->valid)
 	{
 		u16 cpu_address = frame->publication->state.cpu.PC;
 		NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);

@@ -1,6 +1,17 @@
 #include "ui_widgets.h"
 #include "views.h"
 
+const ViewDesc view_descs[] = {
+	{ "video",        OS_Key_1, video_view_build_ui },
+	{ "program",      OS_Key_2, program_view_build_ui },
+	{ "cpu",          OS_Key_3, cpu_view_build_ui },
+	{ "profiler",     OS_Key_4, profiler_view_build_ui },
+	{ "prg_activity", OS_Key_5, prg_activity_view_build_ui },
+	{ "chr_map",      OS_Key_6, chr_map_view_build_ui },
+};
+
+const u32 view_desc_count = ArrayCount(view_descs);
+
 ViewFrameData view_begin_frame(ViewFrameData *frame, String title)
 {
 	UI_Context *ui = frame->ui;
@@ -71,15 +82,7 @@ void view_build_ui(ViewFrameData *frame)
 {
 	Assert(frame);
 	Assert(frame->view);
-	switch (frame->view->kind)
-	{
-		case VIEW_VIDEO: video_view_build_ui(frame); break;
-		case VIEW_PROGRAM: program_view_build_ui(frame); break;
-		case VIEW_CPU: cpu_view_build_ui(frame); break;
-		case VIEW_PROFILER: profiler_view_build_ui(frame); break;
-		case VIEW_PRG_ACTIVITY: prg_activity_view_build_ui(frame); break;
-		case VIEW_CHR_MAP: chr_map_view_build_ui(frame); break;
-		case VIEW_NONE:
-		case VIEW_COUNT: Assert(false); break;
-	}
+	Assert(frame->view->desc);
+	Assert(frame->view->desc->build_ui);
+	frame->view->desc->build_ui(frame);
 }

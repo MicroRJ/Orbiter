@@ -20,9 +20,29 @@ global const char debugger_log_path[]     = "data/debugger.log";
 global const char debugger_program_path[] = "data/program.dump";
 global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
 
+// NOTE(RJ) eventually these could become scripts
 typedef enum
 {
 	APP_ACTION_NONE,
+	APP_ACTION_SPLIT_PANEL_HORIZONTALLY,
+	APP_ACTION_SPLIT_PANEL_VERTICALLY,
+	APP_ACTION_CLOSE_PANEL,
+	APP_ACTION_OPEN_VIEW_0,
+	APP_ACTION_OPEN_VIEW_1,
+	APP_ACTION_OPEN_VIEW_2,
+	APP_ACTION_OPEN_VIEW_3,
+	APP_ACTION_OPEN_VIEW_4,
+	APP_ACTION_OPEN_VIEW_5,
+	APP_ACTION_OPEN_VIEW_6,
+	APP_ACTION_OPEN_VIEW_7,
+	APP_ACTION_OPEN_VIEW_8,
+	APP_ACTION_OPEN_VIEW_9,
+	APP_ACTION_OPEN_VIEW_10,
+	APP_ACTION_OPEN_VIEW_11,
+	APP_ACTION_OPEN_VIEW_12,
+	APP_ACTION_OPEN_VIEW_13,
+	APP_ACTION_OPEN_VIEW_14,
+	APP_ACTION_OPEN_VIEW_15,
 
 	APP_ACTION_BEGIN_REWINDING_BACKWARDS,
 	APP_ACTION_BEGIN_REWINDING_FORWARD,
@@ -41,6 +61,10 @@ typedef enum
 	APP_ACTION_STEP,
 	APP_ACTION_TOGGLE_PPU_CAPTURE,
 	APP_ACTION_TOGGLE_APP_CAPTURE,
+	APP_ACTION_TOGGLE_CRT,
+	APP_ACTION_INCREASE_UI_FONT_SIZE,
+	APP_ACTION_DECREASE_UI_FONT_SIZE,
+	APP_ACTION_RESET_UI_FONT_SIZE,
 	APP_ACTION_MUTE,
 	APP_LOWER_VOLUME,
 	APP_RAISE_VOLUME,
@@ -55,7 +79,8 @@ AppInput;
 
 typedef enum
 {
-	APP_MODE_EMULATOR = 0,
+	APP_MODE_UNARMED = 0,
+	APP_MODE_EMULATOR,
 	APP_MODE_REWINDING,
 }
 AppMode;
@@ -86,13 +111,7 @@ typedef struct
 	Panels *panels;
 	Audio_Stream *audio;
 	u32 audio_backend_capacity;
-	u32 audio_min_queued_frames;
-	u64 audio_starved_frames;
-	u64 audio_backend_empty_events;
-	u64 audio_last_overrun_frames;
-	Seconds audio_stats_begin;
 	b32 audio_backend_available;
-	b32 audio_backend_was_empty;
 	String last_rom_path;
 
 	b32 exclusive_ppu_mode;
@@ -106,7 +125,7 @@ typedef struct
 }
 App;
 
-global App app = { APP_MODE_EMULATOR };
+global App app = { };
 global FILE *debugger_log_file;
 
 static String app_read_file(Arena *arena, const char *path)
@@ -214,7 +233,7 @@ static void app_clear_debugger_input(void)
 
 static b32 app_save_state(void)
 {
-	if (!debugger_has_cartridge(app.debugger))
+	if (!debugger_armed(app.debugger))
 	{
 		LOG_WARN("cannot save emulator state without a loaded cartridge");
 		return false;
@@ -270,6 +289,7 @@ static b32 app_open_rom_path(String path)
 		{
 			LOG_INFO("open file: %s", path.text);
 			success = debugger_open_rom(app.debugger, byte_span((void *)rom.data, rom.size));
+			app.mode = APP_MODE_EMULATOR;
 			if (success) {
 				app_discard_audio();
 				if (!string_match(app.last_rom_path, path)) app.last_rom_path = push_string_copy(&app.arena, path);
@@ -381,8 +401,34 @@ KeyBind;
 
 static const KeyBind app_emulator_mode_key_binds[] =
 {
-	{APP_LOWER_VOLUME, {KEY_CHORD_ON_PRESSED, OS_Key_Down , OS_MODIFIER_CONTROL}},
-	{APP_RAISE_VOLUME, {KEY_CHORD_ON_PRESSED, OS_Key_Up   , OS_MODIFIER_CONTROL}},
+	{APP_LOWER_VOLUME                    , {KEY_CHORD_ON_PRESSED, OS_Key_Down , OS_MODIFIER_CONTROL}},
+	{APP_RAISE_VOLUME                    , {KEY_CHORD_ON_PRESSED, OS_Key_Up   , OS_MODIFIER_CONTROL}},
+
+	{APP_ACTION_SPLIT_PANEL_HORIZONTALLY , {KEY_CHORD_ON_RELEASE, OS_Key_H, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_SPLIT_PANEL_VERTICALLY   , {KEY_CHORD_ON_RELEASE, OS_Key_V, OS_MODIFIER_CONTROL}},
+	{APP_ACTION_CLOSE_PANEL              , {KEY_CHORD_ON_RELEASE, OS_Key_Q, OS_MODIFIER_CONTROL}},
+	// NO CTRL ALTERNATE
+	{APP_ACTION_SPLIT_PANEL_HORIZONTALLY , {KEY_CHORD_ON_RELEASE, OS_Key_H}},
+	{APP_ACTION_SPLIT_PANEL_VERTICALLY   , {KEY_CHORD_ON_RELEASE, OS_Key_V}},
+	{APP_ACTION_CLOSE_PANEL              , {KEY_CHORD_ON_RELEASE, OS_Key_Q}},
+
+	{APP_ACTION_OPEN_VIEW_0 , {KEY_CHORD_ON_RELEASE, OS_Key_1                      }},
+	{APP_ACTION_OPEN_VIEW_1 , {KEY_CHORD_ON_RELEASE, OS_Key_2                      }},
+	{APP_ACTION_OPEN_VIEW_2 , {KEY_CHORD_ON_RELEASE, OS_Key_3                      }},
+	{APP_ACTION_OPEN_VIEW_3 , {KEY_CHORD_ON_RELEASE, OS_Key_4                      }},
+	{APP_ACTION_OPEN_VIEW_4 , {KEY_CHORD_ON_RELEASE, OS_Key_5                      }},
+	{APP_ACTION_OPEN_VIEW_5 , {KEY_CHORD_ON_RELEASE, OS_Key_6                      }},
+	{APP_ACTION_OPEN_VIEW_6 , {KEY_CHORD_ON_RELEASE, OS_Key_7                      }},
+	{APP_ACTION_OPEN_VIEW_7 , {KEY_CHORD_ON_RELEASE, OS_Key_8                      }},
+	{APP_ACTION_OPEN_VIEW_8 , {KEY_CHORD_ON_RELEASE, OS_Key_9                      }},
+	{APP_ACTION_OPEN_VIEW_9 , {KEY_CHORD_ON_RELEASE, OS_Key_0                      }},
+	{APP_ACTION_OPEN_VIEW_10, {KEY_CHORD_ON_RELEASE, OS_Key_1, OS_MODIFIER_CONTROL }},
+	{APP_ACTION_OPEN_VIEW_11, {KEY_CHORD_ON_RELEASE, OS_Key_2, OS_MODIFIER_CONTROL }},
+	{APP_ACTION_OPEN_VIEW_12, {KEY_CHORD_ON_RELEASE, OS_Key_3, OS_MODIFIER_CONTROL }},
+	{APP_ACTION_OPEN_VIEW_13, {KEY_CHORD_ON_RELEASE, OS_Key_4, OS_MODIFIER_CONTROL }},
+	{APP_ACTION_OPEN_VIEW_14, {KEY_CHORD_ON_RELEASE, OS_Key_5, OS_MODIFIER_CONTROL }},
+	{APP_ACTION_OPEN_VIEW_15, {KEY_CHORD_ON_RELEASE, OS_Key_6, OS_MODIFIER_CONTROL }},
+
 	{APP_ACTION_BEGIN_REWINDING_BACKWARDS , {KEY_CHORD_ON_PRESSED, OS_Key_Left , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_BEGIN_REWINDING_FORWARD   , {KEY_CHORD_ON_PRESSED, OS_Key_Right, OS_MODIFIER_CONTROL}},
 	{APP_ACTION_OPEN_ROM                  , {KEY_CHORD_ON_RELEASE, OS_Key_O    , OS_MODIFIER_CONTROL}},
@@ -390,12 +436,18 @@ static const KeyBind app_emulator_mode_key_binds[] =
 	{APP_ACTION_SAVE_STATE                , {KEY_CHORD_ON_RELEASE, OS_Key_S    , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_RESTORE_STATE             , {KEY_CHORD_ON_RELEASE, OS_Key_L    , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_DUMP_PROGRAM              , {KEY_CHORD_ON_RELEASE, OS_Key_K    , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_INCREASE_UI_FONT_SIZE      , {KEY_CHORD_ON_RELEASE, OS_Key_Equal       , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_INCREASE_UI_FONT_SIZE      , {KEY_CHORD_ON_RELEASE, OS_Key_NumPadPlus  , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_DECREASE_UI_FONT_SIZE      , {KEY_CHORD_ON_RELEASE, OS_Key_Minus       , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_DECREASE_UI_FONT_SIZE      , {KEY_CHORD_ON_RELEASE, OS_Key_NumPadMinus , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_RESET_UI_FONT_SIZE         , {KEY_CHORD_ON_RELEASE, OS_Key_0           , OS_MODIFIER_CONTROL}},
 	{APP_ACTION_MUTE                      , {KEY_CHORD_ON_RELEASE, OS_Key_M    , }},
 	{APP_ACTION_TOGGLE_PPU_FULLSCREEN     , {KEY_CHORD_ON_RELEASE, OS_Key_F    , }},
 	{APP_ACTION_EXIT_PPU_FULLSCREEN       , {KEY_CHORD_ON_RELEASE, OS_Key_Esc  , }},
 	{APP_ACTION_TOGGLE_FULLSCREEN         , {KEY_CHORD_ON_RELEASE, OS_Key_F11  , }},
 	{APP_ACTION_TOGGLE_FULLSCREEN         , {KEY_CHORD_ON_RELEASE, OS_Key_Enter, OS_MODIFIER_ALT }},
 	{APP_ACTION_TOGGLE_RUNNING            , {KEY_CHORD_ON_RELEASE, OS_Key_F5   , }},
+	{APP_ACTION_TOGGLE_CRT                , {KEY_CHORD_ON_RELEASE, OS_Key_F7   , }},
 	{APP_ACTION_TOGGLE_PPU_CAPTURE        , {KEY_CHORD_ON_RELEASE, OS_Key_F8   , }},
 	{APP_ACTION_TOGGLE_APP_CAPTURE        , {KEY_CHORD_ON_RELEASE, OS_Key_F9   , }},
 	{APP_ACTION_STEP                      , {KEY_CHORD_ON_RELEASE, OS_Key_F10  , }},
@@ -458,6 +510,50 @@ static b32 app_handle_input(AppInput input)
 		{
 			handled = true;
 		} break;
+
+		case APP_ACTION_SPLIT_PANEL_HORIZONTALLY:
+		{
+			LOG_DEBUG("split panel horizontally");
+			Assert(app.panels->focused);
+			panel_split(app.panels, app.panels->focused, AXIS_X, 0.5f);
+		}
+		break;
+		case APP_ACTION_SPLIT_PANEL_VERTICALLY:
+		{
+			LOG_DEBUG("split panel vertically");
+			Assert(app.panels->focused);
+			panel_split(app.panels, app.panels->focused, AXIS_Y, 0.5f);
+		}
+		break;
+		case APP_ACTION_CLOSE_PANEL:
+		{
+			Assert(app.panels->focused);
+			panel_close(app.panels, app.panels->focused);
+		}
+		break;
+		case APP_ACTION_OPEN_VIEW_0:
+		case APP_ACTION_OPEN_VIEW_1:
+		case APP_ACTION_OPEN_VIEW_2:
+		case APP_ACTION_OPEN_VIEW_3:
+		case APP_ACTION_OPEN_VIEW_4:
+		case APP_ACTION_OPEN_VIEW_5:
+		case APP_ACTION_OPEN_VIEW_6:
+		case APP_ACTION_OPEN_VIEW_7:
+		case APP_ACTION_OPEN_VIEW_8:
+		case APP_ACTION_OPEN_VIEW_9:
+		case APP_ACTION_OPEN_VIEW_10:
+		case APP_ACTION_OPEN_VIEW_11:
+		case APP_ACTION_OPEN_VIEW_12:
+		case APP_ACTION_OPEN_VIEW_13:
+		case APP_ACTION_OPEN_VIEW_14:
+		case APP_ACTION_OPEN_VIEW_15:
+		{
+			if (input.action - APP_ACTION_OPEN_VIEW_0 < view_desc_count) {
+				const ViewDesc *desc = &view_descs[input.action - APP_ACTION_OPEN_VIEW_0];
+				panel_open_view(app.panels, app.panels->focused, desc);
+			}
+		}
+		break;
 		case APP_ACTION_OPEN_ROM: app_open_rom(); break;
 		case APP_ACTION_RESET:
 		{
@@ -491,6 +587,26 @@ static b32 app_handle_input(AppInput input)
 		{
 			if (app.app_gif.recording) gif_recorder_end(&app.app_gif);
 			else if (!gif_recorder_begin(&app.app_gif, app.os_window->size, "orbiter_capture")) LOG_ERROR("failed to begin application GIF capture");
+			handled = true;
+		} break;
+		case APP_ACTION_TOGGLE_CRT:
+		{
+			app.crt_enabled = !app.crt_enabled;
+			handled = true;
+		} break;
+		case APP_ACTION_INCREASE_UI_FONT_SIZE:
+		case APP_ACTION_DECREASE_UI_FONT_SIZE:
+		case APP_ACTION_RESET_UI_FONT_SIZE:
+		{
+			i32 font_size = app.ui->theme.code.size;
+			if (input.action == APP_ACTION_INCREASE_UI_FONT_SIZE) font_size = Min(font_size + 1, UI_CODE_FONT_SIZE_MAX);
+			else if (input.action == APP_ACTION_DECREASE_UI_FONT_SIZE) font_size = Max(font_size - 1, UI_CODE_FONT_SIZE_MIN);
+			else font_size = UI_CODE_FONT_SIZE_DEFAULT;
+			if (font_size != app.ui->theme.code.size)
+			{
+				app.ui->theme.code.size = font_size;
+				LOG_INFO("UI font size %d px", font_size);
+			}
 			handled = true;
 		} break;
 		case APP_ACTION_MUTE:
@@ -566,7 +682,7 @@ static b32 app_handle_input(AppInput input)
 	return handled;
 }
 
-static void app_run_with_audio(void)
+static void app_run_frame(void)
 {
 	u64 sample_capacity = nes_required_sample_capacity();
 	if (!app.audio_backend_available)
@@ -598,10 +714,12 @@ static void app_run_with_audio(void)
 			return;
 		}
 
-		for (u32 i = 0; i < frame.samples; ++ i) samples[i] *= app.ppu_volume;
+		for (u32 i = 0; i < frame.samples; ++ i) {
+			samples[i] *= app.ppu_volume;
+		}
 		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
-	PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
-}
+		PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
+	}
 }
 
 static void app_drain_audio(void)
@@ -609,17 +727,6 @@ static void app_drain_audio(void)
 	if (!app.audio_backend_available) return;
 	u32 writable = os_audio_writable_frames();
 	u32 queued = audio_stream_queued_frames(app.audio);
-	app.audio_min_queued_frames = Min(app.audio_min_queued_frames, queued);
-	if (app.emulator_running && writable == app.audio_backend_capacity)
-	{
-		if (!app.audio_backend_was_empty) app.audio_backend_empty_events += 1;
-		app.audio_backend_was_empty = true;
-	}
-	else
-	{
-		app.audio_backend_was_empty = false;
-	}
-	if (app.emulator_running && writable > queued) app.audio_starved_frames += writable - queued;
 
 	while (writable)
 	{
@@ -638,29 +745,6 @@ static void app_drain_audio(void)
 		audio_stream_consume(app.audio, written);
 		if (!written) break;
 		writable -= written;
-	}
-
-	u64 overruns = audio_stream_overrun_frames(app.audio);
-	u64 overrun_frames = overruns - app.audio_last_overrun_frames;
-	Seconds now = seconds_now();
-	if (now.seconds - app.audio_stats_begin.seconds >= 1.0)
-	{
-		if (app.audio_backend_empty_events || app.audio_starved_frames || overrun_frames)
-		{
-			LOG_WARN("audio continuity: queued minimum %u/%u frames, backend empty %llu times, producer short %llu frames, overruns %llu frames",
-			app.audio_min_queued_frames, audio_stream_capacity_frames(app.audio), app.audio_backend_empty_events,
-			app.audio_starved_frames, overrun_frames);
-		}
-		else
-		{
-			//	LOG_DEBUG("audio continuity: queued minimum %u/%u frames, no starvation or overruns",
-			//		app.audio_min_queued_frames, audio_stream_capacity_frames(app.audio));
-		}
-		app.audio_min_queued_frames = MAX_VALUE_U32;
-		app.audio_starved_frames = 0;
-		app.audio_backend_empty_events = 0;
-		app.audio_last_overrun_frames = overruns;
-		app.audio_stats_begin = now;
 	}
 }
 
@@ -695,7 +779,7 @@ static void app_upload_chr_texture(void)
 
 static void app_publish(void)
 {
-	Assert(debugger_has_cartridge(app.debugger));
+	Assert(debugger_armed(app.debugger));
 	PROF_BLOCK("publish NES target") nes_target_publish(&app.published, app.debugger);
 	PROF_BLOCK("upload video texture") app_upload_video_texture();
 	PROF_BLOCK("upload CHR texture") app_upload_chr_texture();
@@ -725,29 +809,6 @@ static void app_update_fps(void)
 		}
 	}
 	app.previous_draw_time = now;
-}
-
-// Todo, remove this entirely!
-static void app_handle_window_commands(void)
-{
-	for (u32 index = 0; index < os_window_event_count(app.os_window); ++index)
-	{
-		const OS_Event *event = os_window_event(app.os_window, index);
-		if (event->type != OS_EVENT_KEY_RELEASE) continue;
-		if (event->modifiers & OS_MODIFIER_CONTROL)
-		{
-			i32 font_size = app.ui->theme.code.size;
-			if (event->key == OS_Key_Equal || event->key == OS_Key_NumPadPlus) font_size = Min(font_size + 1, UI_CODE_FONT_SIZE_MAX);
-			else if (event->key == OS_Key_Minus || event->key == OS_Key_NumPadMinus) font_size = Max(font_size - 1, UI_CODE_FONT_SIZE_MIN);
-			else if (event->key == OS_Key_0) font_size = UI_CODE_FONT_SIZE_DEFAULT;
-			if (font_size != app.ui->theme.code.size)
-			{
-				app.ui->theme.code.size = font_size;
-				LOG_INFO("UI font size %d px", font_size);
-			}
-		}
-		if (event->key == OS_Key_F7) app.crt_enabled = !app.crt_enabled;
-	}
 }
 
 static UI_Box *app_status_text(UI_Context *ui, u64 key, String text, UI_TextStyle style, f32 emission)
@@ -836,7 +897,12 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 
 	f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
 
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1)
+	if (app.mode == APP_MODE_UNARMED)
+	{
+		style.color = app.ui->theme.palette.amber;
+		app_status_text(app.ui, 3, LIT("* INSERT CARTRIDGE *"), style, app.ui->theme.palette.emission_high * pulse);
+	}
+	else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1)
 	{
 		style.color = app.ui->theme.palette.error;
 		app_status_text(app.ui, 3, LIT("<< REWINDING"), style, app.ui->theme.palette.emission_high * pulse);
@@ -923,7 +989,7 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	panel_host_desc.size[AXIS_Y] = ui_grow(1.f);
 	ui_box_begin_desc(ui, 2, LIT("belly"), panel_host_desc);
 	{
-		if (debugger_has_cartridge(app.debugger))
+		if (debugger_armed(app.debugger))
 		{
 			rect_f32 panel_rect = window_rect;
 			panel_rect.y += status_height;
@@ -1146,7 +1212,6 @@ static void app_draw(void)
 	gfx_begin_frame(app.draw);
 	ui_begin_frame(app.ui);
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
-	app_handle_window_commands();
 
 	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) {
 		for(u32 i=0;i<4;++i) if(debugger_undo_snapshot(app.debugger)) {
@@ -1205,12 +1270,10 @@ static void app_frame(void)
 			// TODO(RJ) remove app debugger orchestration from the app itself, this
 			// is order sensitive, should be done by the debugger itself in one atomic
 			// step and the app just passes in options.
-			if (debugger_has_cartridge(app.debugger))
+			if (debugger_armed(app.debugger))
 			{
 				if (app.mode == APP_MODE_EMULATOR)
 				{
-					PROF_BLOCK("snapshot") debugger_capture_snapshot(app.debugger);
-
 					app_clear_debugger_input();
 					if (!app_consumed_input) app_update_debugger_input();
 
@@ -1219,18 +1282,18 @@ static void app_frame(void)
 						PROF_BLOCK("emulation step") debugger_step(app.debugger);
 					}
 					else if (app.emulator_running) {
-						PROF_BLOCK("emulation") app_run_with_audio();
+						PROF_BLOCK("emulation") app_run_frame();
 					}
 				}
 				PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
 				PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
 				PROF_BLOCK("drain audio")        app_drain_audio();
 				PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
-				PROF_BLOCK("application")        app_publish();
+				PROF_BLOCK("app publish")        app_publish();
 			}
 
-			PROF_BLOCK("application draw")   app_draw();
-			PROF_BLOCK("frame pacing")       app_pace_frame();
+			PROF_BLOCK("app draw")    app_draw();
+			PROF_BLOCK("pace frame")  app_pace_frame();
 		}
 		prof_close_frame();
 	}
@@ -1266,14 +1329,12 @@ static void app_init(void)
 		};
 		LOG_WARN("audio output is unavailable; emulation will continue without sound");
 	}
+	app.audio_backend_capacity = audio_info.buffer_frame_count;
 	u32 audio_capacity = Max(audio_info.buffer_frame_count * 4,
 	Max(audio_info.sample_rate / 10, 1));
 	app.audio = audio_stream_create(&app.arena, (Audio_StreamDesc) {
 		.frame_capacity = audio_capacity,
 	});
-	app.audio_backend_capacity = audio_info.buffer_frame_count;
-	app.audio_min_queued_frames = MAX_VALUE_U32;
-	app.audio_stats_begin = seconds_now();
 
 	// Font_Handle code_font = ttf_load(app_read_file(&app.arena, "data/fonts/IBMPlexMono-Medium.ttf"));
 	ttf_init_api();
@@ -1300,7 +1361,6 @@ static void app_init(void)
 	app.ui = ui_create(&app.arena, app.os_window, app.text, app.draw, theme);
 	app.panels = panels_create(&app.arena);
 	app.crt_enabled = true;
-	app.debugger = debugger_create(&app.arena);
 	// CPU-uploaded source textures persist; render pass outputs are transient.
 	app.video_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
 		.usage = GRAPHICS_TEXTURE_USAGE_PER_FRAME,
@@ -1318,17 +1378,28 @@ static void app_init(void)
 		.sampler = GRAPHICS_SAMPLER_POINT,
 		.label = "NES CHR map",
 	});
+
+	app.debugger = debugger_create(&app.arena);
+
+	// TODO(RJ) wtf is this even doing, the state already contains the entire cartridge ...
 	app_load_config();
-	if (debugger_has_cartridge(app.debugger)) {
+	if (debugger_armed(app.debugger)) {
 		app_restore_state();
 	}
-	if (debugger_has_cartridge(app.debugger)) app_publish();
+
+	if (debugger_armed(app.debugger)) {
+		app.mode = APP_MODE_EMULATOR;
+
+		// TODO(RJ) why do we do this here, the loop should just publish once the emulator runs and before the views draw
+		app_publish();
+	}
+
 	app.frame_begin = seconds_now();
 }
 
 static void app_shutdown(void)
 {
-	if (debugger_has_cartridge(app.debugger)) {
+	if (debugger_armed(app.debugger)) {
 		app_save_state();
 	}
 	app_save_config();

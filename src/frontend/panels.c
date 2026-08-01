@@ -13,16 +13,6 @@ struct PanelViewAllocation
 	DF_PanelViewData view;
 };
 
-static const char *view_type_names[VIEW_COUNT] = {
-	[VIEW_NONE] = "none",
-	[VIEW_VIDEO] = "video",
-	[VIEW_PROGRAM] = "program",
-	[VIEW_CPU] = "cpu",
-	[VIEW_PROFILER] = "profiler",
-	[VIEW_PRG_ACTIVITY] = "prg_activity",
-	[VIEW_CHR_MAP] = "chr_map",
-};
-
 static UI_Id panel_ui_id(const Panel *panel, u64 key)
 {
 	UI_Id namespace = ui_id_child(UI_ID_NONE, UI_KEY("panels"));
@@ -54,8 +44,10 @@ Panel *panel_new(Panels *panels, Panel *parent, PanelType kind)
 	return panel;
 }
 
-static DF_PanelViewData *panel_view_new(Panels *panels, ViewType kind)
+static DF_PanelViewData *panel_view_new(Panels *panels, const ViewDesc *desc)
 {
+	Assert(desc);
+	Assert(desc->build_ui);
 	PanelViewAllocation *allocation = panels->free_views;
 	if (allocation) {
 		panels->free_views = allocation->next_free;
@@ -64,7 +56,7 @@ static DF_PanelViewData *panel_view_new(Panels *panels, ViewType kind)
 	}
 	memory_zero(allocation, sizeof(*allocation));
 	allocation->view.id = ++panels->next_view_id;
-	allocation->view.kind = kind;
+	allocation->view.desc = desc;
 	return &allocation->view;
 }
 
@@ -98,8 +90,7 @@ static void panel_free_tree(Panels *panels, Panel *panel)
 	panel_free(panels, panel);
 }
 
-static
-Panel *panel_first_leaf(Panel *panel)
+static Panel *panel_first_leaf(Panel *panel)
 {
 	while (panel && panel->kind == PANEL_SPLIT)
 	{
@@ -108,21 +99,20 @@ Panel *panel_first_leaf(Panel *panel)
 	return panel;
 }
 
-static
-void panel_open_view(Panels *panels, Panel *panel, ViewType kind)
+void panel_open_view(Panels *panels, Panel *panel, const ViewDesc *desc)
 {
 	Assert(panel);
 	Assert(panel->kind != PANEL_SPLIT);
-	Assert(kind > VIEW_NONE && kind < VIEW_COUNT);
+	Assert(desc);
+	Assert(desc->build_ui);
 
 	panel_view_free(panels, panel->view);
 	panel->left = 0;
 	panel->right = 0;
-	panel->view = panel_view_new(panels, kind);
+	panel->view = panel_view_new(panels, desc);
 	panel->kind = PANEL_VIEW;
 }
 
-static
 void panel_split(Panels *panels, Panel *panel, AXIS axis, f32 ratio)
 {
 	Assert(panel);
@@ -149,7 +139,6 @@ void panel_split(Panels *panels, Panel *panel, AXIS axis, f32 ratio)
 	panels->focused = second;
 }
 
-static
 void panel_close(Panels *panels, Panel *panel)
 {
 	Assert(panel);
@@ -209,7 +198,7 @@ static void panel_save_layout(Panel *panel, Arena *arena)
 	switch (panel->kind)
 	{
 		case PANEL_EMPTY: layout_push_formatted(arena, "empty\n"); break;
-		case PANEL_VIEW: layout_push_formatted(arena, "view %s\n", view_type_names[panel->view->kind]); break;
+		case PANEL_VIEW: layout_push_formatted(arena, "view %s\n", panel->view->desc->name); break;
 		case PANEL_SPLIT:
 		{
 			layout_push_formatted(arena, "split %c %.6f\n", panel->axis == AXIS_X ? 'x' : 'y', panel->ratio);
@@ -243,16 +232,17 @@ static String layout_read_line(LayoutParser *parser)
 	return string_from_data(begin, (u32)(end - begin));
 }
 
-static ViewType layout_parse_view_type(String name)
+static const ViewDesc *layout_parse_view_desc(String name)
 {
-	for (ViewType type = VIEW_VIDEO; type < VIEW_COUNT; ++type)
+	for (u32 i = 0; i < view_desc_count; ++i)
 	{
-		u32 size = (u32)strlen(view_type_names[type]);
-		if (name.size == size && memory_match(name.text, view_type_names[type], size)) {
-			return type;
+		const ViewDesc *desc = &view_descs[i];
+		u32 size = (u32)strlen(desc->name);
+		if (name.size == size && memory_match(name.text, desc->name, size)) {
+			return desc;
 		}
 	}
-	return VIEW_NONE;
+	return 0;
 }
 
 static Panel *panel_restore_layout(Panels *panels, Panel *parent, LayoutParser *parser)
@@ -266,12 +256,12 @@ static Panel *panel_restore_layout(Panels *panels, Panel *parent, LayoutParser *
 	}
 	if (line.size > 5 && memory_match(line.text, "view ", 5))
 	{
-		ViewType type = layout_parse_view_type(string_slice(line, 5, line.size - 5));
-		if (type == VIEW_NONE) {
+		const ViewDesc *desc = layout_parse_view_desc(string_slice(line, 5, line.size - 5));
+		if (!desc) {
 			return 0;
 		}
 		Panel *panel = panel_new(panels, parent, PANEL_EMPTY);
-		panel_open_view(panels, panel, type);
+		panel_open_view(panels, panel, desc);
 		return panel;
 	}
 	if (line.size > 8 && memory_match(line.text, "split ", 6))
@@ -321,54 +311,6 @@ b32 panels_restore_layout(Panels *panels, String text)
 	panels->root = root;
 	panels->focused = panel_first_leaf(root);
 	return true;
-}
-
-static void panels_handle_commands(Panels *panels, OS_Window *window)
-{
-	OS_KeyState *keys = window->keys;
-	Panel *panel = panels->focused;
-	if (!panel || panel->kind == PANEL_SPLIT) return;
-
-	if (keys[OS_Key_1] & OS_KEY_RELEASED)
-	{
-		panel_open_view(panels, panel, VIEW_VIDEO);
-	}
-	if (keys[OS_Key_2] & OS_KEY_RELEASED)
-	{
-		panel_open_view(panels, panel, VIEW_PROGRAM);
-	}
-	if (keys[OS_Key_3] & OS_KEY_RELEASED)
-	{
-		panel_open_view(panels, panel, VIEW_CPU);
-	}
-	if (keys[OS_Key_4] & OS_KEY_RELEASED)
-	{
-		panel_open_view(panels, panel, VIEW_PROFILER);
-	}
-	if (keys[OS_Key_5] & OS_KEY_RELEASED)
-	{
-		panel_open_view(panels, panel, VIEW_PRG_ACTIVITY);
-	}
-	if (keys[OS_Key_6] & OS_KEY_RELEASED)
-	{
-		panel_open_view(panels, panel, VIEW_CHR_MAP);
-	}
-
-	if (keys[OS_Key_LeftControl] & OS_KEY_DOWN)
-	{
-		if (keys[OS_Key_V] & OS_KEY_RELEASED)
-		{
-			panel_split(panels, panel, AXIS_Y, 0.5f);
-		}
-		else if (keys[OS_Key_H] & OS_KEY_RELEASED)
-		{
-			panel_split(panels, panel, AXIS_X, 0.5f);
-		}
-		else if (keys[OS_Key_Q] & OS_KEY_RELEASED)
-		{
-			panel_close(panels, panel);
-		}
-	}
 }
 
 static
@@ -503,7 +445,6 @@ UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame,
 	Assert(panels);
 	Assert(window);
 	Assert(frame);
-	panels_handle_commands(panels, window);
 	panel_update_interaction(panels, window, frame->ui, panels->root, rect);
 
 	UI_BoxDesc desc = ui_defaults();

@@ -136,7 +136,7 @@ void nes_target_publish(NES_TargetSnapshot *snapshot, Debugger *debugger)
 {
 	Assert(snapshot);
 	Assert(debugger);
-	Assert(debugger_has_cartridge(debugger));
+	Assert(debugger_armed(debugger));
 
 	snapshot->valid = false;
 	snapshot->state = debugger_capture_state(debugger);

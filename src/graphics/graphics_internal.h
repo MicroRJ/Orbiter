@@ -58,7 +58,7 @@ typedef struct
 	GFX_Texture     *texture;
 	rect_i32         scissor;
 	GFX_Sampler      sampler;
-	GFX_Blender        blender;
+	GFX_Blender      blender;
 	GFX_Shader       shader;
 	GFX_TextureMode  texture_mode;
 	GFX_ShaderBlock  shader_block;

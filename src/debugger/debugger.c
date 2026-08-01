@@ -177,7 +177,7 @@ void debugger_destroy(Debugger *debugger)
 	arena_destroy(&debugger->program_work_arena);
 }
 
-b32 debugger_has_cartridge(const Debugger *debugger)
+b32 debugger_armed(const Debugger *debugger)
 {
 	return debugger && nes_emulator_has_cartridge(&debugger->emulator);
 }
@@ -255,7 +255,7 @@ b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 // rewind frames ...
 b32 debugger_save_state(Debugger *debugger, Arena *arena)
 {
-	Assert(debugger_has_cartridge(debugger));
+	Assert(debugger_armed(debugger));
 
 	ByteSpan state = nes_emulator_save_state(&debugger->emulator, arena);
 	return state.data && state.size;
@@ -289,7 +289,7 @@ u64 debugger_scheduler_clock(const Debugger *debugger)
 	return nes_emulator_scheduler_clock(&debugger->emulator);
 }
 
-static void debugger_ensure_has_can_restore_in_case_of_breakpoint(Debugger *debugger)
+static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *debugger)
 {
 	Assert(debugger->snapshots_cursor >= 1);
 	DBG_LiveSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
@@ -298,8 +298,9 @@ static void debugger_ensure_has_can_restore_in_case_of_breakpoint(Debugger *debu
 
 u32 debugger_step(Debugger *debugger)
 {
-	Assert(debugger_has_cartridge(debugger));
-	debugger_ensure_has_can_restore_in_case_of_breakpoint(debugger);
+	Assert(debugger_armed(debugger));
+	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
+	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	u32 cycles = nes_emulator_step(&debugger->emulator);
 	debugger_process_scheduler_trace(debugger);
 	return cycles;
@@ -307,9 +308,9 @@ u32 debugger_step(Debugger *debugger)
 
 NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer, u64 sample_capacity)
 {
-	Assert(debugger_has_cartridge(debugger));
-	debugger_capture_snapshot(debugger);
-	debugger_ensure_has_can_restore_in_case_of_breakpoint(debugger);
+	Assert(debugger_armed(debugger));
+	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
+	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	NES_RunFrameResult result = nes_emulator_run_frame(&debugger->emulator, sample_buffer, sample_capacity);
 	debugger_process_scheduler_trace(debugger);
 	if (debugger->breakpoint_hit) return (NES_RunFrameResult) {};

@@ -9,18 +9,19 @@
 #include "ui.h"
 #include "ui_box.h"
 
-typedef enum
+typedef struct ViewFrameData ViewFrameData;
+typedef void ViewBuildUIProc(ViewFrameData *frame);
+
+typedef struct
 {
-	VIEW_NONE,
-	VIEW_VIDEO,
-	VIEW_PROGRAM,
-	VIEW_CPU,
-	VIEW_PROFILER,
-	VIEW_PRG_ACTIVITY,
-	VIEW_CHR_MAP,
-	VIEW_COUNT,
+	const char *name;
+	OS_Key hotkey;
+	ViewBuildUIProc *build_ui;
 }
-ViewType;
+ViewDesc;
+
+extern const ViewDesc view_descs[];
+extern const u32 view_desc_count;
 
 typedef struct
 {
@@ -54,8 +55,8 @@ Profiler_View_State;
 typedef struct DF_PanelViewData DF_PanelViewData;
 struct DF_PanelViewData
 {
-	u64        id;
-	ViewType kind;
+	u64 id;
+	const ViewDesc *desc;
 	union
 	{
 		ViewState program;
@@ -64,7 +65,7 @@ struct DF_PanelViewData
 	};
 };
 
-typedef struct
+struct ViewFrameData
 {
 	DF_PanelViewData *view;
 	Debugger      *debugger;
@@ -81,8 +82,7 @@ typedef struct
 	const ExecutionActivity *execution_activity;
 	GFX_Texture *video_texture;
 	GFX_Texture *chr_texture;
-}
-ViewFrameData;
+};
 
 ViewFrameData view_begin_frame(ViewFrameData *frame, String title);
 void view_end_frame(ViewFrameData *frame);

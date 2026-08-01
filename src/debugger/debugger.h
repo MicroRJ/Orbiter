@@ -24,7 +24,7 @@ enum
 
 Debugger *debugger_create(Arena *arena);
 void debugger_destroy(Debugger *debugger);
-b32 debugger_has_cartridge(const Debugger *debugger);
+b32 debugger_armed(const Debugger *debugger);
 b32 debugger_open_rom(Debugger *debugger, ByteSpan data);
 b32 debugger_save_state(Debugger *debugger, Arena *arena);
 b32 debugger_restore_state(Debugger *debugger, ByteSpan state);

@@ -121,7 +121,7 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 	state->visible_frame_count = visible_frame_count;
 
 	u64 selected_frame = timeline_cursor ? timeline_cursor - 1 : 0;
-	Prof_Frame *frame = prof_timeline_frame(selected_frame);
+	const Prof_Frame *frame = prof_timeline_frame(selected_frame);
 
 	if (response.hovered && timeline_cursor) {
 		u64 position = (u64)((state->offset + ui->mouse.x - rect.x) / state->bar_width);
