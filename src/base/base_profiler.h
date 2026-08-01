@@ -64,7 +64,7 @@ typedef struct
 }
 Prof_MetricBlock;
 
-#define PROF_MAX_SCOPES 32
+#define PROF_MAX_SCOPES 64
 
 typedef struct
 {
@@ -90,8 +90,8 @@ typedef struct
 }
 Prof_Frame;
 
-// Roughly 4.5 minutes before circling back.
-#define PROF_TIMELINE_CAPACITY (64 * 256)
+// Roughly 2.5 minutes before circling back.
+#define PROF_TIMELINE_CAPACITY (64 * 128)
 STATIC_ASSERT(!(PROF_TIMELINE_CAPACITY & (PROF_TIMELINE_CAPACITY - 1)));
 
 

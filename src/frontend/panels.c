@@ -424,7 +424,7 @@ static void panel_update_interaction(Panels *panels, OS_Window *window, UI_Conte
 	panel_update_interaction(panels, window, ui, panel->right, second);
 }
 
-static UI_BoxDesc panel_leaf_desc(rect_f32 rect, vec2 root_position)
+static UI_BoxDesc panel_absolute_desc(rect_f32 rect, vec2 root_position)
 {
 	rect.x -= root_position.x;
 	rect.y -= root_position.y;
@@ -433,6 +433,12 @@ static UI_BoxDesc panel_leaf_desc(rect_f32 rect, vec2 root_position)
 	desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE, .value = rect.y };
 	desc.size[AXIS_X] = ui_fixed(rect.w);
 	desc.size[AXIS_Y] = ui_fixed(rect.h);
+	return desc;
+}
+
+static UI_BoxDesc panel_leaf_desc(rect_f32 rect, vec2 root_position)
+{
+	UI_BoxDesc desc = panel_absolute_desc(rect, root_position);
 	desc.horz_padd[0] = desc.horz_padd[1] = 3.f;
 	desc.vert_padd[0] = desc.vert_padd[1] = 3.f;
 	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
@@ -463,12 +469,10 @@ static void panel_build_ui(Panels *panels, Panel *panel, ViewFrameData *source, 
 			ui_pop(ui);
 
 			rect_f32 content = rect_f32_inset(rect, 3.f);
-			ui_push_clip(ui, content);
 			ViewFrameData frame = *source;
 			frame.view = panel->view;
 			frame.rect = content;
 			view_build_ui(&frame);
-			ui_pop_clip(ui);
 
 			ui_box_end(ui);
 		}
@@ -484,7 +488,11 @@ static void panel_build_ui(Panels *panels, Panel *panel, ViewFrameData *source, 
 
 			rect_f32 line = rect_f32_from_slice(second, panel->axis, 2.f);
 			line = rect_f32_translate_axis(line, panel->axis, -1.f);
-			ui_draw_splitter(ui, line, panel_ui_id(panel, 1));
+			UI_Box *splitter = ui_box_make_desc(ui, ui_key_child(UI_KEY("panel splitter"), panel->id), LIT("panel splitter"), panel_absolute_desc(line, root_position));
+			splitter->paint = ui_default_paint();
+			splitter->paint.flags = UI_BOX_DRAW_BACKGROUND;
+			splitter->paint.background = ui->theme.slider_track;
+			splitter->paint.edge_softness = 0.f;
 		}
 		break;
 	}

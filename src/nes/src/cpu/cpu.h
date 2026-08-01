@@ -34,8 +34,6 @@ enum
 	CPU_STAT_N = 7,
 };
 
-u16 nes_cpu_read_nmi_vector(NES_Emulator *core);
-void nes_cpu_interrupt(NES_Emulator *core, u32 address);
 void nes_cpu_nmi(NES_Emulator *core);
 u32 nes_cpu_irq(NES_Emulator *core);
 void nes_cpu_reset(NES_Emulator *core);

@@ -330,6 +330,13 @@ void ui_builder_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width)
 	builder->paint.border_width = Max(0.f, width);
 }
 
+void ui_builder_backdrop(UI_BoxBuilder *builder, f32 roundness)
+{
+	Assert(builder);
+	builder->paint.flags |= UI_BOX_DRAW_BACKDROP;
+	builder->paint.roundness = Max(0.f, roundness);
+}
+
 void ui_builder_roundness(UI_BoxBuilder *builder, f32 roundness)
 {
 	Assert(builder);
@@ -520,6 +527,11 @@ void ui_background(UI_Context *ui, Color_SRGBA color)
 void ui_border(UI_Context *ui, Color_SRGBA color, f32 width)
 {
 	ui_builder_border(ui_box__builder(ui), color, width);
+}
+
+void ui_backdrop(UI_Context *ui, f32 roundness)
+{
+	ui_builder_backdrop(ui_box__builder(ui), roundness);
 }
 
 void ui_roundness(UI_Context *ui, f32 roundness)

@@ -74,7 +74,11 @@ static void cpu_view_content(ViewFrameData *frame)
 	{
 		UI_TextStyle style = frame->ui->theme.code;
 		style.color = frame->ui->theme.text_subtle;
-		ui_draw_text(frame->ui, frame->rect, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
+		ui_push(frame->ui);
+		ui_size(frame->ui, AXIS_X, ui_grow(1.f));
+		ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
+		ui_text_box_string(frame->ui, 1, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
+		ui_pop(frame->ui);
 		return;
 	}
 

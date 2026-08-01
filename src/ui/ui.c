@@ -12,10 +12,18 @@ enum
 };
 STATIC_ASSERT((UI_BOX_STATE_SLOT_COUNT & (UI_BOX_STATE_SLOT_COUNT - 1)) == 0);
 
-Draw_Command *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
+// UI construction is structural. Immediate drawing is only valid after the
+// box tree has been built and laid out.
+static void ui_assert_paint_phase(UI_Context *ui)
 {
 	Assert(ui);
+	Assert(!ui->builder);
 	Assert(ui->draw);
+}
+
+Draw_Command *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
+{
+	ui_assert_paint_phase(ui);
 	return draw_list_rect(ui->draw, (Draw_RectParams) {
 		.rect = rect,
 		.color = color,
@@ -32,8 +40,7 @@ void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SR
 
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_inset_shadow(ui->draw, (Draw_InsetShadowParams) {
 		.rect = rect,
 		.strength = strength,
@@ -42,8 +49,7 @@ void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength)
 
 void ui_draw_backdrop(UI_Context *ui, rect_f32 rect, f32 roundness)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_backdrop(ui->draw, (Draw_BackdropParams) {
 		.rect = rect,
 		.corner_radius = roundness,
@@ -247,15 +253,13 @@ void ui_end_frame(UI_Context *ui)
 
 void ui_push_z(UI_Context *ui, i32 z)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_push_z(ui->draw, z);
 }
 
 void ui_pop_z(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_pop_z(ui->draw);
 }
 
@@ -345,56 +349,43 @@ UI_Response ui_signal_from_box(UI_Box *box)
 
 void ui_push_clip(UI_Context *ui, rect_f32 rect)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_push_clip(ui->draw, rect);
 }
 
 void ui_pop_clip(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_pop_clip(ui->draw);
 }
 
 void ui_push_unclipped(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_push_unclipped(ui->draw);
 }
 
 void ui_pop_unclipped(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_pop_unclipped(ui->draw);
 }
 
 void ui_push_emission(UI_Context *ui, f32 emission)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_push_emission(ui->draw, emission);
 }
 
 void ui_pop_emission(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_pop_emission(ui->draw);
-}
-
-void ui_draw_splitter(UI_Context *ui, rect_f32 rect, UI_Id id)
-{
-	(void)id;
-	ui_draw_rect(ui, rect, ui->theme.slider_track);
 }
 
 void ui_draw_image(UI_Context *ui, Draw_TextureParams params)
 {
-	Assert(ui);
-	Assert(ui->draw);
+	ui_assert_paint_phase(ui);
 	draw_list_image(ui->draw, params);
 }
 
@@ -409,6 +400,7 @@ vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text)
 
 vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text)
 {
+	ui_assert_paint_phase(ui);
 	vec2 size = {};
 	if (!text.size) return size;
 
@@ -429,7 +421,7 @@ vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text
 
 UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_height, f32 *position, f32 content_height)
 {
-	Assert(ui);
+	ui_assert_paint_phase(ui);
 	Assert(position);
 
 	UI_Response response = {};
