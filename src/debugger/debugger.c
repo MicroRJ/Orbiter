@@ -10,9 +10,12 @@ void debugger_capture_snapshot(Debugger *debugger)
 	}
 	DBG_LiveSnapshot *snapshot = (DBG_LiveSnapshot *) & debugger->snapshots[debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK];
 	debugger->snapshots_marker = ++ debugger->snapshots_cursor;
+
+	NES_Emulator *emulator = debugger->emulator;
+	NES_State *state = &emulator->core;
+
+	snapshot->sample_phase = emulator->sample_phase;
 	memory_zero(snapshot, sizeof(*snapshot));
-	const NES_Emulator *emulator = debugger->emulator;
-	const NES_State *state = &emulator->core;
 	memory_copy(snapshot->values, state->values, sizeof(snapshot->values));
 	snapshot->input_state = state->input_state;
 	snapshot->cpu_stall_cycles = state->cpu_stall_cycles;
@@ -33,6 +36,7 @@ static void debugger_restore(Debugger *debugger, const DBG_LiveSnapshot *snapsho
 	NES_Emulator *emulator = debugger->emulator;
 	NES_State *state = &emulator->core;
 	memory_copy(state->values, snapshot->values, sizeof(snapshot->values));
+	emulator->sample_phase = snapshot->sample_phase;
 	state->input_state = snapshot->input_state;
 	state->cpu_stall_cycles = snapshot->cpu_stall_cycles;
 	emulator->scheduler_clock = snapshot->scheduler_clock;
@@ -198,11 +202,6 @@ NES_MapAddr debugger_cpu_map(Debugger *debugger, u16 address)
 	return nes_emulator_cpu_map(debugger->emulator, address);
 }
 
-void debugger_cpu_write(Debugger *debugger, u16 address, u8 value)
-{
-	nes_emulator_cpu_write(debugger->emulator, address, value);
-}
-
 NES_MapAddr debugger_cpu_mapping_chunk(const Debugger *debugger, u32 chunk)
 {
 	Assert(chunk < CPU_MAPPING_CHUNK_COUNT);
@@ -305,6 +304,12 @@ u32 debugger_step(Debugger *debugger)
 	u32 cycles = nes_emulator_step(debugger->emulator);
 	debugger_process_scheduler_trace(debugger);
 	return cycles;
+}
+
+NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer)
+{
+	NES_RunFrameResult result = nes_emulator_run_frame(debugger->emulator, sample_buffer);
+	return result;
 }
 
 u64 debugger_run_samples(Debugger *debugger, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity)

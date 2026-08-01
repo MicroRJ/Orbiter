@@ -364,7 +364,7 @@ static void ppu_evaluate_sprites(NES_Emulator *core, i32 scanline)
 	}
 }
 
-static void ppu_advance_clock(NES_Emulator *core)
+static inline void ppu_advance_clock(NES_Emulator *core)
 {
 	NES_PPUState *ppu = &core->core.ppu;
 	core->core.ppu.xtick = (u16)(ppu->xtick + 1);

@@ -3,17 +3,6 @@
 
 #include "../bus/bus.h"
 
-#define NES_MAPPER_RSET_FUNC(NAME) b32 (NAME)(NES_Emulator *nes)
-typedef NES_MAPPER_RSET_FUNC(*RESETFUNC);
-
-typedef struct
-{
-	const char  *name;
-	RESETFUNC    reset;
-	NES_BusFunc  cpu_bus;
-	NES_BusFunc  ppu_bus;
-}
-NES_MapperClass;
 
 void nes_mapper_set_value(NES_Emulator *core, u32 index, u8 value);
 

@@ -229,15 +229,14 @@ typedef enum
 }
 NES_DeviceId;
 
+// TODO(RJ) REMOVE ALIASES
 typedef struct
 {
 	NES_DeviceId device;
 	union
 	{
-		// TODO(RJ) REMOVE ALIASES
 		u32 offset;
 		u32 address;
-		u32 addr;
 	};
 }
 NES_MapAddr;
@@ -247,52 +246,42 @@ static inline NES_MapAddr nes_map_addr(NES_DeviceId device, u32 address)
 	return (NES_MapAddr) { device, address };
 }
 
-typedef struct { u8 pixels[8][8]; } NES_PatternTile;
-
-enum
+typedef enum
 {
-	NES_PATTERN_TILE_SIZE = 8,
-	NES_PATTERN_TABLE_TILE_COUNT = 256,
-	NES_PATTERN_TILE_COUNT = NES_PATTERN_TABLE_TILE_COUNT * 2,
-	NES_PALETTE_RAM_SIZE = 32,
-};
+	NES_BUS_ACCESS_READ,
+	NES_BUS_ACCESS_WRITE,
+	NES_BUS_ACCESS_PEEK,
+	// TODO(RJ) remove this additional mode??
+	NES_BUS_ACCESS_MAP,
+}
+NES_BusAccessKind;
+
+// TODO(RJ) why are we passing in so much stuff in here, we only need
+// mode addr and data
+// TODO(RJ) the result is the thing that contains the final addr the device and the data read.
+typedef struct
+{
+	NES_BusAccessKind kind;
+	u32               address;
+	NES_MapAddr       mapped;
+	u8                value;
+}
+NES_BusAccess;
+
+typedef NES_BusAccess (*NES_BusFunc)(NES_Emulator *nes, NES_BusAccess access);
+
+#define NES_MAPPER_RSET_FUNC(NAME) b32 (NAME)(NES_Emulator *nes)
+typedef NES_MAPPER_RSET_FUNC(*RESETFUNC);
 
 typedef struct
 {
-	NES_PatternTile tiles[NES_PATTERN_TILE_COUNT];
-	NES_MapAddr mappings[NES_PATTERN_TILE_COUNT];
-	u8 palette[NES_PALETTE_RAM_SIZE];
+	const char  *name;
+	RESETFUNC    reset;
+	NES_BusFunc  cpu_bus;
+	NES_BusFunc  ppu_bus;
 }
-NES_CHRMap;
+NES_MapperClass;
 
-
-NES_Emulator *nes_emulator_create(Arena *arena);
-
-b32 nes_emulator_has_cartridge(const NES_Emulator *core);
-u32 nes_emulator_prg_rom_size(const NES_Emulator *core);
-// Copies the descriptor's borrowed PRG and CHR data into emulator-owned storage.
-b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge);
-u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
-u32 nes_emulator_step(NES_Emulator *core);
-// Runs whole instructions until at least minimum_samples have been captured at sample_rate.
-// The caller owns sample_phase and must preserve it between calls. The returned count may be
-// larger than requested, so capacity must include overshoot space.
-u64 nes_emulator_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity);
-void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
-
-// These return owned copies. Callers never receive aliases to mutable device state.
-NES_CPUState nes_emulator_cpu_state(const NES_Emulator *core);
-NES_PPUState nes_emulator_ppu_state(const NES_Emulator *core);
-NES_APUState nes_emulator_apu_state(const NES_Emulator *core);
-NES_VideoFrame nes_emulator_video_frame(const NES_Emulator *core);
-
-u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
-u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
-NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
-void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value);
-void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map);
-ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
-b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
 
 typedef struct
 {
@@ -310,6 +299,110 @@ typedef struct
 NES_SchedulerTraceEntry;
 
 STATIC_ASSERT(sizeof(NES_SchedulerTraceEntry) == 8);
+
+typedef struct
+{
+	u64 reads;
+	u64 writes;
+}
+NES_BusMetrics;
+
+struct NES_Emulator
+{
+	NES_State               core;
+	NES_MapperClass         mapper;
+	u64                     scheduler_clock;
+	NES_BusMetrics          cpu_bus_metrics;
+	NES_BusMetrics          ppu_bus_metrics;
+	u64                     scheduler_trace_index;
+	u64                     sample_phase;
+	u8                      video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+	NES_SchedulerTraceEntry scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
+};
+
+u32 nes_emulator_prg_rom_size(const NES_Emulator *core);
+
+b32 nes_emulator_has_cartridge(const NES_Emulator *core);
+// Copies the descriptor's borrowed PRG and CHR data into emulator-owned storage.
+b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge);
+u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
+
+u32 nes_emulator_step(NES_Emulator *core);
+
+// TODO(RJ) remove!
+u64 nes_emulator_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity);
+
+static u64 nes_sample_rate(NES_Emulator *emulator) {
+	return 48 * 1000;
+}
+
+static u64 nes_required_sample_capacity() {
+	// 48000 / 60.1 = ~ 799
+	// This is just an extra safe size, so we don't even have to check because
+	// it's impossible ...
+	return 1024 * 2;
+}
+
+typedef struct
+{
+	u64 samples;
+	u64 steps;
+}
+NES_RunFrameResult;
+
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer);
+
+
+
+void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
+
+u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
+u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
+NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
+
+ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
+b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
+
+
+
+// TODO(RJ) remove, no allocation is necessary now
+NES_Emulator *nes_emulator_create(Arena *arena);
+
+// TODO(RJ) remove from from core emulator?
+typedef struct { u8 pixels[8][8]; } NES_PatternTile;
+
+// TODO(RJ) remove from from core emulator?
+enum
+{
+	NES_PATTERN_TILE_SIZE = 8,
+	NES_PATTERN_TABLE_TILE_COUNT = 256,
+	NES_PATTERN_TILE_COUNT = NES_PATTERN_TABLE_TILE_COUNT * 2,
+	NES_PALETTE_RAM_SIZE = 32,
+};
+
+// TODO(RJ) remove from from core emulator?
+typedef struct
+{
+	NES_PatternTile tiles[NES_PATTERN_TILE_COUNT];
+	NES_MapAddr mappings[NES_PATTERN_TILE_COUNT];
+	u8 palette[NES_PALETTE_RAM_SIZE];
+}
+NES_CHRMap;
+
+// TODO(RJ) REMOVE
+NES_CPUState nes_emulator_cpu_state(const NES_Emulator *core);
+// TODO(RJ) REMOVE
+NES_PPUState nes_emulator_ppu_state(const NES_Emulator *core);
+// TODO(RJ) REMOVE
+NES_APUState nes_emulator_apu_state(const NES_Emulator *core);
+// TODO(RJ) REMOVE
+NES_VideoFrame nes_emulator_video_frame(const NES_Emulator *core);
+// TODO(RJ) REMOVE
+void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map);
+
+
+
+
 
 enum
 {
@@ -394,6 +487,8 @@ static inline NES_SchedulerTraceSpans nes_scheduler_trace_spans_since(NES_Schedu
 // NOTE(RJ) For compactness, each entry stores only the low 16 bits of the scheduler clock,
 // so the clock is only reconstructible if the reader's clock is less than 16 bits worth of
 // range away.
+// This may also just be nonsense, I measured no performance difference whatsoever, not sure if O2 will
+// yield better results ...
 static __forceinline b32 nes_scheduler_trace_clock_reconstructable_since(NES_SchedulerTraceView view, u64 scheduler_clock)
 {
 	return scheduler_clock <= view.scheduler_clock && view.scheduler_clock - scheduler_clock <= MAX_VALUE_U16;

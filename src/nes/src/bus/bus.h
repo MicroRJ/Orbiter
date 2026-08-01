@@ -3,28 +3,6 @@
 
 #include "nes/emulator.h"
 
-typedef enum
-{
-	NES_BUS_ACCESS_READ,
-	NES_BUS_ACCESS_WRITE,
-	NES_BUS_ACCESS_PEEK,
-	NES_BUS_ACCESS_MAP,
-}
-NES_BusAccessKind;
-
-typedef struct
-{
-	NES_BusAccessKind kind;
-	// Mapper translation can produce a device offset larger than the original
-	// 16-bit bus address, so address deliberately remains 32-bit.
-	u32               address;
-	NES_MapAddr       mapped;
-	u8                value;
-}
-NES_BusAccess;
-
-typedef NES_BusAccess (*NES_BusFunc)(NES_Emulator *nes, NES_BusAccess access);
-
 static inline NES_BusAccess nes_bus_access_mapped(NES_BusAccess access,
 	NES_DeviceId device)
 {

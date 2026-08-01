@@ -569,48 +569,27 @@ static b32 app_handle_input(AppInput input)
 	return handled;
 }
 
-static void app_run_without_audio(void)
-{
-	// Todo, we really just need a new run mode that replaces unifies the two we currently
-	// have, some sort of run condition thing ...
-	//
-	// Todo, we also need to make sure that audio buffering doesn't make us skip a PPU frame,
-	// so we may need to rewind to the previous frame if that happens
-	//
-	// for instance, debugger_run(debugger, (Emulator_RunConditions){
-	//			.min_samples    = 48000 / 60,
-	//			.min_ppu_frames = 1,
-	//	})
-	// debugger_step(app.debugger, NES_PPU_FRAME_CYCLES);
-	// if (debugger_breakpoint_hit(app.debugger)) {
-	// 	app.emulator_running = false;
-	// 	audio_stream_discard(app.audio);
-	// }
-}
-
 static void app_run_with_audio(void)
 {
 	Assert(app.audio_backend_available);
 
-	// NOTE(RJ) We run the emulator enough to fill twice the buffer size of the audio
-	// backend if we've already got enough samples queued then we can return ...
-	//
-	// TODO(RJ) The problem is that this may make us skip a PPU frame every now and then,
-	// or very often ...
-	u32 queued = audio_stream_available_frames(app.audio);
-	u32 target = Min(app.audio_backend_capacity * 2, audio_stream_capacity_frames(app.audio));
-	if (queued >= target) {
-		LOG_DEBUG("enough samples are queued already: queued = %u, target = %u", queued, target);
-		return;
-	}
+	// u32 queued = audio_stream_queued_frames(app.audio);
+	// u32 target = Min(app.audio_backend_capacity * 2, audio_stream_capacity_frames(app.audio));
+	// if (queued >= target) {
+	// 	LOG_DEBUG("enough samples are queued already: queued = %u, target = %u", queued, target);
+	// 	return;
+	// }
+	// u32 minimum = target - queued;
+	// u32 capacity = audio_stream_capacity_frames(app.audio);
 
-	u32 minimum = target - queued;
-	u32 capacity = audio_stream_capacity_frames(app.audio);
 
-	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * capacity);
-	u64 nsamples = debugger_run_samples(app.debugger, app.audio_sample_rate, &app.audio_sample_phase, minimum, samples, capacity);
+	f32 *samples = arena_push(&app.frame_arena, sizeof(*samples) * nes_required_sample_capacity());
+	NES_RunFrameResult frame = debugger_run_frame(app.debugger, samples);
 
-	for (u32 i = 0; i < nsamples; ++ i) {
+
+	// u64 nsamples = debugger_run_samples(app.debugger, app.audio_sample_rate, &app.audio_sample_phase, minimum, samples, capacity);
+
+	for (u32 i = 0; i < frame.samples; ++ i) {
 		samples[i] *= app.ppu_volume;
 	}
 
@@ -621,16 +600,16 @@ static void app_run_with_audio(void)
 		return;
 	}
 
-	prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, nsamples);
+	prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
 
-	PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)nsamples);
+	PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
 }
 
 static void app_drain_audio(void)
 {
 	if (!app.audio_backend_available) return;
 	u32 writable = os_audio_writable_frames();
-	u32 queued = audio_stream_available_frames(app.audio);
+	u32 queued = audio_stream_queued_frames(app.audio);
 	app.audio_min_queued_frames = Min(app.audio_min_queued_frames, queued);
 	if (app.emulator_running && writable == app.audio_backend_capacity)
 	{

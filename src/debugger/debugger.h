@@ -32,6 +32,10 @@ void debugger_set_input(Debugger *debugger, NES_Input input, u32 player);
 u64 debugger_scheduler_clock(const Debugger *debugger);
 u32 debugger_step(Debugger *debugger);
 u64 debugger_run_samples(Debugger *debugger, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity);
+
+
+NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *samples);
+
 void debugger_set_program_breakpoint(Debugger *debugger, NES_MapAddr address, b32 enabled);
 b32 debugger_has_program_breakpoint(const Debugger *debugger, NES_MapAddr address);
 b32 debugger_breakpoint_hit(const Debugger *debugger);
@@ -52,7 +56,6 @@ const ExecutionGraph *debugger_execution_graph(const Debugger *debugger);
 u32 debugger_cpu_peek(Debugger *debugger, u16 address, NES_MapAddr *mapped);
 u32 debugger_cpu_peek_word(Debugger *debugger, u16 address);
 NES_MapAddr debugger_cpu_map(Debugger *debugger, u16 address);
-void debugger_cpu_write(Debugger *debugger, u16 address, u8 value);
 NES_MapAddr debugger_cpu_mapping_chunk(const Debugger *debugger, u32 chunk);
 
 #endif

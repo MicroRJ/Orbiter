@@ -24,6 +24,9 @@ enum
 
 typedef struct
 {
+	// ---
+	u64              sample_phase;
+	// ---
 	u8                 values[32];
 	NES_InputState    input_state;
 	u32          cpu_stall_cycles;

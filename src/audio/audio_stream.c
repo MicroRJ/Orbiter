@@ -81,7 +81,7 @@ void audio_stream_discard(Audio_Stream *stream)
 	stream->count = 0;
 }
 
-u32 audio_stream_available_frames(const Audio_Stream *stream)
+u32 audio_stream_queued_frames(const Audio_Stream *stream)
 {
 	return stream->count;
 }

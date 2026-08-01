@@ -108,37 +108,31 @@ u64 nes_emulator_scheduler_clock(const NES_Emulator *core)
 	return core->scheduler_clock;
 }
 
-u32 nes_emulator_step(NES_Emulator *core)
-{
-	return nes_scheduler_step(core);
-}
-
-u64 nes_emulator_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity)
-{
-	return nes_scheduler_run_samples(core, sample_rate, sample_phase, minimum_samples, samples, capacity);
-}
-
 void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input)
 {
 	if (player < ArrayCount(core->core.input_state.inputs))
 	core->core.input_state.inputs[player] = (u8)input;
 }
 
+// TODO(RJ) REMOVE
 NES_CPUState nes_emulator_cpu_state(const NES_Emulator *core)
 {
 	return core->core.cpu;
 }
 
+// TODO(RJ) REMOVE
 NES_PPUState nes_emulator_ppu_state(const NES_Emulator *core)
 {
 	return core->core.ppu;
 }
 
+// TODO(RJ) REMOVE
 NES_APUState nes_emulator_apu_state(const NES_Emulator *core)
 {
 	return core->core.apu;
 }
 
+// TODO(RJ) REMOVE
 NES_VideoFrame nes_emulator_video_frame(const NES_Emulator *core)
 {
 	return (NES_VideoFrame) {
@@ -166,6 +160,7 @@ NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address)
 	return nes_cpu_bus_map(core, address);
 }
 
+// TODO(RJ) REMOVE, this can be done by the adapter directly
 //	Pattern tiles are made up of two faces, each is 8 bytes.
 //	To create a palette index you join the two faces.
 static NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index)
@@ -186,6 +181,7 @@ static NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index)
 	return tile;
 }
 
+// TODO(RJ) REMOVE, this can be done by the adapter directly
 void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map)
 {
 	Assert(map);
@@ -202,11 +198,6 @@ void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map)
 NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core)
 {
 	return (NES_SchedulerTraceView) { .trace = core->scheduler_trace, .index = core->scheduler_trace_index, .scheduler_clock = core->scheduler_clock };
-}
-
-void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value)
-{
-	nes_cpu_bus_write(core, address, value);
 }
 
 ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena)
@@ -250,3 +241,117 @@ b32 nes_emulator_load_cartridge(NES_Emulator *emulator, NES_CartridgeDesc cart)
 	nes_cpu_reset(emulator);
 	return true;
 }
+
+static inline u32 cpu_step(NES_Emulator *emulator)
+{
+	NES_CPUState *cpu = & emulator->core.cpu;
+
+	// """
+	// If the CPU's /IRQ input is 0 at the end of an instruction, then the CPU pushes the program counter
+	// and the processor status register, sets the I flag to ignore further IRQs, and the Program Counter
+	// takes the value read at $fffe and $ffff.
+	// """
+	b32 irq_line = emulator->core.apu.irq_pending;
+	if (irq_line && (~ cpu->P & cpu_status_mask(CPU_STAT_I))) {
+		return nes_cpu_irq(emulator);
+	}
+	//
+	// Note, this is introspection stuff:
+	// Has to be done here because the debugger doesn't have fine grain control over the CPU's execution
+	//
+	NES_BusAccess access = nes_cpu_bus_peek_mapped(emulator, cpu->PC);
+	u64 trace_index = emulator->scheduler_trace_index;
+	emulator->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_SchedulerBoundary) {
+		.scheduler_clock = emulator->scheduler_clock,
+		.cpu_address = cpu->PC,
+		.cpu_mapped = access.mapped,
+		.cpu_byte = access.value,
+	});
+	emulator->scheduler_trace_index = trace_index + 1;
+	return nes_cpu_step(emulator);
+}
+
+static u32 nes_scheduler_step_internal(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, f32 *samples, u64 capacity, u64 *sample_count)
+{
+	u32 cpu_cycles = cpu_step(core);
+	for (u32 cycle = 0; cycle < cpu_cycles; ++cycle)
+	{
+		for (u32 ppu_cycle = 0; ppu_cycle < 3; ++ppu_cycle) {
+			u32 events = nes_ppu_step(core);
+			if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(core);
+		}
+		nes_apu_clock_cpu_cycle(&core->core.apu);
+		*sample_phase += sample_rate;
+		while (*sample_phase >= NES_CPU_HZ)
+		{
+			*sample_phase -= NES_CPU_HZ;
+			Assert(*sample_count < capacity);
+			samples[(*sample_count)++] = nes_apu_dac(&core->core.apu);
+		}
+	}
+	prof_add_metric(PROF_METRIC_CPU_CYCLES, cpu_cycles);
+	core->scheduler_clock ++;
+	return cpu_cycles;
+}
+
+u32 nes_emulator_step(NES_Emulator *core)
+{
+	u32 sample_phase = 0;
+	return nes_scheduler_step_internal(core, 0, &sample_phase, 0, 0, 0);
+}
+
+u64 nes_emulator_run_samples(NES_Emulator *core, u32 sample_rate, u32 *sample_phase, u64 minimum_samples, f32 *samples, u64 capacity)
+{
+	Assert(sample_rate);
+	Assert(sample_rate <= NES_CPU_HZ);
+	Assert(sample_phase);
+	Assert(*sample_phase < NES_CPU_HZ);
+	Assert(samples || capacity == 0);
+	Assert(minimum_samples <= capacity);
+	u32 phase = *sample_phase;
+	u64 sample_count = 0;
+	while (sample_count < minimum_samples)
+	{
+		nes_scheduler_step_internal(core, sample_rate, &phase, samples, capacity, &sample_count);
+	}
+	*sample_phase = phase;
+	return sample_count;
+}
+
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer)
+{
+	u64 sample_count = 0;
+	b32 frame_event = false;
+	u64 steps = 0;
+	while (!frame_event)
+	{
+		u32 cpu_cycles = cpu_step(emulator);
+		for (u32 cpu_cycle = 0; cpu_cycle < cpu_cycles; cpu_cycle ++)
+		{
+			for (u32 ppu_cycle = 0; ppu_cycle < 3; ppu_cycle ++) {
+				u32 events = nes_ppu_step(emulator);
+				if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(emulator);
+				if (events & NES_PPU_EVENT_FRAME) frame_event = true;
+			}
+
+			nes_apu_clock_cpu_cycle(&emulator->core.apu);
+			emulator->sample_phase += 48000;
+			while (emulator->sample_phase >= NES_CPU_HZ)
+			{
+				emulator->sample_phase -= NES_CPU_HZ;
+				sample_buffer[sample_count++] = nes_apu_dac(&emulator->core.apu);
+			}
+		}
+		emulator->scheduler_clock ++;
+		steps ++;
+		prof_add_metric(PROF_METRIC_CPU_CYCLES, cpu_cycles);
+	}
+
+
+	NES_RunFrameResult result = {
+		.steps = steps,
+		.samples = sample_count,
+	};
+	return result;
+}
+

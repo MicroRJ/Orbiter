@@ -30,7 +30,7 @@ static void test_audio_stream(void)
 	f32 output[4] = {};
 	f32 initial[] = { 1, 2, 3, 4 };
 	audio_stream_write(stream, initial, ArrayCount(initial));
-	Assert(audio_stream_available_frames(stream) == 4);
+	Assert(audio_stream_queued_frames(stream) == 4);
 	Assert(audio_stream_capacity_frames(stream) == 4);
 	Audio_ReadSpan held = audio_stream_acquire(stream);
 	Assert(held.frame_count == 4);
@@ -52,7 +52,7 @@ static void test_audio_stream(void)
 	// frame it had to replace.
 	f32 overflow[] = { 7, 8, 9, 10, 11, 12 };
 	audio_stream_write(stream, overflow, ArrayCount(overflow));
-	Assert(audio_stream_available_frames(stream) == 4);
+	Assert(audio_stream_queued_frames(stream) == 4);
 	Assert(audio_stream_overrun_frames(stream) == 2);
 	Assert(read_stream_frames(stream, output, ArrayCount(output)) == 4);
 	Assert(output[0] == 9.0f && output[1] == 10.0f);
@@ -61,7 +61,7 @@ static void test_audio_stream(void)
 	f32 discarded = 13.0f;
 	audio_stream_write(stream, &discarded, 1);
 	audio_stream_discard(stream);
-	Assert(audio_stream_available_frames(stream) == 0);
+	Assert(audio_stream_queued_frames(stream) == 0);
 	Assert(audio_stream_overrun_frames(stream) == 2);
 	arena_destroy(&arena);
 }
