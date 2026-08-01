@@ -22,8 +22,6 @@ static void test_audio_stream(void)
 {
 	Arena arena = arena_create(0, "audio stream test");
 	Audio_Stream *stream = audio_stream_create(&arena, (Audio_StreamDesc) {
-		.sample_rate = 48000,
-		.channels = 1,
 		.frame_capacity = 4,
 	});
 	f32 output[4] = {};

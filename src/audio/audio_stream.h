@@ -12,8 +12,6 @@ Audio_ReadSpan;
 
 typedef struct
 {
-	u32 sample_rate;
-	u32 channels;
 	u32 frame_capacity;
 }
 Audio_StreamDesc;

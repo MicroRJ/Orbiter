@@ -1250,8 +1250,6 @@ static void app_init(void)
 	u32 audio_capacity = Max(audio_info.buffer_frame_count * 4,
 	Max(audio_info.sample_rate / 10, 1));
 	app.audio = audio_stream_create(&app.arena, (Audio_StreamDesc) {
-		.sample_rate = audio_info.sample_rate,
-		.channels = 1,
 		.frame_capacity = audio_capacity,
 	});
 	app.audio_backend_capacity = audio_info.buffer_frame_count;
