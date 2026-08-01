@@ -47,7 +47,7 @@ b32 debugger_redo_snapshot(Debugger *debugger);
 
 DebuggerState debugger_capture_state(const Debugger *debugger);
 void debugger_capture_video(const Debugger *debugger, u8 *pixels, u32 stride);
-void debugger_capture_chr_map(const Debugger *debugger, NES_CHRMap *map);
+void debugger_capture_chr_map(Debugger *debugger, NES_CHRMap *map);
 
 const Program *debugger_program(const Debugger *debugger);
 const ExecutionGraph *debugger_execution_graph(const Debugger *debugger);

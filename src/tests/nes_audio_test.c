@@ -84,7 +84,7 @@ static NES_CartridgeDesc make_looping_cartridge(Arena *arena)
 static void test_step_advances_audio_phase(void)
 {
 	Arena arena = arena_create(0, "NES step audio phase test");
-	NES_Emulator *core = nes_emulator_create(&arena);
+	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
 	u64 expected_phase = 0;
 	for (u32 index = 0; index < 20; index ++)
@@ -100,7 +100,7 @@ static void test_run_frame_audio_contract(void)
 {
 	enum { FRAME_COUNT = 120 };
 	Arena arena = arena_create(0, "NES frame audio contract test");
-	NES_Emulator *core = nes_emulator_create(&arena);
+	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
 
 	u64 sample_capacity = nes_required_sample_capacity();
@@ -128,7 +128,7 @@ static void test_run_frame_audio_contract(void)
 	Assert(total_samples == generated_phase / NES_CPU_HZ);
 	Assert(core->sample_phase == generated_phase % NES_CPU_HZ);
 
-	NES_Emulator *discarding = nes_emulator_create(&arena);
+	NES_Emulator *discarding = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(discarding, make_looping_cartridge(&arena)));
 	Assert(nes_emulator_run_frame(discarding, 0, 0).samples > 0);
 	arena_destroy(&arena);
@@ -145,7 +145,7 @@ static void test_dma_cycles_cross_the_same_boundary(void)
 	prg[3] = 0x14;
 	prg[4] = 0x40;
 
-	NES_Emulator *core = nes_emulator_create(&arena);
+	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(core, cartridge));
 
 	u32 first_cycles = nes_emulator_step(core);
@@ -164,7 +164,7 @@ static void test_dma_cycles_cross_the_same_boundary(void)
 static void test_instruction_boundary_clocks(void)
 {
 	Arena arena = arena_create(0, "NES instruction boundary clock test");
-	NES_Emulator *core = nes_emulator_create(&arena);
+	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
 	for (u32 index = 0; index < 4; ++index) nes_emulator_step(core);
 	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(core);

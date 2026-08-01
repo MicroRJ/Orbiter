@@ -202,16 +202,6 @@ NES_State;
 
 typedef struct NES_Emulator NES_Emulator;
 
-// TODO(RJ) this can be removed now!
-typedef struct
-{
-	const u8 *pixels;
-	u32       width;
-	u32       height;
-	u32       stride;
-}
-NES_VideoFrame;
-
 typedef enum
 {
 	NES_DEVICE_NONE = 0,
@@ -361,12 +351,6 @@ NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
 
 ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
 b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
-
-
-
-// TODO(RJ) remove, no allocation is necessary now
-NES_Emulator *nes_emulator_create(Arena *arena);
-
 // TODO(RJ) remove from from core emulator?
 typedef struct { u8 pixels[8][8]; } NES_PatternTile;
 
@@ -388,14 +372,6 @@ typedef struct
 }
 NES_CHRMap;
 
-// TODO(RJ) REMOVE
-NES_CPUState nes_emulator_cpu_state(const NES_Emulator *core);
-// TODO(RJ) REMOVE
-NES_PPUState nes_emulator_ppu_state(const NES_Emulator *core);
-// TODO(RJ) REMOVE
-NES_APUState nes_emulator_apu_state(const NES_Emulator *core);
-// TODO(RJ) REMOVE
-NES_VideoFrame nes_emulator_video_frame(const NES_Emulator *core);
 // TODO(RJ) REMOVE
 void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map);
 

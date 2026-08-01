@@ -39,7 +39,7 @@ static PPU_TestFixture ppu_test_fixture_create(void)
 	prg_rom[0x3FFC] = 0x00;
 	prg_rom[0x3FFD] = 0x80;
 
-	fixture.core = nes_emulator_create(&fixture.arena);
+	fixture.core = arena_push_zero(&fixture.arena, sizeof(NES_Emulator));
 	Assert(fixture.core);
 	Assert(nes_emulator_load_cartridge(fixture.core, (NES_CartridgeDesc) {
 		.prg_rom = byte_span(prg_rom, KiB(16)),
@@ -349,9 +349,8 @@ static void ppu_test_video_is_published_separately(PPU_TestFixture *fixture)
 	ppu->ytick = 0;
 	nes_ppu_step(fixture->core);
 
-	NES_VideoFrame frame = nes_emulator_video_frame(fixture->core);
-	PPU_EXPECT_EQUAL(0x2A, frame.pixels[0]);
-	PPU_EXPECT_EQUAL(NES_VIDEO_WIDTH, frame.stride);
+	PPU_EXPECT_EQUAL(0x2A, fixture->core->video[0][0]);
+	PPU_EXPECT_EQUAL(NES_VIDEO_WIDTH, ArrayCount(fixture->core->video[0]));
 }
 
 int main(void)

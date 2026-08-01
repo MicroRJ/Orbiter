@@ -132,7 +132,7 @@ static void nes_target_render_chr(NES_TargetSnapshot *snapshot)
 	}
 }
 
-void nes_target_publish(NES_TargetSnapshot *snapshot, const Debugger *debugger)
+void nes_target_publish(NES_TargetSnapshot *snapshot, Debugger *debugger)
 {
 	Assert(snapshot);
 	Assert(debugger);

@@ -60,6 +60,6 @@ typedef struct
 }
 NES_TargetSnapshot;
 
-void nes_target_publish(NES_TargetSnapshot *snapshot, const Debugger *debugger);
+void nes_target_publish(NES_TargetSnapshot *snapshot, Debugger *debugger);
 
 #endif

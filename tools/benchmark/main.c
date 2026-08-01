@@ -344,7 +344,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	NES_Emulator *core = nes_emulator_create(&arena);
+	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	if (!nes_emulator_load_cartridge(core, cartridge))
 	{
 		fprintf(stderr, "unsupported ROM '%s'\n", argv[1]);

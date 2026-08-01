@@ -212,7 +212,7 @@ static void test_debugger_run_frame(void)
 
 	DebuggerState before = debugger_capture_state(debugger);
 	u64 clock_before = debugger_scheduler_clock(debugger);
-	u64 phase_before = debugger->emulator->sample_phase;
+	u64 phase_before = debugger->emulator.sample_phase;
 	NES_MapAddr breakpoint = debugger_cpu_map(debugger, before.cpu.PC);
 	debugger_set_program_breakpoint(debugger, breakpoint, true);
 	frame = debugger_run_frame(debugger, samples, sample_capacity);
@@ -220,7 +220,7 @@ static void test_debugger_run_frame(void)
 	Assert(frame.samples == 0);
 	Assert(debugger_scheduler_clock(debugger) == clock_before);
 	Assert(debugger_capture_state(debugger).cpu.PC == before.cpu.PC);
-	Assert(debugger->emulator->sample_phase == phase_before);
+	Assert(debugger->emulator.sample_phase == phase_before);
 
 	debugger_destroy(debugger);
 	arena_destroy(&arena);

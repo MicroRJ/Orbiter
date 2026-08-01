@@ -180,7 +180,7 @@ int main(int argc, char **argv)
 	Assert(parsed_cartridge.prg_rom.size == KiB(16));
 	Assert(parsed_cartridge.chr_rom.size == KiB(8));
 
-	NES_Emulator *core = nes_emulator_create(&arena);
+	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(core);
 	Assert(!nes_emulator_has_cartridge(core));
 	NES_CartridgeDesc oversized_nrom = parsed_cartridge;
@@ -199,11 +199,11 @@ int main(int argc, char **argv)
 	Assert(!nes_emulator_load_state(core, byte_span(obsolete_state_header, sizeof(obsolete_state_header))));
 	Assert(nes_emulator_has_cartridge(core));
 
-	NES_CPUState before = nes_emulator_cpu_state(core);
+	NES_CPUState before = core->core.cpu;
 	Assert(before.PC != 0);
 
 	nes_emulator_step(core);
-	NES_CPUState after = nes_emulator_cpu_state(core);
+	NES_CPUState after = core->core.cpu;
 	Assert(after.PC != before.PC);
 	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(core);
 	Assert(trace.index > 0);
@@ -236,27 +236,24 @@ int main(int argc, char **argv)
 	Assert(split.spans[1].entries == wrapped.trace);
 	Assert(split.spans[1].count == 7);
 
-	NES_CPUState captured_cpu = nes_emulator_cpu_state(core);
-	NES_PPUState captured_ppu = nes_emulator_ppu_state(core);
-	NES_APUState captured_apu = nes_emulator_apu_state(core);
+	NES_CPUState captured_cpu = core->core.cpu;
+	NES_PPUState captured_ppu = core->core.ppu;
+	NES_APUState captured_apu = core->core.apu;
 	Assert(captured_cpu.PC == after.PC);
 	Assert(captured_ppu.xtick < 341);
 	Assert(captured_ppu.ytick < 262);
 	Assert(ArrayCount(captured_ppu.OAM) == 64);
 	Assert(ArrayCount(captured_apu.pulse) == 2);
 
-	// Published values are copies of the actual device structs. Advancing the
-	// emulator must not mutate a state value already handed to the frontend.
+	// Captured values are copies of the actual device structs. Advancing the
+	// emulator must not mutate a previously captured state value.
 	nes_emulator_step(core);
-	Assert(nes_emulator_cpu_state(core).PC != captured_cpu.PC);
+	Assert(core->core.cpu.PC != captured_cpu.PC);
 
-	NES_VideoFrame video = nes_emulator_video_frame(core);
-	Assert(video.pixels);
-	Assert(video.width == NES_VIDEO_WIDTH);
-	Assert(video.height == NES_VIDEO_HEIGHT);
-	Assert(video.stride >= video.width);
+	Assert(ArrayCount(core->video) == NES_VIDEO_HEIGHT);
+	Assert(ArrayCount(core->video[0]) == NES_VIDEO_WIDTH);
 
-	NES_PPUState state_before_save_ppu = nes_emulator_ppu_state(core);
+	NES_PPUState state_before_save_ppu = core->core.ppu;
 	NES_PPUState state_after_load_ppu = {};
 	core->video[7][11] = 0x2A;
 	ARENA_SCOPE(&arena)
@@ -300,21 +297,21 @@ int main(int argc, char **argv)
 		core->video[7][11] = 0;
 		Assert(nes_emulator_load_state(core,
 			byte_span(disk_state.text, disk_state.size)));
-		state_after_load_ppu = nes_emulator_ppu_state(core);
+		state_after_load_ppu = core->core.ppu;
 	}
 	assert_serialized_fields_equal(ppu_record, &state_before_save_ppu, &state_after_load_ppu);
 	Assert(core->video[7][11] == 0x2A);
 
-	Assert(nes_emulator_ppu_state(core).xtick > 0);
-	Assert(nes_emulator_apu_state(core).cpu_cycle_counter < 7457);
+	Assert(core->core.ppu.xtick > 0);
+	Assert(core->core.apu.cpu_cycle_counter < 7457);
 
 	Assert(nes_emulator_load_cartridge(core, parsed_cartridge));
-	Assert(nes_emulator_cpu_state(core).PC == before.PC);
-	Assert(nes_emulator_ppu_state(core).xtick == 0);
-	Assert(nes_emulator_ppu_state(core).ytick == 0);
-	Assert(nes_emulator_apu_state(core).mode == 0);
-	Assert(nes_emulator_apu_state(core).step_index == 0);
-	Assert(nes_emulator_apu_state(core).cpu_cycle_counter == 0);
+	Assert(core->core.cpu.PC == before.PC);
+	Assert(core->core.ppu.xtick == 0);
+	Assert(core->core.ppu.ytick == 0);
+	Assert(core->core.apu.mode == 0);
+	Assert(core->core.apu.step_index == 0);
+	Assert(core->core.apu.cpu_cycle_counter == 0);
 
 	if (argc > 1)
 	{
@@ -322,12 +319,12 @@ int main(int argc, char **argv)
 		{
 			String external_state = test_read_file(&arena, argv[1]);
 			Assert(external_state.text && external_state.size);
-			NES_Emulator *external_core = nes_emulator_create(&arena);
+			NES_Emulator *external_core = arena_push_zero(&arena, sizeof(NES_Emulator));
 			Assert(nes_emulator_load_state(external_core,
 				byte_span(external_state.text, external_state.size)));
-			Assert(nes_emulator_cpu_state(external_core).PC != 0);
-			Assert(nes_emulator_ppu_state(external_core).xtick < 341);
-			Assert(nes_emulator_ppu_state(external_core).ytick < 262);
+			Assert(external_core->core.cpu.PC != 0);
+			Assert(external_core->core.ppu.xtick < 341);
+			Assert(external_core->core.ppu.ytick < 262);
 		}
 	}
 

@@ -87,11 +87,6 @@ static b32 nes_state_valid(const NES_State *state)
 	return true;
 }
 
-NES_Emulator *nes_emulator_create(Arena *arena)
-{
-	return arena_push_zero(arena, sizeof(NES_Emulator));
-}
-
 b32 nes_emulator_has_cartridge(const NES_Emulator *core)
 {
 	return core->mapper.reset != 0;
@@ -111,35 +106,6 @@ void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input)
 {
 	if (player < ArrayCount(core->core.input_state.inputs))
 	core->core.input_state.inputs[player] = (u8)input;
-}
-
-// TODO(RJ) REMOVE
-NES_CPUState nes_emulator_cpu_state(const NES_Emulator *core)
-{
-	return core->core.cpu;
-}
-
-// TODO(RJ) REMOVE
-NES_PPUState nes_emulator_ppu_state(const NES_Emulator *core)
-{
-	return core->core.ppu;
-}
-
-// TODO(RJ) REMOVE
-NES_APUState nes_emulator_apu_state(const NES_Emulator *core)
-{
-	return core->core.apu;
-}
-
-// TODO(RJ) REMOVE
-NES_VideoFrame nes_emulator_video_frame(const NES_Emulator *core)
-{
-	return (NES_VideoFrame) {
-		.pixels = &core->video[0][0],
-		.width = NES_VIDEO_WIDTH,
-		.height = NES_VIDEO_HEIGHT,
-		.stride = NES_VIDEO_WIDTH,
-	};
 }
 
 u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address)
