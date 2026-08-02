@@ -461,9 +461,9 @@ static void ui_virtual_list__layout(UI_Box *box, rect_f32 clip)
 	}
 }
 
-static const UI_BoxHooks ui_virtual_list__ops = {
+static const UI_LayoutHooks ui_virtual_list__layout_hooks = {
 	.measure_children = ui_virtual_list__measure_children,
-	.layout = ui_virtual_list__layout,
+	.layout_children = ui_virtual_list__layout,
 };
 
 UI_Box *ui_virtual_list_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc, UI_VirtualListDesc list)
@@ -478,7 +478,7 @@ UI_Box *ui_virtual_list_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc de
 	data->item_count = list.item_count;
 
 	UI_Box *box = ui_box_begin_desc(ui, key, name, desc);
-	box->hooks = &ui_virtual_list__ops;
+	box->desc.layout = &ui_virtual_list__layout_hooks;
 	box->content = data;
 	if (list.item_count)
 	{
@@ -563,8 +563,8 @@ UI_Box *ui_tooltip_begin(UI_Context *ui, UI_Key owner_key, vec2 screen_anchor)
 
 	vec2 window_size = v2_from_v2i(ui->window->size);
 	UI_BoxDesc desc = ui_defaults();
-	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
-	desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
+	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_PARENT };
+	desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_PARENT };
 	desc.max_size = v2(Max(0.f, window_size.x - tooltip->margin * 2.f), Max(0.f, window_size.y - tooltip->margin * 2.f));
 	desc.horz_padd[0] = desc.horz_padd[1] = 8.f;
 	desc.vert_padd[0] = desc.vert_padd[1] = 6.f;
@@ -662,7 +662,8 @@ static vec2 ui_scroll_box__measure_content(UI_Box *box, UI_BoxConstraints constr
 	UI_Box *content = scroll->content;
 	UI_BoxConstraints content_constraints = { .max = constraints.max };
 	for (AXIS constraint_axis = AXIS_X; constraint_axis <= AXIS_Y; constraint_axis ++) {
-		content_constraints.max.xy[constraint_axis] = Max(0.f, content_constraints.max.xy[constraint_axis] - content->desc.margin[constraint_axis][0] - content->desc.margin[constraint_axis][1]);
+		f32 margins = content->desc.margin[constraint_axis][0] + content->desc.margin[constraint_axis][1];
+		content_constraints.max.xy[constraint_axis] = Max(0.f, content_constraints.max.xy[constraint_axis] - margins);
 	}
 	content_constraints.max.xy[axis] = UI_BOX_INFINITY;
 
@@ -750,17 +751,18 @@ static void ui_scroll_box__layout_root(UI_Box *box, rect_f32 clip)
 	ui_box_layout_clipped(scroll->track, track_rect, clip);
 }
 
-static const UI_BoxHooks ui_scroll_box__viewport_hooks = {
+static const UI_LayoutHooks ui_scroll_box__viewport_layout = {
 	.measure_children = ui_scroll_box__measure_content,
-	.layout = ui_scroll_box__layout,
+	.layout_children = ui_scroll_box__layout,
 };
 
 static const UI_BoxHooks ui_scroll_box__track_hooks = {
 	.prepare_layout = ui_scroll_box__prepare_track,
 };
 
-static const UI_BoxHooks ui_scroll_box__root_hooks = {
-	.layout = ui_scroll_box__layout_root,
+static const UI_LayoutHooks ui_scroll_box__root_layout = {
+	.measure_children = ui_linear_measure_children,
+	.layout_children = ui_scroll_box__layout_root,
 };
 
 UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis)
@@ -781,8 +783,8 @@ UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis)
 	root_desc.gap = 0.f;
 	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_VISIBLE;
 	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_VISIBLE;
+	root_desc.layout = &ui_scroll_box__root_layout;
 	scroll->root = ui_box_begin_desc(ui, key, LIT("scroll box"), root_desc);
-	scroll->root->hooks = &ui_scroll_box__root_hooks;
 	scroll->root->content = scroll;
 
 	UI_BoxDesc viewport_desc = ui_defaults();
@@ -791,9 +793,9 @@ UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis)
 	viewport_desc.min_size = v2(0.f, 0.f);
 	viewport_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	viewport_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+	viewport_desc.layout = &ui_scroll_box__viewport_layout;
 	scroll->viewport = ui_box_begin_desc(ui, UI_SCROLL_BOX_VIEWPORT_KEY, LIT("scroll viewport"), viewport_desc);
 	scroll->viewport->paint = (UI_BoxPaintDesc) { .z = scroll->viewport->paint.z };
-	scroll->viewport->hooks = &ui_scroll_box__viewport_hooks;
 	scroll->viewport->content = scroll;
 
 	// Keep caller content IDs stable even though the internal viewport is now
@@ -1058,8 +1060,12 @@ static void ui_box__prepare_table_layout(UI_Box *box)
 }
 
 static const UI_BoxHooks ui_box__table_ops = {
-	.measure_children = ui_box__measure_table,
 	.prepare_layout = ui_box__prepare_table_layout,
+};
+
+static const UI_LayoutHooks ui_box__table_layout = {
+	.measure_children = ui_box__measure_table,
+	.layout_children = ui_linear_layout_children,
 };
 
 UI_BoxTable ui_box_table_begin(UI_Context *ui, UI_Key key, Str name, UI_BoxTableDesc desc)
@@ -1081,6 +1087,7 @@ UI_BoxTable ui_box_table_begin(UI_Context *ui, UI_Key key, Str name, UI_BoxTable
 	UI_BoxDesc box_desc = builder->desc;
 	box_desc.axis = AXIS_Y;
 	box_desc.gap = desc.row_gap;
+	box_desc.layout = &ui_box__table_layout;
 	UI_Box *box = ui_box_begin_desc(ui, key, name, box_desc);
 	box->content = data;
 	box->hooks = &ui_box__table_ops;

@@ -108,6 +108,7 @@ struct UI_Context
 	u32            box_state_slot_count;
 	UI_Builder *builder;
 	UI_Box        *root;
+	UI_Box        *content_root;
 	UI_Box        *overlay_root;
 	UI_Box        *tooltip_box;
 	b32            tooltip_open;

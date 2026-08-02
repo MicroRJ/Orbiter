@@ -170,7 +170,7 @@ typedef struct
 	f32              disable_texture;
 	f32              grain;
 }
-GFX_RectInst;
+GFX_Inst;
 
 typedef struct
 {
@@ -178,7 +178,7 @@ typedef struct
 	u32              pass_count;
 	GFX_Batch        *batches;
 	u32               batch_count;
-	GFX_RectInst     *instances;
+	GFX_Inst     *instances;
 	u32               instances_size;
 }
 GFX_DrawData;

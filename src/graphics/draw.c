@@ -5,12 +5,16 @@
 
 enum
 {
-	DRAW_PASS_ARENA_CAPACITY = KiB(64),
-	DRAW_BATCH_ARENA_CAPACITY = MB(4),
-	DRAW_INSTANCE_ARENA_CAPACITY = MB(60),
-	DRAW_CLIP_STACK_CAPACITY = 64,
-	DRAW_LIST_Z_STACK_CAPACITY = 8,
-	DRAW_LIST_CLIP_STACK_CAPACITY = 16,
+	DRAW_PASS_ARENA_CAPACITY          = MB(256),
+	DRAW_BATCH_ARENA_CAPACITY         = MB(256),
+	DRAW_INSTANCE_ARENA_CAPACITY      = MB(256),
+	DRAW_MAX_PASS_COUNT               = DRAW_PASS_ARENA_CAPACITY / sizeof(GFX_Pass),
+	DRAW_MAX_BATCH_COUNT              = DRAW_BATCH_ARENA_CAPACITY / sizeof(GFX_Batch),
+	DRAW_MAX_INSTANCE_COUNT           = DRAW_INSTANCE_ARENA_CAPACITY / sizeof(GFX_Inst),
+
+	DRAW_CLIP_STACK_CAPACITY          = 64,
+	DRAW_LIST_Z_STACK_CAPACITY        = 8,
+	DRAW_LIST_CLIP_STACK_CAPACITY     = 16,
 	DRAW_LIST_EMISSION_STACK_CAPACITY = 8,
 };
 
@@ -76,7 +80,7 @@ struct Draw_Context
 	GFX_BatchDesc active_batch;
 	u32 active_batch_offset;
 
-	GFX_RectInst *instances;
+	GFX_Inst *instances;
 	u32 instance_count;
 
 	GFX_Texture *output;
@@ -157,9 +161,9 @@ static void draw__set_batch_desc(Draw_Context *draw, GFX_BatchDesc desc)
 	draw->active_batch = desc;
 }
 
-static void draw__push_instance(Draw_Context *draw, GFX_RectInst instance)
+static void draw__push_instance(Draw_Context *draw, GFX_Inst instance)
 {
-	GFX_RectInst *destination = arena_push_aligned(&draw->instance_arena,
+	GFX_Inst *destination = arena_push_aligned(&draw->instance_arena,
 		sizeof(*destination), 1);
 	*destination = instance;
 	draw->instance_count++;
@@ -204,7 +208,7 @@ static UV_Coords draw__uv_from_region(GFX_Texture *texture, rect_i32 region)
 	};
 }
 
-static void draw__set_all_colors(GFX_RectInst *instance, Color_Linear color)
+static void draw__set_all_colors(GFX_Inst *instance, Color_Linear color)
 {
 	for (u32 index = 0; index < _countof(instance->colors); ++index)
 	{
@@ -365,7 +369,7 @@ void draw_rect(Draw_Context *draw, Draw_RectParams params)
 	GFX_Sampler sampler = draw->active_batch.sampler ? draw->active_batch.sampler : GRAPHICS_SAMPLER_LINEAR;
 	GFX_BatchDesc desc = draw__batch_desc(draw, texture, sampler, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = params.rect,
 		.src = { 0, 0, 1, 1 },
 		.corner_radii = params.corner_radii,
@@ -382,7 +386,7 @@ void draw_gradient(Draw_Context *draw, Draw_GradientParams params)
 	Assert(params.axis == AXIS_X || params.axis == AXIS_Y);
 	GFX_BatchDesc desc = draw__batch_desc(draw, gfx_get_fallback_texture(draw->renderer), GRAPHICS_SAMPLER_LINEAR, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = params.rect,
 		.src = { 0, 0, 1, 1 },
 		.disable_texture = 1.f,
@@ -431,7 +435,7 @@ void draw_image(Draw_Context *draw, Draw_TextureParams params)
 	GFX_BatchDesc desc = draw__batch_desc(draw, params.texture, sampler,
 		blender, shader, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = params.rect,
 		.src = draw__uv_from_region(params.texture, params.region),
 	};
@@ -447,7 +451,7 @@ void draw_barrel(Draw_Context *draw, Draw_BarrelParams params)
 	GFX_BatchDesc desc = draw__batch_desc(draw, params.texture, GRAPHICS_SAMPLER_LINEAR, GFX_BLENDER_DISABLED, GFX_SHADER_BARREL, GRAPHICS_TEXTURE_RGBA);
 	desc.shader_block.barrel.strength = params.strength;
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = rect_f32_from_i32(draw->viewport),
 		.src = { 0, 0, 1, 1 },
 	};
@@ -462,7 +466,7 @@ void draw_blit(Draw_Context *draw, GFX_Texture *texture)
 	Assert(texture);
 	GFX_BatchDesc desc = draw__batch_desc(draw, texture, GRAPHICS_SAMPLER_POINT, GFX_BLENDER_DISABLED, GFX_SHADER_BLIT, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = rect_f32_from_i32(draw->viewport),
 		.src = { 0, 0, 1, 1 },
 	};
@@ -477,7 +481,7 @@ void draw_texture_copy(Draw_Context *draw, GFX_Texture *texture)
 	Assert(texture);
 	GFX_BatchDesc desc = draw__batch_desc(draw, texture, GRAPHICS_SAMPLER_LINEAR, GFX_BLENDER_DISABLED, GFX_SHADER_COPY, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = rect_f32_from_i32(draw->viewport),
 		.src = { 0, 0, 1, 1 },
 	};
@@ -492,7 +496,7 @@ static void draw__texture_shader(Draw_Context *draw, GFX_Texture *texture, GFX_S
 	Assert(texture);
 	GFX_BatchDesc desc = draw__batch_desc(draw, texture, sampler, GFX_BLENDER_DISABLED, shader, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = rect_f32_from_i32(draw->viewport),
 		.src = { 0, 0, 1, 1 },
 	};
@@ -514,7 +518,7 @@ void draw_luminance(Draw_Context *draw, Draw_LuminanceParams params)
 	desc.shader_block.luminance.threshold = params.threshold;
 	desc.shader_block.luminance.gain = params.gain;
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = rect_f32_from_i32(draw->viewport),
 		.src = { 0, 0, 1, 1 },
 	};
@@ -531,7 +535,7 @@ void draw_rewind(Draw_Context *draw, Draw_RewindParams params)
 	desc.shader_block.rewind.time = params.time;
 	desc.shader_block.rewind.strength = params.strength;
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = rect_f32_from_i32(draw->viewport),
 		.src = { 0, 0, 1, 1 },
 	};
@@ -582,7 +586,7 @@ void draw_gaussian_blur(Draw_Context *draw, Draw_GaussianBlurParams params)
 	GFX_BatchDesc desc = draw__batch_desc(draw, params.texture, GRAPHICS_SAMPLER_LINEAR, GFX_BLENDER_DISABLED, GFX_SHADER_GAUSSIAN, GRAPHICS_TEXTURE_RGBA);
 	desc.shader_block = draw__make_gaussian_block(params);
 	draw__set_batch_desc(draw, desc);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = rect_f32_from_i32(draw->viewport),
 		.src = { 0, 0, 1, 1 },
 	};
@@ -605,7 +609,7 @@ void draw_blur_material(Draw_Context *draw, Draw_BlurMaterialParams params)
 	desc.shader_block.blur_material.tint_b = tint.b;
 	draw__set_batch_desc(draw, desc);
 	rect_f32 viewport = rect_f32_from_i32(draw->viewport);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = params.rect,
 		.src = {
 			(params.rect.x - viewport.x) / viewport.w,
@@ -638,7 +642,7 @@ void draw_glass(Draw_Context *draw, Draw_GlassParams params)
 	desc.shader_block.glass.tint_b = tint.b;
 	draw__set_batch_desc(draw, desc);
 	rect_f32 viewport = rect_f32_from_i32(draw->viewport);
-	GFX_RectInst instance = {
+	GFX_Inst instance = {
 		.dst = params.rect,
 		.src = {
 			(params.rect.x - viewport.x) / viewport.w,
@@ -696,7 +700,7 @@ void draw_mask_rects(Draw_Context *draw, Draw_MaskRectsParams params)
 	Color_Linear color = color_linear_from_srgba(params.color);
 	for (u32 index = 0; index < params.rect_count; ++index)
 	{
-		GFX_RectInst instance = {
+		GFX_Inst instance = {
 			.dst = rect_f32_translate(params.rects[index].destination, params.position),
 			.src = params.rects[index].source,
 			.grain = 1.f,

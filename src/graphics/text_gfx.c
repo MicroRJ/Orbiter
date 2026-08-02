@@ -80,7 +80,7 @@ void text_gfx_sync(Text_GFX *gfx)
 		if (gpu_page->uploaded_revision == page.revision) {
 			continue;
 		}
-		gfx_update_texture(gpu_page->texture, (GFX_TextureUpdateParams) {
+		gfx_update_texture(gpu_page->texture, (GFX_UpdateTextureParams) {
 			.size = page.size,
 			.stride = page.stride,
 			.data = (void *)page.pixels,

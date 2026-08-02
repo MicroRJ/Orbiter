@@ -159,6 +159,7 @@ void ui_begin_frame(UI_Context *ui)
 	}
 	arena_reset(&ui->frame_arena);
 	ui->root = 0;
+	ui->content_root = 0;
 	ui->overlay_root = 0;
 	ui->tooltip_box = 0;
 	ui->tooltip_open = false;

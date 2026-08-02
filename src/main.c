@@ -909,7 +909,7 @@ static void app_pace_frame(void)
 
 static void app_upload_video_texture(void)
 {
-	gfx_update_texture(app.video_texture, (GFX_TextureUpdateParams) {
+	gfx_update_texture(app.video_texture, (GFX_UpdateTextureParams) {
 		.dest = v2i(0, 0),
 		.size = v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT),
 		.stride = NES_VIDEO_WIDTH * sizeof(*app.published.video),
@@ -919,7 +919,7 @@ static void app_upload_video_texture(void)
 
 static void app_upload_chr_texture(void)
 {
-	gfx_update_texture(app.chr_texture, (GFX_TextureUpdateParams) {
+	gfx_update_texture(app.chr_texture, (GFX_UpdateTextureParams) {
 		.dest = v2i(0, 0),
 		.size = v2i(NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_HEIGHT),
 		.stride = NES_TARGET_CHR_WIDTH * sizeof(*app.published.chr_image),
@@ -1135,9 +1135,9 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	UI_BoxDesc panel_host_desc = ui_defaults();
 	panel_host_desc.size[AXIS_X] = ui_grow(1.f);
 	panel_host_desc.size[AXIS_Y] = ui_grow(1.f);
+	panel_host_desc.layout = &ui_layout_frame;
 	ui_box_begin_desc(ui, 2, LIT("belly"), panel_host_desc);
 	{
-		// Todo, instead we need to stack these two on top!
 		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
 		{
 			Assert(debugger_armed(app.debugger));

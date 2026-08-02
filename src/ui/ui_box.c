@@ -16,11 +16,6 @@ static f32 ui_box__local_max(const UI_Box *box, AXIS axis)
 	return Max(ui_box__local_min(box, axis), box->desc.max_size.xy[axis]);
 }
 
-static b32 ui_box__is_absolute(const UI_Box *box, AXIS axis)
-{
-	return box->desc.position[axis].kind == UI_BOX_POSITION_ABSOLUTE;
-}
-
 UI_BoxSize ui_wrap(void)
 {
 	return (UI_BoxSize) { .kind = UI_BOX_SIZE_CONTENT };
@@ -51,6 +46,7 @@ UI_BoxDesc ui_defaults(void)
 		.size = { { .kind = UI_BOX_SIZE_CONTENT }, { .kind = UI_BOX_SIZE_CONTENT } },
 		.max_size = v2(UI_BOX_INFINITY, UI_BOX_INFINITY),
 		.axis = AXIS_Y,
+		.layout = &ui_layout_linear,
 	};
 }
 
@@ -64,6 +60,7 @@ UI_BoxPaintDesc ui_default_paint(void)
 
 static UI_Box *ui_box__allocate_box(UI_Builder *builder, UI_Id id, UI_Key key, Str name, UI_BoxDesc desc)
 {
+	Assert(desc.layout);
 	UI_Box *box = arena_push_zero(builder->arena, sizeof(*box));
 	box->id = id;
 	box->key = key;
@@ -130,6 +127,11 @@ UI_Box *ui_builder_box_make_desc(UI_Builder *builder, UI_Key key, Str name, UI_B
 	Assert(builder);
 	Assert(builder->parent);
 	UI_Id id = ui_id_child(builder->id, key);
+	if (builder->ui && builder->root == builder->ui->root && builder->parent == builder->ui->content_root)
+	{
+		Assert(!ui_id_equal(id, builder->ui->content_root->id));
+		Assert(!ui_id_equal(id, builder->ui->overlay_root->id));
+	}
 	for (UI_Box *sibling = builder->parent->first; sibling; sibling = sibling->next) {
 		Assert(!ui_id_equal(sibling->id, id));
 	}
@@ -232,6 +234,13 @@ void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size)
 	builder->desc.size[axis] = size;
 }
 
+void ui_builder_layout(UI_Builder *builder, const UI_LayoutHooks *layout)
+{
+	Assert(builder);
+	Assert(layout);
+	builder->desc.layout = layout;
+}
+
 void ui_builder_clean(UI_Builder *builder)
 {
 	Assert(builder);
@@ -243,7 +252,7 @@ void ui_builder_position(UI_Builder *builder, AXIS axis, f32 position)
 {
 	Assert(builder);
 	builder->desc.position[axis] = (UI_BoxPosition) {
-		.kind = UI_BOX_POSITION_ABSOLUTE,
+		.kind = UI_BOX_POSITION_PARENT,
 		.value = position,
 	};
 }
@@ -370,21 +379,47 @@ static UI_Builder *ui_box__builder(UI_Context *ui)
 
 UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDesc root_desc)
 {
+	static const UI_Key content_root_key = 0x434F4E54454E5400ull;
 	static const UI_Key overlay_root_key = 0x4F5645524C415900ull;
 	Assert(ui);
 	Assert(!ui->builder);
 	Assert(!ui->root);
+	Assert(!ui->content_root);
 	Assert(!ui->overlay_root);
+	Assert(root_desc.layout == &ui_layout_linear || root_desc.layout == &ui_layout_frame);
 	UI_Builder *builder = arena_push_zero(&ui->frame_arena, sizeof(*builder));
 	ui->builder = builder;
 	UI_Box *root = ui_box_builder_begin(builder, &ui->frame_arena, ui, root_key, root_name, root_desc);
+	root->desc.layout = &ui_layout_frame;
 	ui->root = root;
 
+	UI_BoxDesc content_desc = ui_defaults();
+	content_desc.size[AXIS_X] = ui_flex(1.f, 1.f);
+	content_desc.size[AXIS_Y] = ui_flex(1.f, 1.f);
+	content_desc.axis = root_desc.axis;
+	content_desc.gap = root_desc.gap;
+	content_desc.overflow[AXIS_X] = root_desc.overflow[AXIS_X];
+	content_desc.overflow[AXIS_Y] = root_desc.overflow[AXIS_Y];
+	content_desc.layout = root_desc.layout;
+	UI_Id content_id = ui_id_child(root->id, content_root_key);
+	ui->content_root = ui_box__allocate_box(builder, content_id, content_root_key, LIT("UI content root"), content_desc);
+	ui->content_root->paint = ui_default_paint();
+	ui->content_root->hit_passthrough = true;
+	ui_box__append_child(root, ui->content_root);
+
 	UI_BoxDesc overlay_desc = ui_defaults();
-	overlay_desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
-	overlay_desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ABSOLUTE };
+	overlay_desc.size[AXIS_X] = ui_grow(1.f);
+	overlay_desc.size[AXIS_Y] = ui_grow(1.f);
+	overlay_desc.layout = &ui_layout_frame;
 	UI_Id overlay_id = ui_id_child(root->id, overlay_root_key);
 	ui->overlay_root = ui_box__allocate_box(builder, overlay_id, overlay_root_key, LIT("UI overlay root"), overlay_desc);
+	ui->overlay_root->paint = ui_default_paint();
+	ui->overlay_root->hit_passthrough = true;
+	ui_box__append_child(root, ui->overlay_root);
+
+	// Caller boxes retain their historical IDs even though an internal content
+	// root now separates the application's layout from the overlay frame.
+	builder->parent = ui->content_root;
 	return root;
 }
 
@@ -392,11 +427,14 @@ UI_Box *ui_build_end(UI_Context *ui)
 {
 	UI_Builder *builder = ui_box__builder(ui);
 	Assert(!ui->tooltip_open);
-	UI_Box *root = ui_box_builder_end(builder);
-	for (UI_Box *child = root->first; child; child = child->next) {
-		Assert(!ui_id_equal(child->id, ui->overlay_root->id));
-	}
-	ui_box__append_child(root, ui->overlay_root);
+	Assert(builder->root == ui->root);
+	Assert(builder->parent == ui->content_root);
+	Assert(builder->parent_count == 0);
+	Assert(builder->id_count == 0);
+	Assert(builder->desc_count == 0);
+	Assert(builder->box_z_count == 0);
+	Assert(ui_id_equal(builder->id, builder->root->id));
+	UI_Box *root = builder->root;
 	ui->builder = 0;
 	return root;
 }
@@ -459,6 +497,11 @@ void ui_pop(UI_Context *ui)
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size)
 {
 	ui_builder_size(ui_box__builder(ui), axis, size);
+}
+
+void ui_layout(UI_Context *ui, const UI_LayoutHooks *layout)
+{
+	ui_builder_layout(ui_box__builder(ui), layout);
 }
 
 void ui_clean(UI_Context *ui)
@@ -556,6 +599,102 @@ void ui_paint_z(UI_Context *ui, i32 z)
 	ui_builder_paint_z(ui_box__builder(ui), z);
 }
 
+static void ui_box__assert_linear_children(UI_Box *box)
+{
+	for (UI_Box *child = box->first; child; child = child->next)
+	{
+		Assert(child->desc.position[AXIS_X].kind == UI_BOX_POSITION_AUTO);
+		Assert(child->desc.position[AXIS_Y].kind == UI_BOX_POSITION_AUTO);
+	}
+}
+
+static void ui_box__clip_axis(rect_f32 *clip, rect_f32 viewport, AXIS axis)
+{
+	f32 minimum = Max(clip->xy[axis], viewport.xy[axis]);
+	f32 maximum = Min(clip->xy[axis] + clip->wh[axis], viewport.xy[axis] + viewport.wh[axis]);
+	clip->xy[axis] = minimum;
+	clip->wh[axis] = Max(0.f, maximum - minimum);
+}
+
+static rect_f32 ui_box__child_clip(UI_Box *box, rect_f32 clip)
+{
+	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+	{
+		f32 content_min = box->content_bounds.xy[axis];
+		f32 content_max = content_min + box->content_bounds.wh[axis];
+		f32 viewport_min = box->viewport.xy[axis];
+		f32 viewport_max = viewport_min + box->viewport.wh[axis];
+		b32 overflowing = content_min < viewport_min - 0.001f || content_max > viewport_max + 0.001f;
+		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_VISIBLE && overflowing) ui_box__clip_axis(&clip, box->viewport, axis);
+	}
+	return clip;
+}
+
+static rect_f32 ui_box__intersect(rect_f32 a, rect_f32 b)
+{
+	return rect_f32_intersect(a, b);
+}
+
+static void ui_box__commit_state(UI_Box *box)
+{
+	if (!box->state) return;
+	box->state->last_layout_frame = box->ui->frame_index;
+	box->state->layout_generation = box->ui->layout_generation;
+	box->state->rect = box->rect;
+	box->state->hit_rect = ui_box__intersect(box->rect, box->clip_rect);
+	box->state->viewport = box->viewport;
+	box->state->content_size = box->content_size;
+}
+
+static void ui_box__finish_layout(UI_Box *box)
+{
+	if (box->hooks && box->hooks->finish_layout) {
+		box->hooks->finish_layout(box);
+	}
+	ui_box__commit_state(box);
+}
+
+vec2 ui_linear_measure_children(UI_Box *box, UI_BoxConstraints constraints)
+{
+	ui_box__assert_linear_children(box);
+	AXIS main_axis = box->desc.axis;
+	AXIS perp_axis = !main_axis;
+	vec2 content = {};
+	if (box->child_count) content.xy[main_axis] = box->desc.gap * (box->child_count - 1);
+
+	for (UI_Box *child = box->first; child; child = child->next)
+	{
+		UI_BoxConstraints child_constraints = { .max = constraints.max };
+		child_constraints.max.xy[main_axis] = UI_BOX_INFINITY;
+		vec2 child_size = ui_box_measure(child, child_constraints);
+		child_size.xy[main_axis] += child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
+		child_size.xy[perp_axis] += child->desc.margin[perp_axis][0] + child->desc.margin[perp_axis][1];
+		content.xy[main_axis] += child_size.xy[main_axis];
+		content.xy[perp_axis] = Max(content.xy[perp_axis], child_size.xy[perp_axis]);
+	}
+	return content;
+}
+
+static vec2 ui_frame_measure_children(UI_Box *box, UI_BoxConstraints constraints)
+{
+	vec2 content = {};
+	for (UI_Box *child = box->first; child; child = child->next)
+	{
+		UI_BoxConstraints child_constraints = { .max = constraints.max };
+		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++) {
+			if (child->desc.position[axis].kind == UI_BOX_POSITION_PARENT) child_constraints.max.xy[axis] = UI_BOX_INFINITY;
+		}
+		vec2 child_size = ui_box_measure(child, child_constraints);
+		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+		{
+			b32 positioned = child->desc.position[axis].kind == UI_BOX_POSITION_PARENT;
+			f32 extent = positioned ? Max(0.f, child->desc.position[axis].value + child_size.xy[axis]) : child_size.xy[axis] + child->desc.margin[axis][0] + child->desc.margin[axis][1];
+			content.xy[axis] = Max(content.xy[axis], extent);
+		}
+	}
+	return content;
+}
+
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 {
 	Assert(box);
@@ -578,38 +717,10 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 		natural.x = Max(natural.x, measured_content.x);
 		natural.y = Max(natural.y, measured_content.y);
 	}
-	if (box->hooks && box->hooks->measure_children)
+	Assert(box->desc.layout);
+	if (box->desc.layout->measure_children)
 	{
-		content = box->hooks->measure_children(box, content_constraints);
-		natural.x = Max(natural.x, content.x);
-		natural.y = Max(natural.y, content.y);
-	}
-	else if (box->child_count)
-	{
-		AXIS main_axis = box->desc.axis;
-		AXIS perp_axis = !main_axis;
-
-		vec2 available = v2(Max(0.f, constraints.max.x - box->desc.horz_padd[0] - box->desc.horz_padd[1]), Max(0.f, constraints.max.y - box->desc.vert_padd[0] - box->desc.vert_padd[1]));
-
-		content = v2(0.f, 0.f);
-		u32 flow_child_count = 0;
-		for (UI_Box *child = box->first; child; child = child->next) {
-			flow_child_count += !ui_box__is_absolute(child, main_axis);
-		}
-		if (flow_child_count) content.xy[main_axis] = box->desc.gap * (flow_child_count - 1);
-
-		for (UI_Box *child = box->first; child; child = child->next)
-		{
-			UI_BoxConstraints child_constraints = { .max = available, };
-			child_constraints.max.xy[main_axis] = UI_BOX_INFINITY;
-
-			vec2 child_size = ui_box_measure(child, child_constraints);
-			child_size.xy[main_axis] += child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
-			child_size.xy[perp_axis] += child->desc.margin[perp_axis][0] + child->desc.margin[perp_axis][1];
-
-			if (!ui_box__is_absolute(child, main_axis)) content.xy[main_axis] += child_size.xy[main_axis];
-			if (!ui_box__is_absolute(child, perp_axis)) content.xy[perp_axis] = Max(content.xy[perp_axis], child_size.xy[perp_axis]);
-		}
+		content = box->desc.layout->measure_children(box, content_constraints);
 		natural.x = Max(natural.x, content.x);
 		natural.y = Max(natural.y, content.y);
 	}
@@ -643,7 +754,6 @@ static f32 ui_box__distribute(UI_Box *box, AXIS axis, f32 free_size)
 		f32 total_weight = 0.f;
 		for (UI_Box *child = box->first; child; child = child->next)
 		{
-			if (ui_box__is_absolute(child, axis)) continue;
 			f32 size = child->arranged_size.xy[axis];
 			f32 weight = growing ? child->desc.size[axis].grow : child->desc.size[axis].shrink;
 			f32 bound = growing ? ui_box__local_max(child, axis) : ui_box__local_min(child, axis);
@@ -659,7 +769,6 @@ static f32 ui_box__distribute(UI_Box *box, AXIS axis, f32 free_size)
 		f32 correction = 0.f;
 		for (UI_Box *child = box->first; child; child = child->next)
 		{
-			if (ui_box__is_absolute(child, axis)) continue;
 			f32 weight = growing ? child->desc.size[axis].grow : child->desc.size[axis].shrink;
 			if (weight <= 0.f) continue;
 			f32 prev = child->arranged_size.xy[axis];
@@ -675,91 +784,21 @@ static f32 ui_box__distribute(UI_Box *box, AXIS axis, f32 free_size)
 	return free_size;
 }
 
-static void ui_box__clip_axis(rect_f32 *clip, rect_f32 viewport, AXIS axis)
+void ui_linear_layout_children(UI_Box *box, rect_f32 clip)
 {
-	f32 minimum = Max(clip->xy[axis], viewport.xy[axis]);
-	f32 maximum = Min(clip->xy[axis] + clip->wh[axis], viewport.xy[axis] + viewport.wh[axis]);
-	clip->xy[axis] = minimum;
-	clip->wh[axis] = Max(0.f, maximum - minimum);
-}
-
-static rect_f32 ui_box__child_clip(UI_Box *box, rect_f32 clip)
-{
-	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++) {
-		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_VISIBLE && box->content_size.xy[axis] > box->viewport.wh[axis] + 0.001f) ui_box__clip_axis(&clip, box->viewport, axis);
-	}
-	return clip;
-}
-
-static rect_f32 ui_box__intersect(rect_f32 a, rect_f32 b)
-{
-	return rect_f32_intersect(a, b);
-}
-
-static void ui_box__commit_state(UI_Box *box)
-{
-	if (!box->state) return;
-	box->state->last_layout_frame = box->ui->frame_index;
-	box->state->layout_generation = box->ui->layout_generation;
-	box->state->rect = box->rect;
-	box->state->hit_rect = ui_box__intersect(box->rect, box->clip_rect);
-	box->state->viewport = box->viewport;
-	box->state->content_size = box->content_size;
-}
-
-static void ui_box__finish_layout(UI_Box *box)
-{
-	if (box->hooks && box->hooks->finish_layout) {
-		box->hooks->finish_layout(box);
-	}
-	ui_box__commit_state(box);
-}
-
-void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
-{
-	box->rect = rect;
-	box->arranged_size = rect.size;
-	box->clip_rect = clip;
-	box->viewport = (rect_f32) {
-		.x = rect.x + box->desc.horz_padd[0],
-		.y = rect.y + box->desc.vert_padd[0],
-		.w = Max(0.f, rect.w - box->desc.horz_padd[0] - box->desc.horz_padd[1]),
-		.h = Max(0.f, rect.h - box->desc.vert_padd[0] - box->desc.vert_padd[1]),
-	};
-	if (box->hooks && box->hooks->prepare_layout) {
-		box->hooks->prepare_layout(box);
-	}
-
-	if (box->hooks && box->hooks->layout)
-	{
-		box->hooks->layout(box, clip);
-		ui_box__finish_layout(box);
-		return;
-	}
-	if (!box->child_count)
-	{
-		ui_box__finish_layout(box);
-		return;
-	}
-
+	ui_box__assert_linear_children(box);
 	AXIS main_axis = box->desc.axis;
 	AXIS perp_axis = !main_axis;
-	u32 flow_child_count = 0;
-	for (UI_Box *child = box->first; child; child = child->next) {
-		flow_child_count += !ui_box__is_absolute(child, main_axis);
-	}
-	f32 occupied = flow_child_count ? box->desc.gap * (flow_child_count - 1) : 0.f;
+	f32 occupied = box->child_count ? box->desc.gap * (box->child_count - 1) : 0.f;
 
 	for (UI_Box *child = box->first; child; child = child->next)
 	{
 		child->arranged_size = child->measured_size;
-		if (!ui_box__is_absolute(child, main_axis)) occupied += child->arranged_size.xy[main_axis] + child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
+		occupied += child->arranged_size.xy[main_axis] + child->desc.margin[main_axis][0] + child->desc.margin[main_axis][1];
 	}
 
 	f32 free_space = box->viewport.wh[main_axis] - occupied;
-	if (fabsf(free_space) > 0.001f) {
-		free_space = ui_box__distribute(box, main_axis, free_space);
-	}
+	if (fabsf(free_space) > 0.001f) free_space = ui_box__distribute(box, main_axis, free_space);
 
 	box->content_size.xy[perp_axis] = 0.f;
 	for (UI_Box *child = box->first; child; child = child->next)
@@ -768,12 +807,10 @@ void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		f32 perp_after = child->desc.margin[perp_axis][1];
 		f32 perp_available = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
 		f32 perp_size = child->measured_size.xy[perp_axis];
-		if (child->desc.size[perp_axis].kind == UI_BOX_SIZE_FILL) {
-			perp_size = perp_available;
-		}
+		if (child->desc.size[perp_axis].kind == UI_BOX_SIZE_FILL) perp_size = perp_available;
 		perp_size = ui_box__clamp(perp_size, ui_box__local_min(child, perp_axis), ui_box__local_max(child, perp_axis));
 		child->arranged_size.xy[perp_axis] = perp_size;
-		if (!ui_box__is_absolute(child, perp_axis)) box->content_size.xy[perp_axis] = Max(box->content_size.xy[perp_axis], perp_size + perp_before + perp_after);
+		box->content_size.xy[perp_axis] = Max(box->content_size.xy[perp_axis], perp_size + perp_before + perp_after);
 	}
 
 	box->content_size.xy[main_axis] = Max(0.f, box->viewport.wh[main_axis] - free_space);
@@ -790,13 +827,110 @@ void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		f32 perp_available = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
 		f32 perp_size = child->arranged_size.xy[perp_axis];
 		rect_f32 child_rect = {};
-		child_rect.xy[main_axis] = ui_box__is_absolute(child, main_axis) ? box->viewport.xy[main_axis] + child->desc.position[main_axis].value : cursor + main_before;
+		child_rect.xy[main_axis] = cursor + main_before;
 		child_rect.wh[main_axis] = child->arranged_size.xy[main_axis];
-		child_rect.xy[perp_axis] = ui_box__is_absolute(child, perp_axis) ? box->viewport.xy[perp_axis] + child->desc.position[perp_axis].value : box->viewport.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
+		child_rect.xy[perp_axis] = box->viewport.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
 		child_rect.wh[perp_axis] = perp_size;
 		ui_box_layout_clipped(child, child_rect, child_clip);
-		if (!ui_box__is_absolute(child, main_axis)) cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;
+		cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;
 	}
+}
+
+static void ui_frame_layout_children(UI_Box *box, rect_f32 clip)
+{
+	rect_f32 content_bounds = { .pos = box->viewport.pos };
+	b32 has_content = false;
+
+	for (UI_Box *child = box->first; child; child = child->next)
+	{
+		rect_f32 child_rect = {};
+		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+		{
+			b32 positioned = child->desc.position[axis].kind == UI_BOX_POSITION_PARENT;
+			f32 before = child->desc.margin[axis][0];
+			f32 after = child->desc.margin[axis][1];
+			f32 available = positioned ? Max(0.f, box->viewport.wh[axis] - Max(0.f, child->desc.position[axis].value)) : Max(0.f, box->viewport.wh[axis] - before - after);
+			f32 size = child->measured_size.xy[axis];
+			if (child->desc.size[axis].kind == UI_BOX_SIZE_FILL || child->desc.size[axis].grow > 0.f) size = available;
+			size = ui_box__clamp(size, ui_box__local_min(child, axis), ui_box__local_max(child, axis));
+			child->arranged_size.xy[axis] = size;
+			child_rect.xy[axis] = positioned ? box->viewport.xy[axis] + child->desc.position[axis].value : box->viewport.xy[axis] + before;
+			child_rect.wh[axis] = size;
+		}
+
+		rect_f32 outer = child_rect;
+		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+		{
+			if (child->desc.position[axis].kind == UI_BOX_POSITION_AUTO)
+			{
+				outer.xy[axis] -= child->desc.margin[axis][0];
+				outer.wh[axis] += child->desc.margin[axis][0] + child->desc.margin[axis][1];
+			}
+		}
+		if (!has_content)
+		{
+			content_bounds = outer;
+			has_content = true;
+		}
+		else
+		{
+			f32 right = Max(content_bounds.x + content_bounds.w, outer.x + outer.w);
+			f32 bottom = Max(content_bounds.y + content_bounds.h, outer.y + outer.h);
+			content_bounds.x = Min(content_bounds.x, outer.x);
+			content_bounds.y = Min(content_bounds.y, outer.y);
+			content_bounds.w = right - content_bounds.x;
+			content_bounds.h = bottom - content_bounds.y;
+		}
+	}
+
+	box->content_bounds = content_bounds;
+	box->content_size = v2(0.f, 0.f);
+	if (has_content)
+	{
+		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+		{
+			f32 minimum = Min(box->viewport.xy[axis], content_bounds.xy[axis]);
+			f32 maximum = Max(box->viewport.xy[axis], content_bounds.xy[axis] + content_bounds.wh[axis]);
+			box->content_size.xy[axis] = maximum - minimum;
+		}
+	}
+	rect_f32 child_clip = ui_box__child_clip(box, clip);
+	for (UI_Box *child = box->first; child; child = child->next)
+	{
+		rect_f32 child_rect = { .size = child->arranged_size };
+		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++) child_rect.xy[axis] = child->desc.position[axis].kind == UI_BOX_POSITION_PARENT ? box->viewport.xy[axis] + child->desc.position[axis].value : box->viewport.xy[axis] + child->desc.margin[axis][0];
+		ui_box_layout_clipped(child, child_rect, child_clip);
+	}
+}
+
+const UI_LayoutHooks ui_layout_linear = {
+	.measure_children = ui_linear_measure_children,
+	.layout_children = ui_linear_layout_children,
+};
+
+const UI_LayoutHooks ui_layout_frame = {
+	.measure_children = ui_frame_measure_children,
+	.layout_children = ui_frame_layout_children,
+};
+
+void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
+{
+	box->rect = rect;
+	box->arranged_size = rect.size;
+	box->clip_rect = clip;
+	box->viewport = (rect_f32) {
+		.x = rect.x + box->desc.horz_padd[0],
+		.y = rect.y + box->desc.vert_padd[0],
+		.w = Max(0.f, rect.w - box->desc.horz_padd[0] - box->desc.horz_padd[1]),
+		.h = Max(0.f, rect.h - box->desc.vert_padd[0] - box->desc.vert_padd[1]),
+	};
+	if (box->hooks && box->hooks->prepare_layout) {
+		box->hooks->prepare_layout(box);
+	}
+
+	Assert(box->desc.layout);
+	Assert(box->desc.layout->layout_children);
+	box->desc.layout->layout_children(box, clip);
 	ui_box__finish_layout(box);
 }
 
@@ -824,5 +958,6 @@ UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)
 			return result;
 		}
 	}
+	if (box->hit_passthrough) return 0;
 	return rect_f32_contains(box->rect, point) ? box : 0;
 }

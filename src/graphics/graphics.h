@@ -4,6 +4,14 @@
 #include "color.h"
 #include "text.h"
 
+
+typedef struct GFX_Texture  GFX_Texture;
+typedef struct OS_Window    OS_Window;
+typedef struct Draw_Context Draw_Context;
+typedef struct GFX_Renderer GFX_Renderer;
+typedef struct GFX_Window   GFX_Window;
+typedef struct Text_GFX     Text_GFX;
+
 typedef enum
 {
 	GFX_BLENDER_NONE = 0,
@@ -14,6 +22,7 @@ typedef enum
 }
 GFX_Blender;
 
+// NOTE(RJ) these are the baked in shaders, eventually we will have an actual shader resource
 typedef enum
 {
 	GFX_SHADER_NONE = 0,
@@ -31,20 +40,6 @@ typedef enum
 	GFX_SHADER_COUNT,
 }
 GFX_Shader;
-
-typedef enum
-{
-	GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
-	GRAPHICS_TEXTURE_USAGE_PER_FRAME,
-}
-GFX_TextureUsage;
-
-typedef enum
-{
-	GFX_TEXTURE_BIND_INPUT  = 1 << 0,
-	GFX_TEXTURE_BIND_OUTPUT = 1 << 1,
-}
-GFX_TextureBindFlags;
 
 // The low byte stores the number of bytes per pixel.
 typedef enum
@@ -67,12 +62,19 @@ typedef enum
 }
 GFX_Sampler;
 
-typedef struct GFX_Texture GFX_Texture;
-typedef struct Draw_Context Draw_Context;
-typedef struct GFX_Renderer GFX_Renderer;
-typedef struct GFX_Window GFX_Window;
-typedef struct OS_Window OS_Window;
-typedef struct Text_GFX Text_GFX;
+typedef enum
+{
+	GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
+	GRAPHICS_TEXTURE_USAGE_PER_FRAME,
+}
+GFX_TextureUsage;
+
+typedef enum
+{
+	GFX_TEXTURE_BIND_INPUT  = 1 << 0,
+	GFX_TEXTURE_BIND_OUTPUT = 1 << 1,
+}
+GFX_TextureBindFlags;
 
 typedef struct
 {
@@ -93,7 +95,7 @@ typedef struct
 	u32   stride;
 	void *data;
 }
-GFX_TextureUpdateParams;
+GFX_UpdateTextureParams;
 
 
 GFX_Texture *gfx_create_texture(GFX_Renderer *renderer, GFX_TextureDesc desc);
@@ -103,10 +105,19 @@ vec2i gfx_texture_size(const GFX_Texture *texture);
 
 // Rare-update textures accept partial updates. Per-frame textures use a mapped
 // discard upload and therefore require a full-texture replacement.
-void gfx_update_texture(GFX_Texture *texture, GFX_TextureUpdateParams desc);
+void gfx_update_texture(GFX_Texture *texture, GFX_UpdateTextureParams desc);
 // Copies the texture's native pixel format into caller memory. The destination
 // stride must hold one complete row.
 b32 gfx_read_texture(GFX_Texture *texture, void *data, u32 stride);
+
+typedef struct
+{
+	GFX_Texture      *output;
+	rect_i32        viewport;
+	b32                clear;
+	Color_SRGBA        clear_color;
+}
+GFX_PassDesc;
 
 
 typedef UV_Rect Draw_MaskRect;
@@ -123,7 +134,6 @@ Draw_CornerRadii;
 static inline Draw_CornerRadii draw_corner_radii_all(f32 radii) {
 	return (Draw_CornerRadii){radii,radii,radii,radii};
 }
-
 
 typedef struct
 {
@@ -269,22 +279,13 @@ struct Draw_Command
 	f32 emission;
 	union
 	{
-		Draw_RectParams rect;
-		Draw_TextureParams image;
-		Draw_TextParams text;
+		Draw_RectParams                rect;
+		Draw_TextureParams            image;
+		Draw_TextParams                text;
 		Draw_InsetShadowParams inset_shadow;
-		Draw_BackdropParams backdrop;
+		Draw_BackdropParams        backdrop;
 	};
 };
-
-typedef struct
-{
-	GFX_Texture *output;
-	rect_i32 viewport;
-	b32 clear;
-	Color_SRGBA clear_color;
-}
-GFX_PassDesc;
 
 Draw_Context *draw_create(Arena *owner, GFX_Renderer *renderer);
 void draw_push_clip(Draw_Context *draw, rect_f32 clip);

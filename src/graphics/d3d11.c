@@ -501,7 +501,7 @@ GFX_Renderer *gfx_create_renderer(Arena *owner) {
 	ID3D11DeviceContext_VSSetShader(g.context, g.vshader, 0, 0);
 	ID3D11DeviceContext_IASetInputLayout(g.context, g.ilayout);
 
-	u32 stride = sizeof(GFX_RectInst);
+	u32 stride = sizeof(GFX_Inst);
 	u32 offset = 0;
 	ID3D11DeviceContext_IASetVertexBuffers(g.context, 0, 1, &g.vbuffer, &stride, &offset);
 	return renderer;
@@ -725,7 +725,7 @@ void gfx_submit_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
 	}
 }
 
-void gfx_update_texture(GFX_Texture *pub, GFX_TextureUpdateParams p)
+void gfx_update_texture(GFX_Texture *pub, GFX_UpdateTextureParams p)
 {
 	Assert(pub);
 	GFX_Renderer *renderer = pub->renderer;

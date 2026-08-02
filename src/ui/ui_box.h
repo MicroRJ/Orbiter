@@ -14,14 +14,6 @@ enum
 
 typedef enum
 {
-	UI_BOX_SIZE_CONTENT,
-	UI_BOX_SIZE_PIXELS,
-	UI_BOX_SIZE_FILL,
-}
-UI_BoxSizeKind;
-
-typedef enum
-{
 	UI_BOX_OVERFLOW_VISIBLE,
 	UI_BOX_OVERFLOW_CLIP,
 }
@@ -29,10 +21,23 @@ UI_BoxOverflow;
 
 typedef enum
 {
-	UI_BOX_POSITION_FLOW,
-	UI_BOX_POSITION_ABSOLUTE,
+	// The parent layout chooses the position. Linear layouts require this.
+	UI_BOX_POSITION_AUTO,
+	// Exact parent-viewport-relative border position, interpreted by frame
+	// layouts. Margins do not alter a positioned axis.
+	UI_BOX_POSITION_PARENT,
 }
 UI_BoxPositionKind;
+
+typedef struct UI_LayoutHooks UI_LayoutHooks;
+
+typedef enum
+{
+	UI_BOX_SIZE_CONTENT,
+	UI_BOX_SIZE_PIXELS,
+	UI_BOX_SIZE_FILL,
+}
+UI_BoxSizeKind;
 
 typedef struct
 {
@@ -78,6 +83,7 @@ typedef struct
 	f32 gap;
 	f32 perp_align;
 	UI_BoxOverflow overflow[2];
+	const UI_LayoutHooks *layout;
 }
 UI_BoxDesc;
 
@@ -120,7 +126,7 @@ typedef vec2 UI_BoxMeasureChildren(UI_Box *box, UI_BoxConstraints constraints);
 typedef void UI_BoxPrepareLayout(UI_Box *box);
 // Runs after the box rectangle and viewport are established. A custom layout
 // owns child arrangement; the core still finishes and commits the box state.
-typedef void UI_BoxLayout(UI_Box *box, rect_f32 clip);
+typedef void UI_BoxLayoutChildren(UI_Box *box, rect_f32 clip);
 // Runs after the box and all of its children have current rectangles.
 typedef void UI_BoxFinishLayout(UI_Box *box);
 typedef void UI_BoxPaint(UI_Box *box);
@@ -128,13 +134,25 @@ typedef void UI_BoxPaint(UI_Box *box);
 typedef struct
 {
 	UI_BoxMeasure *measure;
-	UI_BoxMeasureChildren *measure_children;
 	UI_BoxPrepareLayout *prepare_layout;
-	UI_BoxLayout *layout;
 	UI_BoxFinishLayout *finish_layout;
 	UI_BoxPaint *paint;
 }
 UI_BoxHooks;
+
+struct UI_LayoutHooks
+{
+	UI_BoxMeasureChildren *measure_children;
+	UI_BoxLayoutChildren *layout_children;
+};
+
+extern const UI_LayoutHooks ui_layout_linear;
+extern const UI_LayoutHooks ui_layout_frame;
+
+// These are exposed so specialized layouts can reuse one half of the linear
+// strategy without coupling element behavior to child arrangement.
+vec2 ui_linear_measure_children(UI_Box *box, UI_BoxConstraints constraints);
+void ui_linear_layout_children(UI_Box *box, rect_f32 clip);
 
 // Context-owned state for a keyed box. Geometry describes the most recently
 // completed layout until the current box commits its new geometry.
@@ -168,6 +186,7 @@ struct UI_Box
 
 	// The state contains geometry from the immediately preceding compatible layout.
 	b32      has_previous;
+	b32    hit_passthrough;
 
 	UI_BoxDesc       desc;
 	UI_BoxPaintDesc paint;
@@ -223,6 +242,8 @@ static inline UI_BoxSize ui_fill() {
 UI_BoxDesc ui_defaults(void);
 UI_BoxPaintDesc ui_default_paint(void);
 
+// A high-level UI scene accepts a linear or frame content root and adds its
+// structural overlay frame. Stateful custom roots use ui_box_builder_begin.
 UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDesc root_desc);
 UI_Box *ui_build_end(UI_Context *ui);
 UI_Box *ui_box_make(UI_Context *ui, UI_Key key, Str name);
@@ -243,6 +264,7 @@ void ui_push(UI_Context *ui);
 void ui_pop(UI_Context *ui);
 void ui_clean(UI_Context *ui);
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size);
+void ui_layout(UI_Context *ui, const UI_LayoutHooks *layout);
 void ui_position(UI_Context *ui, AXIS axis, f32 position);
 void ui_rect(UI_Context *ui, rect_f32 rect);
 void ui_min_size(UI_Context *ui, AXIS axis, f32 size);
@@ -279,6 +301,7 @@ void ui_builder_pop_box_z(UI_Builder *builder);
 void ui_builder_push(UI_Builder *builder);
 void ui_builder_pop(UI_Builder *builder);
 void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size);
+void ui_builder_layout(UI_Builder *builder, const UI_LayoutHooks *layout);
 void ui_builder_position(UI_Builder *builder, AXIS axis, f32 position);
 void ui_builder_rect(UI_Builder *builder, rect_f32 rect);
 void ui_builder_min_size(UI_Builder *builder, AXIS axis, f32 size);

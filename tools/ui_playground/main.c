@@ -483,6 +483,36 @@ static int playground_run_tests(void)
 
 	SCRATCH_SCOPE(&arena)
 	{
+		OS_Window window = { .size = v2i(30, 20) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		ui_begin_frame(ui);
+		UI_Box *root = ui_build_begin(ui, UI_KEY("frame clipping"), LIT("frame clipping"), ui_defaults());
+		ui_push(ui);
+		ui_size(ui, AXIS_X, ui_fixed(30.f));
+		ui_size(ui, AXIS_Y, ui_fixed(20.f));
+		ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+		ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+		ui_layout(ui, &ui_layout_frame);
+		UI_Box *frame = ui_box_begin(ui, 1, LIT("clipped frame"));
+		ui_pop(ui);
+		ui_push(ui);
+		ui_rect(ui, (rect_f32) { -10.f, -5.f, 40.f, 30.f });
+		UI_Box *child = ui_box_make(ui, 1, LIT("positioned child"));
+		ui_pop(ui);
+		ui_box_end(ui);
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(30.f, 20.f), .max = v2(30.f, 20.f) });
+		ui_box_layout(root, (rect_f32) { 100.f, 50.f, 30.f, 20.f });
+		CHECK(playground_near(child->rect.x, 90.f) && playground_near(child->rect.y, 45.f), "frame positions are relative to a nonzero parent viewport origin");
+		CHECK(playground_near(frame->content_bounds.x, 90.f) && playground_near(frame->content_bounds.y, 45.f) && playground_near(frame->content_bounds.w, 40.f) && playground_near(frame->content_bounds.h, 30.f), "a frame records positioned content extending before and after its viewport");
+		CHECK(playground_near(child->clip_rect.x, 100.f) && playground_near(child->clip_rect.y, 50.f) && playground_near(child->clip_rect.w, 30.f) && playground_near(child->clip_rect.h, 20.f), "frame overflow clips a positioned child on every edge");
+		CHECK(playground_near(child->state->hit_rect.x, 100.f) && playground_near(child->state->hit_rect.y, 50.f) && playground_near(child->state->hit_rect.w, 30.f) && playground_near(child->state->hit_rect.h, 20.f), "positioned frame clipping commits the matching interaction rectangle");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
 		OS_Window window = { .size = v2i(112, 100) };
 		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
 
@@ -712,12 +742,14 @@ static int playground_run_tests(void)
 		CHECK(before->parent == host && after->parent == host && host->child_count == 2, "tooltip construction restores the caller's structural parent");
 		CHECK(!ui_id_equal(before->id, tooltip->id) && before->state != tooltip->state, "overlay namespacing prevents tooltip state from colliding with the owner's local keys");
 		CHECK(before->desc.size[AXIS_X].value == 13.f && after->desc.size[AXIS_X].value == 13.f && before->paint.flags == after->paint.flags, "tooltip construction restores the caller's layout and paint styles");
-		CHECK(ui->overlay_root->parent == root && root->last == ui->overlay_root && ordinary_tail->next == ui->overlay_root, "the overlay root appends after ordinary UI content");
+		CHECK(ui->content_root->parent == root && ui->overlay_root->parent == root && root->first == ui->content_root && root->last == ui->overlay_root && ordinary_tail->parent == ui->content_root && ui->content_root->last == ordinary_tail, "the frame root separates ordinary linear content from overlays");
 		CHECK(tooltip->parent == ui->overlay_root && tooltip_child->parent == tooltip, "tooltip children live outside the clipped source subtree");
 		CHECK(tooltip->paint.flags == UI_BOX_DRAW_BACKDROP, "tooltips use the compositor backdrop without a background fill or border");
 		CHECK(tooltip_child->paint.z == UI_Z_OVERLAY, "tooltip descendants inherit the overlay paint depth");
 		CHECK(playground_near(tooltip->rect.x, 56.f) && playground_near(tooltip->rect.y, 40.f), "a measured tooltip clamps against the bottom-right window edges");
 		CHECK(playground_near(tooltip->clip_rect.x, root->clip_rect.x) && playground_near(tooltip->clip_rect.y, root->clip_rect.y) && playground_near(tooltip->clip_rect.w, root->clip_rect.w) && playground_near(tooltip->clip_rect.h, root->clip_rect.h), "the overlay escapes panel clipping while retaining the window clip");
+		CHECK(ui_box_find_deepest(root, v2(1.f, 1.f)) == host, "an empty portion of the overlay frame passes hit discovery through to ordinary content");
+		CHECK(ui_box_find_deepest(root, v2(tooltip_child->rect.x + 1.f, tooltip_child->rect.y + 1.f)) == tooltip_child, "actual overlay content wins hit discovery over the underlying tree");
 		ui_end_frame(ui);
 
 		ui_begin_frame(ui);
@@ -739,6 +771,32 @@ static int playground_run_tests(void)
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 120.f, 80.f });
 		CHECK(playground_near(tooltip->rect.x, 8.f) && playground_near(tooltip->rect.y, 8.f), "tooltip placement also clamps against the top-left window edges");
 		CHECK(playground_near(tooltip->state->rect.x, 8.f) && playground_near(tooltip_child->state->rect.x, 16.f), "clamped tooltip geometry commits after prepare-layout translation");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.axis = AXIS_X;
+		root_desc.horz_padd[0] = root_desc.horz_padd[1] = 10.f;
+		root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
+		root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+		UI_Box *root = ui_build_begin(ui, UI_KEY("clipped scene root"), LIT("clipped scene root"), root_desc);
+		UI_BoxDesc child_desc = ui_defaults();
+		child_desc.size[AXIS_X] = ui_fixed(200.f);
+		child_desc.size[AXIS_Y] = ui_fixed(20.f);
+		UI_Box *child = ui_box_make_desc(ui, 1, LIT("oversized child"), child_desc);
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(playground_near(ui->content_root->rect.x, 10.f) && playground_near(ui->content_root->rect.w, 80.f) && playground_near(ui->content_root->rect.h, 100.f) && playground_near(ui->overlay_root->rect.x, 10.f) && playground_near(ui->overlay_root->rect.w, 80.f) && playground_near(ui->overlay_root->rect.h, 100.f), "the internal content and overlay roots both receive the complete padded scene viewport");
+		CHECK(ui_id_equal(child->id, ui_id_child(root->id, 1)), "the internal content root does not perturb caller box IDs");
+		CHECK(playground_near(child->clip_rect.x, 10.f) && playground_near(child->clip_rect.w, 80.f) && playground_near(child->state->hit_rect.x, 10.f) && playground_near(child->state->hit_rect.w, 80.f) && playground_near(child->state->hit_rect.h, 20.f), "root overflow clipping propagates through the internal linear content root");
+		CHECK(ui_box_find_deepest(root, v2(50.f, 10.f)) == child, "an empty structural overlay does not hide ordinary content from hit discovery");
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
 	}
@@ -943,35 +1001,44 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		UI_BoxDesc root_desc = ui_defaults();
-		root_desc.axis = AXIS_X;
-		root_desc.gap = 10.f;
+		root_desc.layout = &ui_layout_frame;
 		UI_Builder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
 
-		UI_BoxDesc flow = playground_fill_desc();
-		flow.size[AXIS_X] = ui_grow(1.f);
-		UI_Box *first = ui_builder_box_make_desc(&builder, 1, LIT("first"), flow);
+		UI_BoxDesc fixed = ui_defaults();
+		fixed.size[AXIS_X] = ui_fixed(50.f);
+		fixed.size[AXIS_Y] = ui_fixed(20.f);
+		UI_Box *first = ui_builder_box_make_desc(&builder, 1, LIT("first"), fixed);
 
 		ui_builder_push(&builder);
 		ui_builder_rect(&builder, (rect_f32) { 35.f, 20.f, 80.f, 40.f });
-		UI_Box *absolute = ui_builder_box_begin(&builder, 2, LIT("absolute"));
+		UI_Box *positioned = ui_builder_box_begin(&builder, 2, LIT("positioned"));
 		ui_builder_pop(&builder);
 
 		UI_BoxDesc contents = playground_fill_desc();
 		UI_Box *nested = ui_builder_box_make_desc(&builder, 1, LIT("nested"), contents);
 		ui_builder_box_end(&builder);
 
-		flow.size[AXIS_X] = ui_fixed(50.f);
-		UI_Box *last = ui_builder_box_make_desc(&builder, 3, LIT("last"), flow);
+		fixed.size[AXIS_X] = ui_fixed(60.f);
+		fixed.size[AXIS_Y] = ui_fixed(10.f);
+		UI_Box *last = ui_builder_box_make_desc(&builder, 3, LIT("last"), fixed);
+
+		UI_BoxDesc fill = playground_fill_desc();
+		fill.horz_margin[0] = fill.horz_margin[1] = 5.f;
+		fill.vert_margin[0] = fill.vert_margin[1] = 5.f;
+		UI_Box *filled = ui_builder_box_make_desc(&builder, 4, LIT("filled"), fill);
 
 		ui_box_builder_end(&builder);
 		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, UI_BOX_INFINITY) });
-		CHECK(playground_near(root->measured_size.x, 60.f) && playground_near(root->measured_size.y, 0.f), "absolute children do not contribute to parent measurement on either positioned axis");
+		CHECK(playground_near(root->measured_size.x, 115.f) && playground_near(root->measured_size.y, 60.f), "a wrapping frame measures the maximum positioned child extent instead of summing its children");
+		ui_box_layout(root, rect_f32_from_size(root->measured_size));
+		CHECK(playground_near(root->content_size.x, 115.f) && playground_near(root->content_size.y, 60.f), "frame content size retains the viewport-relative extent represented by positioned content bounds");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(300.f, 100.f), .max = v2(300.f, 100.f) });
-		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 300.f, 100.f });
-		CHECK(playground_near(first->rect.w, 240.f) && playground_near(last->rect.x, 250.f), "absolute children do not consume flow space or introduce gaps");
-		CHECK(playground_near(absolute->rect.x, 35.f) && playground_near(absolute->rect.y, 20.f) && playground_near(absolute->rect.w, 80.f) && playground_near(absolute->rect.h, 40.f), "ui_builder_rect assigns an explicit parent-relative rectangle");
-		CHECK(playground_near(nested->rect.x, 35.f) && playground_near(nested->rect.y, 20.f) && playground_near(nested->rect.w, 80.f) && playground_near(nested->rect.h, 40.f), "an absolute box still lays out its descendants normally");
+		ui_box_layout(root, (rect_f32) { 10.f, 5.f, 300.f, 100.f });
+		CHECK(playground_near(first->rect.x, 10.f) && playground_near(first->rect.y, 5.f) && playground_near(last->rect.x, 10.f) && playground_near(last->rect.y, 5.f), "ordinary frame children overlap at the parent viewport origin");
+		CHECK(playground_near(positioned->rect.x, 45.f) && playground_near(positioned->rect.y, 25.f) && playground_near(positioned->rect.w, 80.f) && playground_near(positioned->rect.h, 40.f), "ui_builder_rect assigns an explicit frame-relative rectangle");
+		CHECK(playground_near(nested->rect.x, 45.f) && playground_near(nested->rect.y, 25.f) && playground_near(nested->rect.w, 80.f) && playground_near(nested->rect.h, 40.f), "a positioned frame child may lay out its own descendants linearly");
+		CHECK(playground_near(filled->rect.x, 15.f) && playground_near(filled->rect.y, 10.f) && playground_near(filled->rect.w, 290.f) && playground_near(filled->rect.h, 90.f), "a frame child fills the independently available area inside its margins");
 	}
 
 	SCRATCH_SCOPE(&arena)
