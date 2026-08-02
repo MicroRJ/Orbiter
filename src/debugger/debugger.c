@@ -10,7 +10,10 @@ void debugger_capture_snapshot(Debugger *debugger)
 		}
 	}
 	DBG_LiveSnapshot *snapshot = (DBG_LiveSnapshot *) & debugger->snapshots[debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK];
-	debugger->snapshots_marker = ++ debugger->snapshots_cursor;
+	debugger->snapshots_replay_marker = ++ debugger->snapshots_cursor;
+	debugger->snapshots_rewind_marker = debugger->snapshots_cursor - Min(debugger->snapshots_cursor, DEBUGGER_SNAPSHOT_CAPACITY);
+	Assert(debugger->snapshots_replay_marker >= debugger->snapshots_rewind_marker);
+	Assert(debugger->snapshots_replay_marker - debugger->snapshots_rewind_marker <= DEBUGGER_SNAPSHOT_CAPACITY);
 
 	NES_Emulator *emulator = &debugger->emulator;
 	NES_State *state = &emulator->core;
@@ -64,7 +67,7 @@ static void debugger_discard_scheduler_trace(Debugger *debugger)
 b32 debugger_undo_snapshot(Debugger *debugger)
 {
 	// Todo, we need to detect wrap around!
-	if (debugger->snapshots_cursor <= 0) return 0;
+	if (debugger->snapshots_cursor <= debugger->snapshots_rewind_marker) return 0;
 	debugger_restore(debugger, &debugger->snapshots[-- debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK]);
 	debugger_discard_scheduler_trace(debugger);
 	return 1;
@@ -72,7 +75,7 @@ b32 debugger_undo_snapshot(Debugger *debugger)
 
 b32 debugger_redo_snapshot(Debugger *debugger)
 {
-	if (debugger->snapshots_cursor >= debugger->snapshots_marker) return 0;
+	if (debugger->snapshots_cursor >= debugger->snapshots_replay_marker) return 0;
 	debugger_restore(debugger, &debugger->snapshots[debugger->snapshots_cursor ++ & DEBUGGER_SNAPSHOT_MASK]);
 	debugger_discard_scheduler_trace(debugger);
 	return 1;
@@ -80,7 +83,8 @@ b32 debugger_redo_snapshot(Debugger *debugger)
 
 static void debugger_clear_snapshots(Debugger *debugger)
 {
-	debugger->snapshots_marker = 0;
+	debugger->snapshots_replay_marker = 0;
+	debugger->snapshots_rewind_marker = 0;
 	debugger->snapshots_cursor = 0;
 }
 
@@ -130,10 +134,10 @@ static void debugger_process_scheduler_trace_(Debugger *debugger)
 	for (u32 span_index = 0; span_index < ArrayCount(trace_spans.spans); ++span_index)
 	{
 		NES_SchedulerTraceSpan span = trace_spans.spans[span_index];
-		const NES_SchedulerTraceEntry *end = span.entries + span.count;
-		for (const NES_SchedulerTraceEntry *entry = span.entries; entry < end; ++entry)
+		const NES_PackedTraceEntry *end = span.entries + span.count;
+		for (const NES_PackedTraceEntry *entry = span.entries; entry < end; ++entry)
 		{
-			NES_SchedulerBoundary boundary = nes_scheduler_trace_decode(trace, *entry);
+			NES_TraceEntry boundary = nes_scheduler_trace_decode(trace, *entry);
 			program_observe_execution(debugger, boundary);
 			execution_graph_observe_execution(&debugger->execution_graph, &debugger->execution_path, &debugger->program, boundary);
 

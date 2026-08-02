@@ -565,7 +565,7 @@ LRESULT CALLBACK os_win32_window_proc(HWND handle, UINT message, WPARAM wparam, 
 				if (!path) continue;
 				OS_Event *event = os_win32_push_event(base, OS_EVENT_FILE_DROP);
 				if (event) {
-					event->path = string_from_data(path, (u32)utf8_size - 1);
+					event->path = str_from_data(path, (u32)utf8_size - 1);
 				} else {
 					free(path);
 				}

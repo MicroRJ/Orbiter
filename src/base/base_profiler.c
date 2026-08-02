@@ -41,7 +41,7 @@ void prof_add_metric(Prof_Metric metric, i64 size) {
 	Prof.frame.metrics.fields[metric] += size;
 }
 
-void prof_begin_scope(Prof_Scope *scope, String name) {
+void prof_begin_scope(Prof_Scope *scope, Str name) {
 	Assert(name.data);
 	Assert(name.size);
 	if (scope->id == 0) {

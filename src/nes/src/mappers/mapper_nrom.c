@@ -24,7 +24,7 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 	switch (access.address >> 12)
 	{
 		case 0: case 1: {
-			access = chr_rom_mem(nes, access);
+			access = nes->core.chr_rom_size ? chr_rom_mem(nes, access) : chr_ram_mem(nes, access);
 		} break;
 		case 2: {
 			b32 v = nes->core.vmirror;

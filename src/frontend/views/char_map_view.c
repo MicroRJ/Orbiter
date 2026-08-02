@@ -254,7 +254,7 @@ void chr_map_view_build_ui(ViewFrameData *frame)
 	if (data->available && content.content_box->has_previous) {
 		data->selection = chr_map_selection_from_mouse(frame->ui, frame->publication, chr_map_layout(content.content_box->state->viewport));
 	}
-	content.content_box->ops = &chr_map_box_hooks;
+	content.content_box->hooks = &chr_map_box_hooks;
 	content.content_box->content = data;
 	chr_map_build_tooltip(&content, data->selection);
 	view_end_frame(&content);

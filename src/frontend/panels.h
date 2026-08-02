@@ -45,8 +45,8 @@ struct Panels
 
 Panels *panels_create(Arena *owner);
 UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame, rect_f32 rect);
-String panels_save_layout(Panels *panels, Arena *arena);
-b32 panels_restore_layout(Panels *panels, String text);
+Str panels_save_layout(Panels *panels, Arena *arena);
+b32 panels_restore_layout(Panels *panels, Str text);
 void panel_close(Panels *panels, Panel *panel);
 void panel_split(Panels *panels, Panel *panel, AXIS axis, f32 ratio);
 void panel_open_view(Panels *panels, Panel *panel, const ViewDesc *desc);

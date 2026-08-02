@@ -53,6 +53,84 @@ struct GFX_Texture
 	const char      *label;
 };
 
+
+
+typedef struct
+{
+	f32 offset;
+	f32 weight;
+	f32 padding0;
+	f32 padding1;
+}
+GFX_GaussianPair;
+
+typedef union
+{
+	f32 values[16];
+	struct
+	{
+		f32            direction_x;
+		f32            direction_y;
+		f32          center_weight;
+		f32                padding;
+		GFX_GaussianPair  pairs[3];
+	}
+	gaussian;
+	struct
+	{
+		f32 saturation;
+		f32 tint_opacity;
+		f32 grain;
+		f32 padding0;
+		f32 tint_r;
+		f32 tint_g;
+		f32 tint_b;
+		f32 padding1;
+		f32 padding2[8];
+	}
+	blur_material;
+	struct
+	{
+		f32 strength;
+		f32 padding[15];
+	}
+	barrel;
+	struct
+	{
+		f32 saturation;
+		f32 tint_opacity;
+		f32 grain;
+		f32 corner_radius;
+		f32 distortion;
+		f32 distortion_width;
+		f32 highlight;
+		f32 shadow;
+		f32 tint_r;
+		f32 tint_g;
+		f32 tint_b;
+		f32 padding[5];
+	}
+	glass;
+	struct
+	{
+		f32 time;
+		f32 strength;
+		f32 padding[14];
+	}
+	rewind;
+	struct
+	{
+		f32 threshold;
+		f32 gain;
+		f32 padding[14];
+	}
+	luminance;
+}
+GFX_BatchParams;
+
+STATIC_ASSERT(sizeof(GFX_GaussianPair) == 16);
+STATIC_ASSERT(sizeof(GFX_BatchParams) == sizeof(f32) * 16);
+
 typedef struct
 {
 	GFX_Texture     *texture;
@@ -61,22 +139,9 @@ typedef struct
 	GFX_Blender      blender;
 	GFX_Shader       shader;
 	GFX_TextureMode  texture_mode;
-	GFX_ShaderBlock  shader_block;
+	GFX_BatchParams  shader_block;
 }
 GFX_BatchDesc;
-
-typedef struct
-{
-	rect_f32        dst;
-	UV_Coords       src;
-	vec4            colors[4];
-	Draw_CornerRadii corner_radii;
-	f32             border_thickness;
-	f32             edge_softness;
-	f32             disable_texture;
-	f32             grain;
-}
-GFX_RectInst;
 
 typedef struct
 {
@@ -96,6 +161,19 @@ GFX_Pass;
 
 typedef struct
 {
+	rect_f32         dst;
+	UV_Coords        src;
+	vec4             colors[4];
+	Draw_CornerRadii corner_radii;
+	f32              border_thickness;
+	f32              edge_softness;
+	f32              disable_texture;
+	f32              grain;
+}
+GFX_RectInst;
+
+typedef struct
+{
 	GFX_Pass        *passes;
 	u32              pass_count;
 	GFX_Batch        *batches;
@@ -105,14 +183,10 @@ typedef struct
 }
 GFX_DrawData;
 
-GFX_Renderer *r_renderer_create(Arena *owner);
-void r_begin_frame(GFX_Renderer *renderer);
-GFX_Window *gfx_create_window(Arena *owner, GFX_Renderer *renderer, OS_Window *window);
-GFX_Texture *r_get_window_output(GFX_Window *window);
-GFX_Texture *r_get_fallback_texture(GFX_Renderer *renderer);
-void r_resize_output_targets(GFX_Window *window, vec2i resolution);
-void r_clear_output(GFX_Renderer *renderer, GFX_Texture *output, Color_SRGBA color);
+
+
 void gfx_submit_draw(GFX_Renderer *renderer, GFX_DrawData draw);
-void gfx_present_window(GFX_Window *window);
+
+
 
 #endif

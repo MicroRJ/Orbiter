@@ -2,7 +2,7 @@
 #include "ui_widgets.h"
 #include "views.h"
 
-static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI_TextStyle value_style, String sizing_text, const char *label, const char *format, ...)
+static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI_TextStyle value_style, Str sizing_text, const char *label, const char *format, ...)
 {
 	ui_box_push_id(ui, key);
 	ui_push(ui);
@@ -17,7 +17,7 @@ static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI
 
 	va_list arguments;
 	va_start(arguments, format);
-	String value = push_formatted_v(&ui->frame_arena, format, arguments);
+	Str value = str_push_copy_v(&ui->frame_arena, format, arguments);
 	va_end(arguments);
 	ui_push(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -100,7 +100,7 @@ static void cpu_view_content(ViewFrameData *frame)
 	ui_push(frame->ui);
 	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
-	UI_Scroll *scroll = ui_scroll_begin(frame->ui, 1, AXIS_Y);
+	UI_ScrollBox *scroll = ui_scroll_box_begin(frame->ui, 1, AXIS_Y);
 
 	ui_push(frame->ui);
 	ui_axis(frame->ui, AXIS_Y);
@@ -148,7 +148,7 @@ static void cpu_view_content(ViewFrameData *frame)
 	ui_box_end(frame->ui);
 
 	ui_box_end(frame->ui);
-	ui_scroll_end(scroll);
+	ui_scroll_box_end(scroll);
 	ui_pop(frame->ui);
 	ui_box_end(frame->ui);
 }

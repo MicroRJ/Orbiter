@@ -212,34 +212,6 @@ static void draw__set_all_colors(GFX_RectInst *instance, Color_Linear color)
 	}
 }
 
-GFX_Renderer *gfx_renderer_create(Arena *owner)
-{
-	return r_renderer_create(owner);
-}
-
-GFX_Window *gfx_window_create(Arena *owner, GFX_Renderer *renderer, OS_Window *window)
-{
-	return gfx_create_window(owner, renderer, window);
-}
-
-GFX_Texture *gfx_window_texture(GFX_Window *window)
-{
-	Assert(window);
-	return r_get_window_output(window);
-}
-
-void gfx_window_resize(GFX_Window *window, vec2i size)
-{
-	Assert(window);
-	r_resize_output_targets(window, size);
-}
-
-void gfx_window_present(GFX_Window *window)
-{
-	Assert(window);
-	gfx_present_window(window);
-}
-
 Draw_Context *draw_create(Arena *owner, GFX_Renderer *renderer)
 {
 	Assert(owner);
@@ -258,7 +230,7 @@ void gfx_begin_frame(Draw_Context *draw)
 	Assert(draw);
 	Assert(!draw->frame_active);
 	Assert(!draw->pass_active);
-	r_begin_frame(draw->renderer);
+	gfx_renderer_begin_frame(draw->renderer);
 	arena_reset(&draw->pass_arena);
 	arena_reset(&draw->batch_arena);
 	arena_reset(&draw->instance_arena);
@@ -389,7 +361,7 @@ void draw_pop_clip(Draw_Context *draw)
 
 void draw_rect(Draw_Context *draw, Draw_RectParams params)
 {
-	GFX_Texture *texture = draw->active_batch.texture ? draw->active_batch.texture : r_get_fallback_texture(draw->renderer);
+	GFX_Texture *texture = draw->active_batch.texture ? draw->active_batch.texture : gfx_get_fallback_texture(draw->renderer);
 	GFX_Sampler sampler = draw->active_batch.sampler ? draw->active_batch.sampler : GRAPHICS_SAMPLER_LINEAR;
 	GFX_BatchDesc desc = draw__batch_desc(draw, texture, sampler, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
@@ -408,7 +380,7 @@ void draw_rect(Draw_Context *draw, Draw_RectParams params)
 void draw_gradient(Draw_Context *draw, Draw_GradientParams params)
 {
 	Assert(params.axis == AXIS_X || params.axis == AXIS_Y);
-	GFX_BatchDesc desc = draw__batch_desc(draw, r_get_fallback_texture(draw->renderer), GRAPHICS_SAMPLER_LINEAR, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
+	GFX_BatchDesc desc = draw__batch_desc(draw, gfx_get_fallback_texture(draw->renderer), GRAPHICS_SAMPLER_LINEAR, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
 	GFX_RectInst instance = {
 		.dst = params.rect,
@@ -567,7 +539,7 @@ void draw_rewind(Draw_Context *draw, Draw_RewindParams params)
 	draw__push_instance(draw, instance);
 }
 
-static GFX_ShaderBlock draw__make_gaussian_block(Draw_GaussianBlurParams params)
+static GFX_BatchParams draw__make_gaussian_block(Draw_GaussianBlurParams params)
 {
 	Assert(params.sigma > 0.f);
 	f32 weights[7];
@@ -581,7 +553,7 @@ static GFX_ShaderBlock draw__make_gaussian_block(Draw_GaussianBlurParams params)
 	for (u32 index = 0; index < ArrayCount(weights); ++index) {
 		weights[index] /= sum;
 	}
-	GFX_ShaderBlock block = {};
+	GFX_BatchParams block = {};
 	block.gaussian.direction_x = params.direction.x;
 	block.gaussian.direction_y = params.direction.y;
 	block.gaussian.center_weight = weights[0];
@@ -980,7 +952,7 @@ static void draw__sort_runs_by_z(Draw_Run **runs, u32 run_count)
 static void draw__replay_runs(Draw_Context *draw, Text_GFX *text_gfx, Draw_Run **runs, u32 run_count, GFX_Texture *backdrop_texture, b32 emission_only)
 {
 	u32 replay_count = 0;
-	PROF_BLOCK("draw run playback")
+	PROF_BLOCK("draw__replay_runs")
 	for (u32 run_index = 0; run_index < run_count; ++run_index)
 	{
 		Draw_Run *run = runs[run_index];
@@ -1091,7 +1063,7 @@ void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, r
 	Assert(draw->unclipped_scope_count == 0);
 	Assert(draw->emission_stack_count == 0);
 
-	PROF_BLOCK("draw composition")
+	PROF_BLOCK("draw_compose")
 	{
 		u32 run_count = draw->frame.run_count;
 		Draw_Run **runs = run_count ? arena_push(&draw->command_arena, sizeof(*runs) * run_count) : 0;
@@ -1102,6 +1074,7 @@ void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, r
 		Assert(run_index == run_count);
 		PROF_BLOCK("draw__sort_runs_by_z") draw__sort_runs_by_z(runs, run_count);
 
+		PROF_BLOCK("draw__slices")
 		for (u32 slice_begin = 0; slice_begin < run_count;)
 		{
 			u32 slice_end = slice_begin;

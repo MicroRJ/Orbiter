@@ -53,7 +53,7 @@ typedef struct
 	vec2   padding;
 	f32    opacity;
 	f32    padding2[3];
-	GFX_ShaderBlock custom;
+	GFX_BatchParams custom;
 }
 _CBUFFER;
 
@@ -171,7 +171,7 @@ d3d_ensure_vertex_buffer_capacity(GFX_Renderer *renderer, u32 required)
 	g.vbuffer_capacity = capacity;
 }
 
-GFX_Texture *r_get_window_output(GFX_Window *window)
+GFX_Texture *gfx_window_texture(GFX_Window *window)
 {
 	return &window->output.base;
 }
@@ -190,7 +190,7 @@ ID3D11Resource *r_resource_from_texture(D3D_Texture *texture)
 
 
 
-GFX_Renderer *r_renderer_create(Arena *owner) {
+GFX_Renderer *gfx_create_renderer(Arena *owner) {
 	GFX_Renderer *renderer = arena_push_zero(owner, sizeof(*renderer));
 
 	g.main_arena = arena_create(0, "r main arena");
@@ -549,14 +549,13 @@ GFX_Window *gfx_create_window(Arena *owner, GFX_Renderer *renderer, OS_Window *o
 }
 
 APIFUNC
-GFX_Texture *r_get_fallback_texture(GFX_Renderer *renderer)
+GFX_Texture *gfx_get_fallback_texture(GFX_Renderer *renderer)
 {
 	return g.fallback_texture;
 }
 
 
-APIFUNC
-void r_resize_output_targets(GFX_Window *window, vec2i reso) {
+void gfx_resize_window(GFX_Window *window, vec2i reso) {
 	GFX_Renderer *renderer = window->renderer;
 	if (window->output.base.reso.x != reso.x || window->output.base.reso.y != reso.y) {
 		window->output.base.reso = reso;
@@ -572,7 +571,8 @@ void r_resize_output_targets(GFX_Window *window, vec2i reso) {
 	}
 }
 
-void r_clear_output(GFX_Renderer *renderer, GFX_Texture *output, Color_SRGBA color) {
+static void d3d_clear_output(GFX_Renderer *renderer, GFX_Texture *output, Color_SRGBA color)
+{
 	Assert(output);
 
 	D3D_Texture *texture = (D3D_Texture *) output;
@@ -685,7 +685,7 @@ void gfx_submit_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
 	{
 		GFX_Pass *pass = &draw.passes[pass_index];
 		if (pass->desc.clear) {
-			r_clear_output(renderer, pass->desc.output, pass->desc.clear_color);
+			d3d_clear_output(renderer, pass->desc.output, pass->desc.clear_color);
 		}
 		for (u32 i = pass->batch_offset; i < pass->batch_offset + pass->batch_count; ++i)
 		{
@@ -940,7 +940,7 @@ static b32 gfx_texture_desc_match(GFX_TextureDesc a, GFX_TextureDesc b)
 		a.sampler == b.sampler;
 }
 
-void r_begin_frame(GFX_Renderer *renderer)
+void gfx_renderer_begin_frame(GFX_Renderer *renderer)
 {
 	Assert(renderer);
 	g.frame_index += 1;

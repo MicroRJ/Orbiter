@@ -6,9 +6,9 @@
 #include "emulator_internal.h"
 #include <string.h>
 
-static String test_read_file(Arena *arena, const char *path)
+static Str test_read_file(Arena *arena, const char *path)
 {
-	String result = {};
+	Str result = {};
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
 	if (!platform_file_is_valid(file)) return result;
 	u64 size = 0;
@@ -19,7 +19,7 @@ static String test_read_file(Arena *arena, const char *path)
 		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
 		{
 			data[size] = 0;
-			result = string_from_data((char *)data, (u32)size);
+			result = str_from_data((char *)data, (u32)size);
 		}
 	}
 	platform_close_file(file);
@@ -65,19 +65,19 @@ static void assert_serialized_fields_equal(const NES_StateRecord *record,
 
 static void test_scheduler_trace_packing(void)
 {
-	NES_SchedulerBoundary expected = {
+	NES_TraceEntry expected = {
 		.scheduler_clock = 0x1234FFF0,
 		.cpu_address = MAX_VALUE_U16,
 		.cpu_mapped = nes_map_addr(NES_DEVICE_PRG_RAM, NES_SCHEDULER_TRACE_MAPPED_OFFSET_MASK),
 		.cpu_byte = MAX_VALUE_U8,
 	};
-	NES_SchedulerTraceEntry entry = nes_scheduler_trace_pack(expected);
+	NES_PackedTraceEntry entry = nes_scheduler_trace_pack(expected);
 	NES_SchedulerTraceView view = {
 		.trace = &entry,
 		.index = 1,
 		.scheduler_clock = 0x12350020,
 	};
-	NES_SchedulerBoundary actual = nes_scheduler_trace_at(view, 0);
+	NES_TraceEntry actual = nes_scheduler_trace_at(view, 0);
 	Assert(sizeof(entry) == 8);
 	Assert(actual.scheduler_clock == expected.scheduler_clock);
 	Assert(actual.cpu_address == expected.cpu_address);
@@ -175,6 +175,26 @@ int main(int argc, char **argv)
 	rom_data[16 + 0x3FFD] = 0x80;
 	NES_CartridgeDesc parsed_cartridge = {};
 	Assert(!nes_cartridge_parse_ines(byte_span(rom_data, 15), &parsed_cartridge));
+	rom_data[7] = 0x08;
+	rom_data[12] = 2;
+	rom_data[15] = 1;
+	Assert(nes_cartridge_parse_ines(byte_span(rom_data, rom_size), &parsed_cartridge));
+	rom_data[10] = 0x07;
+	rom_data[11] = 0x70;
+	Assert(nes_cartridge_parse_ines(byte_span(rom_data, rom_size), &parsed_cartridge));
+	rom_data[10] = 0x77;
+	Assert(!nes_cartridge_parse_ines(byte_span(rom_data, rom_size), &parsed_cartridge));
+	rom_data[10] = 0;
+	rom_data[11] = 0;
+	rom_data[8] = 1;
+	Assert(!nes_cartridge_parse_ines(byte_span(rom_data, rom_size), &parsed_cartridge));
+	rom_data[8] = 0;
+	rom_data[9] = 1;
+	Assert(!nes_cartridge_parse_ines(byte_span(rom_data, rom_size), &parsed_cartridge));
+	rom_data[7] = 0;
+	rom_data[9] = 0;
+	rom_data[12] = 0;
+	rom_data[15] = 0;
 	Assert(nes_cartridge_parse_ines(byte_span(rom_data, rom_size), &parsed_cartridge));
 	Assert(parsed_cartridge.prg_rom.data == rom_data + 16);
 	Assert(parsed_cartridge.prg_rom.size == KiB(16));
@@ -208,7 +228,7 @@ int main(int argc, char **argv)
 	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(core);
 	Assert(trace.index > 0);
 	Assert(!nes_scheduler_trace_dropped_since(trace, 0));
-	NES_SchedulerBoundary first = nes_scheduler_trace_at(trace, 0);
+	NES_TraceEntry first = nes_scheduler_trace_at(trace, 0);
 	Assert(first.cpu_address == before.PC);
 	Assert(first.cpu_mapped.device == NES_DEVICE_PRG_ROM);
 	Assert(first.cpu_mapped.offset == 0);
@@ -256,7 +276,7 @@ int main(int argc, char **argv)
 	NES_PPUState state_before_save_ppu = core->core.ppu;
 	NES_PPUState state_after_load_ppu = {};
 	core->video[7][11] = 0x2A;
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
 		ByteSpan state = nes_emulator_save_state(core, &arena);
 		Assert(state.data && state.size);
@@ -290,7 +310,7 @@ int main(int argc, char **argv)
 
 		const char *test_state_path = "build/nes_emulator_test_state.nesstate";
 		Assert(test_write_file(test_state_path, state.data, state.size));
-		String disk_state = test_read_file(&arena, test_state_path);
+		Str disk_state = test_read_file(&arena, test_state_path);
 		Assert(disk_state.text && disk_state.size == state.size);
 		Assert(memory_match(disk_state.text, state.data, state.size));
 		nes_emulator_step(core);
@@ -314,9 +334,9 @@ int main(int argc, char **argv)
 
 	if (argc > 1)
 	{
-		ARENA_SCOPE(&arena)
+		SCRATCH_SCOPE(&arena)
 		{
-			String external_state = test_read_file(&arena, argv[1]);
+			Str external_state = test_read_file(&arena, argv[1]);
 			Assert(external_state.text && external_state.size);
 			NES_Emulator *external_core = arena_push_zero(&arena, sizeof(NES_Emulator));
 			Assert(nes_emulator_load_state(external_core,

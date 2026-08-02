@@ -74,7 +74,7 @@ Prof_Scope;
 
 typedef struct
 {
-	String     name;
+	Str     name;
 	Seconds    time;
 	u32        freq;
 }
@@ -99,7 +99,7 @@ void prof_begin_frame();
 void prof_close_frame();
 u64 prof_timeline_cursor();
 const Prof_Frame *prof_timeline_frame(u64 index);
-void prof_begin_scope(Prof_Scope *scope, String name);
+void prof_begin_scope(Prof_Scope *scope, Str name);
 void prof_close_scope(Prof_Scope *scope);
 
 #define PROF_BLOCK_AUTO(SCOPE, LABEL) \

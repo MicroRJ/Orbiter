@@ -44,18 +44,34 @@ static void nes_emulator_activate_mapper(NES_Emulator *emulator)
 	emulator->mapper = nes_mapper_classes[emulator->core.mapper];
 }
 
+b32 nes_emulator_supports_cartridge(NES_CartridgeInfo cart)
+{
+	if (cart.has_trainer || cart.four_screen)                return false;
+	if (cart.prg_rom_size == 0)                            return false;
+	if (cart.prg_rom_size > NES_MAX_PRG_ROM_SIZE)          return false;
+	if (cart.prg_rom_size % KiB(16))                       return false;
+	if (cart.chr_rom_size > NES_MAX_CHR_ROM_SIZE)          return false;
+	if (cart.chr_rom_size % KiB(8))                        return false;
+	if (cart.mapper >= ArrayCount(nes_mapper_classes))     return false;
+	if (cart.mapper == 0 && cart.prg_rom_size > KiB(32))   return false;
+	if (!nes_mapper_supported(cart.mapper))                return false;
+	if (cart.mapper == 2 && cart.chr_rom_size)             return false;
+	if (cart.mapper == 9 && (cart.prg_rom_size < KiB(32) || !cart.chr_rom_size)) return false;
+	return true;
+}
+
 static b32 nes_cartridge_supported(NES_CartridgeDesc cart)
 {
-	if (cart.prg_rom.data == 0)                            return false;
-	if (cart.prg_rom.size == 0)                            return false;
-	if (cart.prg_rom.size > NES_MAX_PRG_ROM_SIZE)          return false;
-	if (cart.prg_rom.size % KiB(16))                       return false;
-	if (cart.chr_rom.size > NES_MAX_CHR_ROM_SIZE)          return false;
-	if (cart.chr_rom.size % KiB(8))                        return false;
-	if (cart.chr_rom.size && !cart.chr_rom.data)           return false;
-	if (cart.mapper >= ArrayCount(nes_mapper_classes))     return false;
-	if (cart.mapper == 0 && cart.prg_rom.size > KiB(32))    return false;
-	return nes_mapper_supported(cart.mapper);
+	if (!cart.prg_rom.data || cart.chr_rom.size && !cart.chr_rom.data) return false;
+	if (cart.prg_rom.size > MAX_VALUE_U32 || cart.chr_rom.size > MAX_VALUE_U32) return false;
+	return nes_emulator_supports_cartridge((NES_CartridgeInfo) {
+		.prg_rom_size = (u32)cart.prg_rom.size,
+		.chr_rom_size = (u32)cart.chr_rom.size,
+		.mapper = cart.mapper,
+		.vertical_mirroring = cart.vertical_mirroring,
+		.has_trainer = cart.has_trainer,
+		.four_screen = cart.four_screen,
+	});
 }
 
 static b32 nes_state_valid(const NES_State *state)
@@ -196,7 +212,7 @@ static inline u32 cpu_step(NES_Emulator *emulator)
 	//
 	NES_BusAccess access = nes_cpu_bus_peek_mapped(emulator, cpu->PC);
 	u64 trace_index = emulator->scheduler_trace_index;
-	emulator->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_SchedulerBoundary) {
+	emulator->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_TraceEntry) {
 		.scheduler_clock = emulator->scheduler_clock,
 		.cpu_address = cpu->PC,
 		.cpu_mapped = access.mapped,

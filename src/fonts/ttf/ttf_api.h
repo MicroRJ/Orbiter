@@ -39,7 +39,7 @@ typedef struct
 TTF_RasterizedGlyph;
 
 void ttf_init_api(void);
-TTF_Font *ttf_load(String contents);
+TTF_Font *ttf_load(Str contents);
 // Size is the desired ascender-to-descender line height in pixels. Backend
 // concepts such as em size and atlas allocation dimensions are not exposed.
 TTF_FontMetrics ttf_font_metrics(TTF_Font *font, i32 line_height);

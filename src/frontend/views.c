@@ -12,7 +12,7 @@ const ViewDesc view_descs[] = {
 
 const u32 view_desc_count = ArrayCount(view_descs);
 
-ViewFrameData view_begin_frame(ViewFrameData *frame, String title)
+ViewFrameData view_begin_frame(ViewFrameData *frame, Str title)
 {
 	UI_Context *ui = frame->ui;
 	ViewFrameData result = *frame;

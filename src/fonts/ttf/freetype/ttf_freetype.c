@@ -70,7 +70,7 @@ void ttf_init_api(void)
 	Assert(error == 0);
 }
 
-TTF_Font *ttf_load(String contents)
+TTF_Font *ttf_load(Str contents)
 {
 	Assert(contents.size);
 	Assert(contents.data);

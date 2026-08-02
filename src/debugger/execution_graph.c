@@ -79,7 +79,7 @@ ExecutionEdge *execution_graph_record(ExecutionGraph *graph, u32 source_offset, 
 	return 0;
 }
 
-void execution_graph_observe_execution(ExecutionGraph *graph, ExecutionPathState *path, const Program *program, NES_SchedulerBoundary boundary)
+void execution_graph_observe_execution(ExecutionGraph *graph, ExecutionPathState *path, const Program *program, NES_TraceEntry boundary)
 {
 	Assert(graph);
 	Assert(path);

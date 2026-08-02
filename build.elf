@@ -49,6 +49,7 @@ include_directories := {
 	"src/ui",
 	"src/base",
 	"src/audio",
+	"src/orb",
 	"src/lz4",
 	"src/text",
 	"tools/ui_playground",
@@ -75,6 +76,7 @@ shaders := {
 objects := {
 	{ name = "platform",          input = "platform/src/platform_win32.c" },
 	{ name = "audio_stream",      input = "src/audio/audio_stream.c" },
+	{ name = "audio_mixer",       input = "src/audio/audio_mixer.c" },
 	{ name = "text",              input = "src/text/text.c" },
 	{ name = "text_cache",        input = "src/text/text_cache.c" },
 	{ name = "ttf",               input = "src/fonts/ttf/ttf.c" },
@@ -104,25 +106,31 @@ objects := {
 	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
 	{ name = "nes_cartridge",    input = "src/nes/src/cartridge.c" },
 	{ name = "serialize",         input = "src/serialize/serialize.c" },
+	{ name = "orb",               input = "src/orb/orb.c" },
 	{ name = "tabula",            input = "tabula/src/tabula.c" },
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
 	{ name = "nes_target",         input = "src/frontend/nes_target.c" },
 	{ name = "execution_activity", input = "src/frontend/execution_activity.c" },
+	{ name = "catalog",            input = "src/frontend/catalog.c" },
 	{ name = "gif_recorder",      input = "src/frontend/gif_recorder.c" },
 	{ name = "views",             input = "src/frontend/views.c" },
-	{ name = "view_cpu",          input = "src/frontend/view_cpu.c" },
-	{ name = "program_view",      input = "src/frontend/program_view.c" },
-	{ name = "view_profiler",     input = "src/frontend/view_profiler.c" },
-	{ name = "view_prg_activity", input = "src/frontend/view_prg_activity.c" },
-	{ name = "view_video",        input = "src/frontend/view_video.c" },
-	{ name = "view_chr_map",      input = "src/frontend/view_chr_map.c" },
 	{ name = "panels",            input = "src/frontend/panels.c" },
+	{ name = "program_view",      input = "src/frontend/views/program_view.c" },
+	{ name = "cpu_view",          input = "src/frontend/views/cpu_view.c" },
+	{ name = "profiler_view",     input = "src/frontend/views/profiler_view.c" },
+	{ name = "execution_view",    input = "src/frontend/views/execution_view.c" },
+	{ name = "video_view",        input = "src/frontend/views/video_view.c" },
+	{ name = "char_map_view",     input = "src/frontend/views/char_map_view.c" },
 }
 
 tests := {
 	{ name = "tabula_test",         input = "tabula/tests/tabula_test.c" },
+	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
+	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
+	{ name = "catalog_test",         input = "src/tests/catalog_test.c" },
+	{ name = "orb_test",             input = "src/tests/orb_test.c" },
 	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
 	{ name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
 	{ name = "nes_ppu_test",        input = "src/tests/nes_ppu_test.c" },
@@ -222,6 +230,9 @@ for executable := executables[...] ? {
 		entry_inputs:add("tools/ui_playground/demo_basics.c")
 		entry_inputs:add("tools/ui_playground/demo_profiler.c")
 		entry_inputs:add("tools/ui_playground/demo_scroll_history.c")
+	}
+	if executable.name == "main" ? {
+		entry_inputs:add("src/frontend/library_ui.c")
 	}
 	entry_task := {
 		name = f"${executable.name} entry",

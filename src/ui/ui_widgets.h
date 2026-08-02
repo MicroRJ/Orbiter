@@ -5,16 +5,40 @@
 #include "ui.h"
 
 UI_Box *ui_text_box(UI_Context *ui, UI_Key key, UI_TextStyle style, const char *format, ...) __attribute__((format(printf, 4, 5)));
-UI_Box *ui_text_box_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, String sizing_text, const char *format, ...) __attribute__((format(printf, 5, 6)));
-UI_Box *ui_text_box_string(UI_Context *ui, UI_Key key, UI_TextStyle style, String text);
-UI_Box *ui_text_box_sized_string(UI_Context *ui, UI_Key key, UI_TextStyle style, String sizing_text, String text);
+UI_Box *ui_text_box_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, const char *format, ...) __attribute__((format(printf, 5, 6)));
+UI_Box *ui_text_box_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str text);
+UI_Box *ui_text_box_sized_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, Str text);
 
 UI_Box *ui_text_box_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, const char *format, ...) __attribute__((format(printf, 5, 6)));
-UI_Box *ui_text_box_sized_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_text, const char *format, ...) __attribute__((format(printf, 6, 7)));
-UI_Box *ui_text_box_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String text);
-UI_Box *ui_text_box_sized_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, String sizing_text, String text);
+UI_Box *ui_text_box_sized_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, Str sizing_text, const char *format, ...) __attribute__((format(printf, 6, 7)));
+UI_Box *ui_text_box_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, Str text);
+UI_Box *ui_text_box_sized_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, Str sizing_text, Str text);
 
-UI_Response ui_button(UI_Context *ui, UI_Key key, String text);
+typedef enum
+{
+	UI_IMAGE_FIT_CONTAIN,
+	UI_IMAGE_FIT_COVER,
+	UI_IMAGE_FIT_STRETCH,
+}
+UI_ImageFit;
+
+typedef struct
+{
+	// Zero width or height extends the region to that texture edge.
+	rect_i32 region;
+	Color_SRGBA tint;
+	vec2 align;
+	UI_ImageFit fit;
+	GFX_Sampler sampler;
+}
+UI_ImageStyle;
+
+// The image box borrows the texture through the current frame.
+UI_ImageStyle ui_default_image_style(void);
+UI_Box *ui_image_box(UI_Context *ui, UI_Key key, UI_ImageStyle style, GFX_Texture *texture);
+UI_Box *ui_image_box_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_ImageStyle style, GFX_Texture *texture);
+
+UI_Response ui_button(UI_Context *ui, UI_Key key, Str text);
 
 // Tooltip content is a box subtree painted after layout. Immediate ui_draw_*
 // calls are not part of that subtree. Only one tooltip is built per frame.
@@ -38,14 +62,15 @@ UI_VirtualListDesc;
 
 // The first item supplies the fixed extent along the list axis. The callback
 // must append exactly one item box, which may contain any box subtree.
-UI_Box *ui_virtual_list(UI_Context *ui, UI_Key key, String name, UI_VirtualListDesc list);
-UI_Box *ui_virtual_list_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc, UI_VirtualListDesc list);
+UI_Box *ui_virtual_list(UI_Context *ui, UI_Key key, Str name, UI_VirtualListDesc list);
+UI_Box *ui_virtual_list_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc, UI_VirtualListDesc list);
 
 typedef struct
 {
 	UI_Context *ui;
 	UI_Box *root;
 	UI_Box *viewport;
+	UI_Box *content;
 	UI_Box *track;
 	UI_Box *space_before;
 	UI_Box *thumb;
@@ -53,18 +78,20 @@ typedef struct
 	AXIS axis;
 	b32 has_previous;
 	b32 reset;
+	f32 scroll_max;
 	f32 offset;
 	f32 target;
 	u32 parent_count;
 	u32 desc_count;
 }
-UI_Scroll;
+UI_ScrollBox;
 
-// The scope must build exactly one box. That box becomes the clipped viewport;
-// a virtual list can therefore be used directly without a wrapper.
-UI_Scroll *ui_scroll_begin(UI_Context *ui, UI_Key key, AXIS axis);
-void ui_scroll_reset(UI_Scroll *scroll);
-void ui_scroll_end(UI_Scroll *scroll);
+// The active descriptor sizes the scroll box. The scope must build exactly one
+// content box; its descriptor is preserved. The widget places that box in a
+// clipped viewport and translates its complete subtree while scrolling.
+UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis);
+void ui_scroll_box_reset(UI_ScrollBox *scroll);
+void ui_scroll_box_end(UI_ScrollBox *scroll);
 
 typedef enum
 {
@@ -107,7 +134,7 @@ UI_BoxTable;
 UI_BoxTableColumn ui_box_table_content(void);
 UI_BoxTableColumn ui_box_table_fixed(f32 width);
 UI_BoxTableColumn ui_box_table_flex(f32 weight);
-UI_BoxTable ui_box_table_begin(UI_Context *ui, UI_Key key, String name, UI_BoxTableDesc desc);
+UI_BoxTable ui_box_table_begin(UI_Context *ui, UI_Key key, Str name, UI_BoxTableDesc desc);
 UI_Box *ui_box_table_row_begin(UI_BoxTable *table, UI_Key key);
 void ui_box_table_row_end(UI_BoxTable *table);
 UI_Box *ui_box_table_cell_begin(UI_BoxTable *table);

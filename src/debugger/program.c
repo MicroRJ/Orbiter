@@ -533,7 +533,7 @@ static void program_map_instruction(Debugger *debugger, u16 cpu_address, u32 siz
 }
 
 static void program_map_traced_instruction(const Program *program,
-	NES_SchedulerBoundary trace, u32 size, u32 *program_offsets)
+	NES_TraceEntry trace, u32 size, u32 *program_offsets)
 {
 	for (u32 byte_index = 0; byte_index < 3; ++byte_index) {
 		program_offsets[byte_index] = MAX_VALUE_U32;
@@ -892,7 +892,7 @@ void program_reset(Debugger *debugger)
 
 }
 
-void program_observe_execution(Debugger *debugger, NES_SchedulerBoundary trace)
+void program_observe_execution(Debugger *debugger, NES_TraceEntry trace)
 {
 	Program *program = &debugger->program;
 	++program->executed_instruction_count;

@@ -1,4 +1,5 @@
 #include "debugger.h"
+#include "audio_mixer.h"
 #include "audio_stream.h"
 #include "graphics.h"
 #include "text.h"
@@ -11,65 +12,19 @@
 #include "execution_activity.h"
 #include "gif_recorder.h"
 #include "nes_target.h"
+#include "catalog.h"
+#include "orb.h"
 #include "os.h"
+#include "actions.h"
 
-global const char debugger_state_path[]   = "data/save.orbiter";
+global const char orb_save_path[]         = "data/resume.orb";
+global const char legacy_state_path[]     = "data/save.orbiter";
 global const char debugger_config_path[]  = "data/debugger.cfg";
 global const char debugger_default_config_path[] = "data/default_debugger.cfg";
 global const char debugger_log_path[]     = "data/debugger.log";
 global const char debugger_program_path[] = "data/program.dump";
+global const char catalog_config_path[]    = "data/user.tab";
 global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
-
-// NOTE(RJ) eventually these could become scripts
-typedef enum
-{
-	APP_ACTION_NONE,
-	APP_ACTION_SPLIT_PANEL_HORIZONTALLY,
-	APP_ACTION_SPLIT_PANEL_VERTICALLY,
-	APP_ACTION_CLOSE_PANEL,
-	APP_ACTION_OPEN_VIEW_0,
-	APP_ACTION_OPEN_VIEW_1,
-	APP_ACTION_OPEN_VIEW_2,
-	APP_ACTION_OPEN_VIEW_3,
-	APP_ACTION_OPEN_VIEW_4,
-	APP_ACTION_OPEN_VIEW_5,
-	APP_ACTION_OPEN_VIEW_6,
-	APP_ACTION_OPEN_VIEW_7,
-	APP_ACTION_OPEN_VIEW_8,
-	APP_ACTION_OPEN_VIEW_9,
-	APP_ACTION_OPEN_VIEW_10,
-	APP_ACTION_OPEN_VIEW_11,
-	APP_ACTION_OPEN_VIEW_12,
-	APP_ACTION_OPEN_VIEW_13,
-	APP_ACTION_OPEN_VIEW_14,
-	APP_ACTION_OPEN_VIEW_15,
-
-	APP_ACTION_BEGIN_REWINDING_BACKWARDS,
-	APP_ACTION_BEGIN_REWINDING_FORWARD,
-	APP_ACTION_STOP_REWINDING,
-
-	APP_ACTION_SUPPRESS_EMULATOR_INPUT,
-	APP_ACTION_TOGGLE_FULLSCREEN,
-	APP_ACTION_TOGGLE_PPU_FULLSCREEN,
-	APP_ACTION_EXIT_PPU_FULLSCREEN,
-	APP_ACTION_OPEN_ROM,
-	APP_ACTION_RESET,
-	APP_ACTION_SAVE_STATE,
-	APP_ACTION_RESTORE_STATE,
-	APP_ACTION_DUMP_PROGRAM,
-	APP_ACTION_TOGGLE_RUNNING,
-	APP_ACTION_STEP,
-	APP_ACTION_TOGGLE_PPU_CAPTURE,
-	APP_ACTION_TOGGLE_APP_CAPTURE,
-	APP_ACTION_TOGGLE_CRT,
-	APP_ACTION_INCREASE_UI_FONT_SIZE,
-	APP_ACTION_DECREASE_UI_FONT_SIZE,
-	APP_ACTION_RESET_UI_FONT_SIZE,
-	APP_ACTION_MUTE,
-	APP_LOWER_VOLUME,
-	APP_RAISE_VOLUME,
-}
-AppAction;
 
 typedef struct
 {
@@ -92,6 +47,9 @@ typedef struct
 	b32            emulator_running;
 	b32     resume_emulator_running;
 	i32            rewind_direction;
+
+	b32          library_overlay_on;
+
 	f32 ppu_volume;
 	f32 ppu_volume_target;
 	f32 ppu_animation;
@@ -111,9 +69,20 @@ typedef struct
 	UI_Context *ui;
 	Panels *panels;
 	Audio_Stream *audio;
+	Audio_Mixer *audio_mixer;
+	Audio_Clip ui_click;
 	u32 audio_backend_capacity;
 	b32 audio_backend_available;
-	String last_rom_path;
+	Str last_rom_path;
+	Str current_game_title;
+	Orb_Id current_save_id;
+	Orb_Hash256 current_content_hash;
+	u64 save_created_unix_ms;
+	u64 first_played_unix_ms;
+	f64 play_time_seconds;
+	Catalog catalog;
+	b32 catalog_write_protected;
+	b32 catalog_refresh_pending;
 
 	b32 exclusive_ppu_mode;
 	b32 fullscreen_mode;
@@ -129,10 +98,10 @@ App;
 global App app = { };
 global FILE *debugger_log_file;
 
-static String app_read_file(Arena *arena, const char *path)
+static Str app_read_file(Arena *arena, const char *path)
 {
-	String result = {};
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
+	Str result = {};
+	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
 	if (!platform_file_is_valid(file)) return result;
 	u64 size = 0;
 	if (platform_get_file_size(file, &size) && size <= MAX_VALUE_U32)
@@ -142,7 +111,7 @@ static String app_read_file(Arena *arena, const char *path)
 		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
 		{
 			data[size] = 0;
-			result = string_from_data((char *)data, (u32)size);
+			result = str_from_data((char *)data, (u32)size);
 		}
 	}
 	platform_close_file(file);
@@ -171,65 +140,100 @@ static b32 app_write_file_atomic(const char *path, const void *data, u32 size)
 	return false;
 }
 
+static void app_log_catalog_error(Catalog_Result result)
+{
+	if (result.status == CATALOG_STATUS_OK) return;
+	if (result.line) LOG_WARN("%s:%u:%u: %.*s", catalog_config_path, result.line, result.column, (i32)result.message.size, result.message.text);
+	else             LOG_WARN("%s: %.*s", catalog_config_path, (i32)result.message.size, result.message.text);
+}
+
+static void app_load_catalog(void)
+{
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		Platform_File_Info info = {};
+		if (platform_get_file_info(catalog_config_path, &info))
+		{
+			Str source = app_read_file(&app.frame_arena, catalog_config_path);
+			Catalog_Result result = source.size
+				? catalog_from_source(&app.catalog, str_from_data(catalog_config_path, sizeof(catalog_config_path) - 1), source, &app.frame_arena)
+				: (Catalog_Result) { .status = CATALOG_STATUS_PARSE_ERROR, .message = LIT("catalog state is empty or unreadable") };
+			if (result.status != CATALOG_STATUS_OK)
+			{
+				app.catalog_write_protected = true;
+				app_log_catalog_error(result);
+				LOG_WARN("automatic catalog writes are disabled to preserve '%s'", catalog_config_path);
+			}
+		}
+	}
+}
+
+static b32 app_save_catalog(void)
+{
+	if (!app.catalog.dirty) return true;
+	if (app.catalog_write_protected) return false;
+	b32 success = false;
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		Catalog_EncodeResult encoded = catalog_to_source(&app.catalog, &app.frame_arena);
+		if (encoded.result.status != CATALOG_STATUS_OK) {
+			app_log_catalog_error(encoded.result);
+		}
+		else
+		{
+			success = app_write_file_atomic(catalog_config_path, encoded.source.data, encoded.source.size);
+			if (success) catalog_mark_saved(&app.catalog);
+			else LOG_WARN("failed to save catalog state to '%s'", catalog_config_path);
+		}
+	}
+	return success;
+}
+
+static void app_refresh_catalog(void)
+{
+	Str application_sources[] = { LIT("data") };
+	catalog_refresh(&app.catalog, &app.frame_arena, application_sources, ArrayCount(application_sources));
+	app.catalog_refresh_pending = false;
+	if (app.catalog.scan_error_count) LOG_WARN("catalog refresh completed with %u unreadable entries or sources", app.catalog.scan_error_count);
+}
+
+static Str app_rom_name(Str path);
+static void app_discard_audio(void);
+
+static u64 app_unix_time_ms(void)
+{
+	i64 value = platform_unix_time_ms();
+	return value > 0 ? (u64)value : 0;
+}
+
+static Orb_Id app_new_save_id(u64 unix_time_ms)
+{
+	Orb_Id id = {};
+	u64 values[] = {
+		unix_time_ms,
+		platform_counter() ^ platform_current_process_id() * 0x9E3779B97F4A7C15ull,
+	};
+	memory_copy(id.bytes, values, sizeof(id.bytes));
+	return id;
+}
+
+static void app_begin_game_history(Str title)
+{
+	u64 now = app_unix_time_ms();
+	app.current_game_title = str_push_copy(&app.arena, title);
+	app.current_save_id = app_new_save_id(now);
+	app.current_content_hash = (Orb_Hash256) {};
+	app.save_created_unix_ms = now;
+	app.first_played_unix_ms = now;
+	app.play_time_seconds = 0.0;
+}
+
 // TODO(RJ) why are we using CRT files for this!?
 static void app_file_log_sink(const LogRecord *record, void *user_data)
 {
 	FILE *file = user_data;
 	fprintf(file, "%llu %s(%i) %-7s: %*s%s\n", record->sequence, record->source.file, record->source.line, record->tag, record->indent * 2, "", record->message);
 	fflush(file);
-}
-
-static NES_Input app_translate_keyboard_input_for_emulator(u32 player)
-{
-	if (player != 0) return 0;
-	OS_KeyState *keys = app.os_window->keys;
-	NES_Input input = 0;
-	if (keys[OS_Key_Up]    & OS_KEY_DOWN) input |= NES_INPUT_UP;
-	if (keys[OS_Key_Down]  & OS_KEY_DOWN) input |= NES_INPUT_DOWN;
-	if (keys[OS_Key_Left]  & OS_KEY_DOWN) input |= NES_INPUT_LEFT;
-	if (keys[OS_Key_Right] & OS_KEY_DOWN) input |= NES_INPUT_RIGHT;
-	if (keys[OS_Key_W] & OS_KEY_DOWN) input |= NES_INPUT_UP;
-	if (keys[OS_Key_S] & OS_KEY_DOWN) input |= NES_INPUT_DOWN;
-	if (keys[OS_Key_A] & OS_KEY_DOWN) input |= NES_INPUT_LEFT;
-	if (keys[OS_Key_D] & OS_KEY_DOWN) input |= NES_INPUT_RIGHT;
-	if (keys[OS_Key_Z] & OS_KEY_DOWN) input |= NES_INPUT_A;
-	if (keys[OS_Key_X] & OS_KEY_DOWN) input |= NES_INPUT_B;
-	if (keys[OS_Key_C] & OS_KEY_DOWN) input |= NES_INPUT_START;
-	if (keys[OS_Key_V] & OS_KEY_DOWN) input |= NES_INPUT_SELECT;
-	return input;
-}
-
-static NES_Input app_translate_controller_input_for_emulator(u32 player)
-{
-	OS_ControllerState controller;
-	if (!os_controller_get_state(player, &controller)) return 0;
-
-	NES_Input input = 0;
-	if (controller.buttons[2]) input |= NES_INPUT_SELECT;
-	if (controller.start)      input |= NES_INPUT_START;
-	if (controller.buttons[0] || controller.triggers[1]       >  0.15f) input |= NES_INPUT_A;
-	if (controller.buttons[1] || controller.triggers[0]       >  0.15f) input |= NES_INPUT_B;
-	if (controller.dpad[0]    || controller.thumb_sticks[0].y >  0.25f) input |= NES_INPUT_UP;
-	if (controller.dpad[1]    || controller.thumb_sticks[0].y < -0.25f) input |= NES_INPUT_DOWN;
-	if (controller.dpad[2]    || controller.thumb_sticks[0].x < -0.25f) input |= NES_INPUT_LEFT;
-	if (controller.dpad[3]    || controller.thumb_sticks[0].x >  0.25f) input |= NES_INPUT_RIGHT;
-	return input;
-}
-
-static void app_update_debugger_input(void)
-{
-	for (u32 player = 0; player < 2; player ++)
-	{
-		NES_Input input = app_translate_keyboard_input_for_emulator(player) | app_translate_controller_input_for_emulator(player);
-		debugger_set_input(app.debugger, input, player);
-	}
-}
-
-static void app_clear_debugger_input(void)
-{
-	for (u32 player = 0; player < 2; player++) {
-		debugger_set_input(app.debugger, 0, player);
-	}
 }
 
 static b32 app_save_state(void)
@@ -241,59 +245,141 @@ static b32 app_save_state(void)
 	}
 
 	b32 success = false;
-	ARENA_SCOPE(&app.frame_arena)
+	SCRATCH_SCOPE(&app.frame_arena)
 	{
-		// Todo, we need to just pass in the serializer stream here
-		u8 *data = arena_top(&app.frame_arena);
+		u8 *state_data = arena_top(&app.frame_arena);
 		u64 offset = arena_used(&app.frame_arena);
 		if (debugger_save_state(app.debugger, &app.frame_arena))
 		{
-			u64 size = arena_used(&app.frame_arena) - offset;
-			success = size && app_write_file_atomic(debugger_state_path, data, size);
+			u64 now = app_unix_time_ms();
+			if (!app.save_created_unix_ms) app.save_created_unix_ms = now;
+			if (!app.first_played_unix_ms) app.first_played_unix_ms = app.save_created_unix_ms;
+			f64 play_time_ms_f64 = Max(app.play_time_seconds, 0.0) * 1000.0;
+			u64 play_time_ms = play_time_ms_f64 >= (f64)~(u64)0 ? ~(u64)0 : (u64)(play_time_ms_f64 + 0.5);
+			Orb_Contents contents = {
+				.metadata = {
+					.system = ORB_SYSTEM_NES,
+					.kind = ORB_SAVE_RESUME,
+					.id = app.current_save_id,
+					.content_hash = app.current_content_hash,
+					.created_unix_ms = app.save_created_unix_ms,
+					.first_played_unix_ms = app.first_played_unix_ms,
+					.last_played_unix_ms = now,
+					.play_time_ms = play_time_ms,
+					.title = app.current_game_title,
+					.source_path = app.last_rom_path,
+				},
+				.state = byte_span(state_data, arena_used(&app.frame_arena) - offset),
+			};
+			if (app.published.valid)
+			{
+				contents.thumbnail = (Orb_Thumbnail) {
+					.width = NES_VIDEO_WIDTH,
+					.height = NES_VIDEO_HEIGHT,
+					.stride = NES_VIDEO_WIDTH * sizeof(*app.published.video),
+					.format = ORB_PIXEL_FORMAT_RGBA8,
+					.pixels = byte_span(app.published.video, sizeof(app.published.video)),
+				};
+			}
+
+			ByteSpan encoded = {};
+			Orb_Result result = orb_encode(&app.frame_arena, contents, &encoded);
+			if (result.status != ORB_STATUS_OK) {
+				LOG_WARN("failed to encode ORB: %s", orb_status_string(result.status));
+			} else if (encoded.size > MAX_VALUE_U32) {
+				LOG_WARN("failed to save ORB: encoded file is too large");
+			} else {
+				success = app_write_file_atomic(orb_save_path, encoded.data, (u32)encoded.size);
+			}
 		}
 	}
-	if (success) LOG_INFO("saved emulator state to '%s'", debugger_state_path);
-	else LOG_WARN("failed to save emulator state to '%s'", debugger_state_path);
+	if (success)
+	{
+		LOG_INFO("saved emulator state to '%s'", orb_save_path);
+		app.catalog_refresh_pending = true;
+	}
+	else LOG_WARN("failed to save emulator state to '%s'", orb_save_path);
 	return success;
 }
 
-static void app_discard_audio(void)
+static b32 app_restore_state_path(const char *path, b32 is_orb)
 {
-	audio_stream_discard(app.audio);
+	b32 success = false;
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		Str file = app_read_file(&app.frame_arena, path);
+		if (file.size && is_orb)
+		{
+			Orb_Descriptor descriptor = {};
+			Orb_Result result = orb_parse(byte_span(file.data, file.size), &descriptor);
+			if (result.status != ORB_STATUS_OK) {
+				LOG_WARN("failed to parse '%s' at byte %llu: %s", path, result.offset, orb_status_string(result.status));
+			} else if (descriptor.metadata.system != ORB_SYSTEM_NES) {
+				LOG_WARN("cannot restore '%s': it does not contain an NES save", path);
+			} else if (debugger_restore_state(app.debugger, descriptor.state_chunk.data))
+			{
+				success = true;
+				app.current_save_id = descriptor.metadata.id;
+				app.current_content_hash = descriptor.metadata.content_hash;
+				app.save_created_unix_ms = descriptor.metadata.created_unix_ms;
+				app.first_played_unix_ms = descriptor.metadata.first_played_unix_ms;
+				app.play_time_seconds = descriptor.metadata.play_time_ms / 1000.0;
+				if (descriptor.metadata.source_path.size) app.last_rom_path = str_push_copy(&app.arena, descriptor.metadata.source_path);
+				if (descriptor.metadata.title.size) app.current_game_title = str_push_copy(&app.arena, descriptor.metadata.title);
+				else if (app.last_rom_path.size) app.current_game_title = str_push_copy(&app.arena, app_rom_name(app.last_rom_path));
+			}
+		}
+		else if (file.size)
+		{
+			success = debugger_restore_state(app.debugger, byte_span(file.data, file.size));
+			if (success) app_begin_game_history(app.last_rom_path.size ? app_rom_name(app.last_rom_path) : LIT("NES save"));
+		}
+	}
+
+	if (success)
+	{
+		app.mode = APP_MODE_EMULATOR;
+		app.library_overlay_on = false;
+		app_discard_audio();
+		LOG_INFO("restored emulator state from '%s'", path);
+	}
+	else LOG_WARN("failed to restore emulator state from '%s'", path);
+	return success;
 }
 
 static b32 app_restore_state(void)
 {
-	b32 success = false;
-	ARENA_SCOPE(&app.frame_arena)
-	{
-		String state = app_read_file(&app.frame_arena, debugger_state_path);
-		if (state.size) {
-			success = debugger_restore_state(app.debugger, byte_span((void *) state.data, state.size));
-		}
-	}
-
-	if (success) app_discard_audio();
-
-	if (success) LOG_INFO("restored emulator state from '%s'", debugger_state_path);
-	else LOG_WARN("failed to restore emulator state from '%s'", debugger_state_path);
-	return success;
+	Platform_File_Info info = {};
+	if (platform_get_file_info(orb_save_path, &info)) return app_restore_state_path(orb_save_path, true);
+	if (platform_get_file_info(legacy_state_path, &info)) return app_restore_state_path(legacy_state_path, false);
+	return false;
 }
 
-static b32 app_open_rom_path(String path)
+static b32 app_open_rom_path(Str path)
 {
 	b32 success = false;
-	ARENA_SCOPE(&app.frame_arena)
+	b32 same_game = str_match(app.last_rom_path, path);
+	SCRATCH_SCOPE(&app.frame_arena)
 	{
-		String rom = app_read_file(&app.frame_arena, path.text);
+		Str rom = app_read_file(&app.frame_arena, path.text);
 		if (rom.size)
 		{
 			LOG_INFO("open file: %s", path.text);
 			success = debugger_open_rom(app.debugger, byte_span((void *)rom.data, rom.size));
 			if (success) {
 				app.mode = APP_MODE_EMULATOR;
-				app_discard_audio();
-				if (!string_match(app.last_rom_path, path)) app.last_rom_path = push_string_copy(&app.arena, path);
+				app.library_overlay_on = false;
+
+				if (!same_game)
+				{
+					app.last_rom_path = str_push_copy(&app.arena, path);
+					app_begin_game_history(app_rom_name(app.last_rom_path));
+				}
+				if (!catalog_find_path(&app.catalog, path) && catalog_add_source(&app.catalog, path))
+				{
+					app_save_catalog();
+					app.catalog_refresh_pending = true;
+				}
 			}
 		} else {
 			LOG_WARN("failed to read ROM '%s'", path.text);
@@ -304,37 +390,21 @@ static b32 app_open_rom_path(String path)
 
 static void app_open_rom(void)
 {
-	ARENA_SCOPE(&app.frame_arena)
+	SCRATCH_SCOPE(&app.frame_arena)
 	{
-		String path = os_dialog_open_file(&app.frame_arena);
+		Str path = os_dialog_open_file(&app.frame_arena);
 		if (path.size) {
 			app_open_rom_path(path);
 		}
 	}
 }
 
-static String app_config_read_line(String *text)
-{
-	u32 size = 0;
-	while (size < text->size && text->text[size] != '\n') {
-		++size;
-	}
-	u32 line_size = size;
-	if (line_size && text->text[line_size - 1] == '\r') {
-		--line_size;
-	}
-	String line = string_slice(*text, 0, line_size);
-	u32 consumed = size + (size < text->size);
-	*text = string_slice(*text, consumed, text->size - consumed);
-	return line;
-}
-
 static void app_load_config(void)
 {
-	ARENA_SCOPE(&app.frame_arena)
+	SCRATCH_SCOPE(&app.frame_arena)
 	{
 		const char *config_path = debugger_config_path;
-		String config = app_read_file(&app.frame_arena, config_path);
+		Str config = app_read_file(&app.frame_arena, config_path);
 		if (!config.size)
 		{
 			config_path = debugger_default_config_path;
@@ -342,15 +412,14 @@ static void app_load_config(void)
 		}
 		if (config.size)
 		{
-			String version = app_config_read_line(&config);
-			String rom = app_config_read_line(&config);
-			String layout = app_config_read_line(&config);
-			if (string_match(version, LIT("version 1")) && string_match(layout, LIT("layout")))
+			Str version = str_consume_line(&config);
+			Str rom = str_consume_line(&config);
+			Str layout = str_consume_line(&config);
+			if (str_match(version, LIT("version 1")) && str_match(layout, LIT("layout")))
 			{
-				if (rom.size > 4 && memory_match(rom.text, "rom ", 4))
+				if (str_consume_prefix(&rom, LIT("rom ")) && rom.size)
 				{
-					String path = string_slice(rom, 4, rom.size - 4);
-					String terminated_path = push_string_copy(&app.frame_arena, path);
+					Str terminated_path = str_push_copy(&app.frame_arena, rom);
 					app_open_rom_path(terminated_path);
 				}
 				if (!panels_restore_layout(app.panels, config)) {
@@ -365,10 +434,10 @@ static void app_load_config(void)
 
 static void app_save_config(void)
 {
-	ARENA_SCOPE(&app.frame_arena)
+	SCRATCH_SCOPE(&app.frame_arena)
 	{
-		String layout = panels_save_layout(app.panels, &app.frame_arena);
-		String header = push_formatted(&app.frame_arena, "version 1\nrom %.*s\nlayout\n", app.last_rom_path.size, app.last_rom_path.text ? app.last_rom_path.text : "");
+		Str layout = panels_save_layout(app.panels, &app.frame_arena);
+		Str header = str_push_copy_f(&app.frame_arena, "version 1\nrom %.*s\nlayout\n", app.last_rom_path.size, app.last_rom_path.text ? app.last_rom_path.text : "");
 		u32 size = header.size + layout.size;
 		char *text = arena_push_aligned(&app.frame_arena, size, 1);
 		memory_copy(text, header.text, header.size);
@@ -379,31 +448,11 @@ static void app_save_config(void)
 	}
 }
 
-typedef enum
-{
-	KEY_CHORD_ON_RELEASE = OS_EVENT_KEY_RELEASE,
-	KEY_CHORD_ON_PRESSED = OS_EVENT_KEY_PRESS,
-}
-KeyChordActivation;
-
-typedef struct {
-	KeyChordActivation activation;
-	OS_Key             key;
-	OS_ModifierFlags   modifiers;
-}
-KeyChord;
-
-
-typedef struct {
-	AppAction action;
-	KeyChord  key_chord;
-}
-KeyBind;
-
 static const KeyBind app_emulator_mode_key_binds[] =
 {
 	{APP_LOWER_VOLUME                    , {KEY_CHORD_ON_PRESSED, OS_Key_Down , OS_MODIFIER_CONTROL}},
 	{APP_RAISE_VOLUME                    , {KEY_CHORD_ON_PRESSED, OS_Key_Up   , OS_MODIFIER_CONTROL}},
+	{APP_ACTION_TOGGLE_LIBRARY_OVERLAY   , {KEY_CHORD_ON_RELEASE, OS_Key_Tab}},
 
 	{APP_ACTION_SPLIT_PANEL_HORIZONTALLY , {KEY_CHORD_ON_RELEASE, OS_Key_H, OS_MODIFIER_CONTROL}},
 	{APP_ACTION_SPLIT_PANEL_VERTICALLY   , {KEY_CHORD_ON_RELEASE, OS_Key_V, OS_MODIFIER_CONTROL}},
@@ -464,8 +513,93 @@ static AppAction app_find_action_for_keychord(KeyChord chord, const KeyBind *bin
 	return APP_ACTION_NONE;
 }
 
+static NES_Input app_translate_keyboard_input_for_emulator(u32 player)
+{
+	if (player != 0) return 0;
+	OS_KeyState *keys = app.os_window->keys;
+	NES_Input input = 0;
+	if (keys[OS_Key_Up]    & OS_KEY_DOWN) input |= NES_INPUT_UP;
+	if (keys[OS_Key_Down]  & OS_KEY_DOWN) input |= NES_INPUT_DOWN;
+	if (keys[OS_Key_Left]  & OS_KEY_DOWN) input |= NES_INPUT_LEFT;
+	if (keys[OS_Key_Right] & OS_KEY_DOWN) input |= NES_INPUT_RIGHT;
+	if (keys[OS_Key_W] & OS_KEY_DOWN) input |= NES_INPUT_UP;
+	if (keys[OS_Key_S] & OS_KEY_DOWN) input |= NES_INPUT_DOWN;
+	if (keys[OS_Key_A] & OS_KEY_DOWN) input |= NES_INPUT_LEFT;
+	if (keys[OS_Key_D] & OS_KEY_DOWN) input |= NES_INPUT_RIGHT;
+	if (keys[OS_Key_Z] & OS_KEY_DOWN) input |= NES_INPUT_A;
+	if (keys[OS_Key_X] & OS_KEY_DOWN) input |= NES_INPUT_B;
+	if (keys[OS_Key_C] & OS_KEY_DOWN) input |= NES_INPUT_START;
+	if (keys[OS_Key_V] & OS_KEY_DOWN) input |= NES_INPUT_SELECT;
+	return input;
+}
 
+static NES_Input app_translate_controller_input_for_emulator(u32 player)
+{
+	OS_ControllerState controller;
+	if (!os_controller_get_state(player, &controller)) return 0;
 
+	NES_Input input = 0;
+	if (controller.buttons[2]) input |= NES_INPUT_SELECT;
+	if (controller.start)      input |= NES_INPUT_START;
+	if (controller.buttons[0] || controller.triggers[1]       >  0.15f) input |= NES_INPUT_A;
+	if (controller.buttons[1] || controller.triggers[0]       >  0.15f) input |= NES_INPUT_B;
+	if (controller.dpad[0]    || controller.thumb_sticks[0].y >  0.25f) input |= NES_INPUT_UP;
+	if (controller.dpad[1]    || controller.thumb_sticks[0].y < -0.25f) input |= NES_INPUT_DOWN;
+	if (controller.dpad[2]    || controller.thumb_sticks[0].x < -0.25f) input |= NES_INPUT_LEFT;
+	if (controller.dpad[3]    || controller.thumb_sticks[0].x >  0.25f) input |= NES_INPUT_RIGHT;
+	return input;
+}
+
+static void app_update_debugger_input(void)
+{
+	for (u32 player = 0; player < 2; player ++)
+	{
+		NES_Input input = app_translate_keyboard_input_for_emulator(player) | app_translate_controller_input_for_emulator(player);
+		debugger_set_input(app.debugger, input, player);
+	}
+}
+
+static void app_clear_debugger_input(void)
+{
+	for (u32 player = 0; player < 2; player++) {
+		debugger_set_input(app.debugger, 0, player);
+	}
+}
+
+static void app_discard_audio(void)
+{
+	audio_stream_discard(app.audio);
+}
+
+static Audio_Clip app_make_ui_click(Arena *arena, u32 sample_rate)
+{
+	Assert(arena);
+	Assert(sample_rate);
+	u32 frame_count = Max((u32)(sample_rate * 0.035f), 2);
+	f32 *samples = arena_push(arena, sizeof(*samples) * frame_count);
+	f32 duration = frame_count / (f32)sample_rate;
+	u32 noise_state = 0xB5297A4Du;
+	for (u32 frame = 0; frame < frame_count; frame ++)
+	{
+		f32 t = frame / (f32)sample_rate;
+		f32 u = frame / (f32)(frame_count - 1);
+		f32 attack = Min(frame * 0.25f, 1.f);
+		f32 release = 1.f - u;
+		f32 envelope = attack * release * release * expf(-80.f * t);
+		f32 chirp_phase = 6.28318530718f * (1800.f * t - (900.f / (2.f * duration)) * t * t);
+		noise_state = noise_state * 1664525u + 1013904223u;
+		f32 noise = ((noise_state >> 8) * (1.f / 16777215.f)) * 2.f - 1.f;
+		f32 tone = sinf(chirp_phase) * 0.70f + sinf(6.28318530718f * 320.f * t) * 0.20f + noise * 0.10f;
+		samples[frame] = tone * envelope;
+	}
+	return (Audio_Clip) { .samples = samples, .frame_count = frame_count };
+}
+
+static void app_play_ui_feedback(void)
+{
+	UI_Feedback feedback = ui_feedback_take(app.ui);
+	if (feedback & UI_FEEDBACK_PRESS) audio_mixer_play(app.audio_mixer, app.ui_click, (Audio_PlayDesc) { .gain = 0.35f });
+}
 
 
 static AppInput app_translate_input_events_based_on_mode(void)
@@ -507,6 +641,13 @@ static b32 app_handle_input(AppInput input)
 	b32 handled = false;
 	switch (input.action)
 	{
+		case APP_ACTION_TOGGLE_LIBRARY_OVERLAY:
+		{
+			app.library_overlay_on = !app.library_overlay_on;
+			if (app.library_overlay_on) app.catalog_refresh_pending = true;
+		}
+		break;
+
 		case APP_ACTION_SUPPRESS_EMULATOR_INPUT:
 		{
 			handled = true;
@@ -694,7 +835,9 @@ static void app_run_frame(void)
 		{
 			app.emulator_running = false;
 			app_discard_audio();
+			return;
 		}
+		app.play_time_seconds += frame.samples / (f64)nes_sample_rate(0);
 		return;
 	}
 
@@ -715,9 +858,7 @@ static void app_run_frame(void)
 			return;
 		}
 
-		for (u32 i = 0; i < frame.samples; ++ i) {
-			samples[i] *= app.ppu_volume;
-		}
+		app.play_time_seconds += frame.samples / (f64)nes_sample_rate(0);
 		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
 		PROF_BLOCK("audio stream write") audio_stream_write(app.audio, samples, (u32)frame.samples);
 	}
@@ -727,23 +868,31 @@ static void app_drain_audio(void)
 {
 	if (!app.audio_backend_available) return;
 	u32 writable = os_audio_writable_frames();
-	u32 queued = audio_stream_queued_frames(app.audio);
+	if (!writable) return;
+	if (!audio_stream_queued_frames(app.audio) && !audio_mixer_active_voice_count(app.audio_mixer)) return;
+	f32 *output = arena_push(&app.frame_arena, sizeof(*output) * writable);
 
 	while (writable)
 	{
 		Audio_ReadSpan span = audio_stream_acquire(app.audio);
 		u32 count = Min(writable, span.frame_count);
-		if (!count) {
+		const f32 *emulator_samples = span.samples;
+		if (!count)
+		{
 			audio_stream_consume(app.audio, 0);
-			break;
+			emulator_samples = 0;
+			if (!audio_mixer_active_voice_count(app.audio_mixer)) break;
+			count = writable;
 		}
-		u32 written = os_audio_write_mono(span.samples, count);
+		audio_mixer_render(app.audio_mixer, output, emulator_samples, count, app.ppu_volume, 1.f, 1.f);
+		u32 written = os_audio_write_mono(output, count);
 		if (written > count)
 		{
 			LOG_ERROR("audio backend reported writing %u frames from a %u-frame span", written, count);
 			written = count;
 		}
-		audio_stream_consume(app.audio, written);
+		audio_mixer_advance(app.audio_mixer, written);
+		if (span.frame_count) audio_stream_consume(app.audio, written);
 		if (!written) break;
 		writable -= written;
 	}
@@ -786,15 +935,11 @@ static void app_publish(void)
 	PROF_BLOCK("upload CHR texture") app_upload_chr_texture();
 }
 
-static String app_rom_name(String path)
+static Str app_rom_name(Str path)
 {
-	u32 first = 0;
-	for (u32 index = 0; index < path.size; ++index) {
-		if (path.text[index] == '/' || path.text[index] == '\\') {
-			first = index + 1;
-		}
-	}
-	return string_slice(path, first, path.size - first);
+	u32 separator = str_find_last(path, LIT("/\\"));
+	u32 first = separator == MAX_VALUE_U32 ? 0 : separator + 1;
+	return str_slice(path, first, path.size - first);
 }
 
 static void app_update_fps(void)
@@ -812,7 +957,7 @@ static void app_update_fps(void)
 	app.previous_draw_time = now;
 }
 
-static UI_Box *app_status_text(UI_Context *ui, u64 key, String text, UI_TextStyle style, f32 emission)
+static UI_Box *app_status_text(UI_Context *ui, u64 key, Str text, UI_TextStyle style, f32 emission)
 {
 	ui_push(ui);
 	ui_emission(ui, emission);
@@ -821,7 +966,7 @@ static UI_Box *app_status_text(UI_Context *ui, u64 key, String text, UI_TextStyl
 	return box;
 }
 
-static UI_Box *app_status_bar_begin(UI_Context *ui, UI_Key key, String name, f32 height)
+static UI_Box *app_status_bar_begin(UI_Context *ui, UI_Key key, Str name, f32 height)
 {
 	UI_BoxDesc desc = ui_defaults();
 	desc.axis = AXIS_Y;
@@ -835,7 +980,7 @@ static UI_Box *app_status_bar_begin(UI_Context *ui, UI_Key key, String name, f32
 	return box;
 }
 
-static UI_Box *app_status_row_begin(UI_Context *ui, UI_Key key, String name)
+static UI_Box *app_status_row_begin(UI_Context *ui, UI_Key key, Str name)
 {
 	UI_BoxDesc desc = ui_defaults();
 	desc.axis = AXIS_X;
@@ -868,102 +1013,7 @@ static void app_draw_box_tree(UI_Box *box)
 	}
 }
 
-typedef struct
-{
-	String name;
-	String path;
-}
-CartridgeCard;
-
-static CartridgeCard dummy_cards[] = {
-	{LIT("Super Mario Bros 1."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 2."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-	{LIT("Super Mario Bros 3."), LIT("G:\\E Drive\\Downloads\\Best NES Games\\Best NES Games\\Super Mario\\Donkey Kong Jr. (World) (Rev 1).nes")},
-};
-
-
-// TODO(RJ) we don't have anything like Android's frame layout, so we can't
-// just stack stuff ...
-static UI_Box *app_build_cart_card(UI_Context *ui, UI_Key key, vec2 size, CartridgeCard card)
-{
-	String name = card.name;
-	String path = card.path;
-	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_fixed(size.x));
-	ui_size(ui, AXIS_Y, ui_fixed(size.y));
-	ui_background(ui, ui->theme.panel_outline);
-	ui_roundness(ui, size.x * 0.02f);
-	UI_Box *card_box = ui_box_begin(ui, key, LIT("card"));
-	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_wrap());
-	ui_size(ui, AXIS_Y, ui_wrap());
-	ui_padd(ui, AXIS_X, 16.f, 16.f);
-	ui_padd(ui, AXIS_Y, 16.f, 16.f);
-	UI_TextStyle style = app.ui->theme.code;
-	style.size = 32;
-	ui_text_box_string(ui, UI_KEY("passing id's is so annoying"), style, name);
-	ui_pop(ui);
-
-	ui_box_end(ui);
-	ui_pop(ui);
-	return card_box;
-}
-
-// TODO(RJ) padding hardclips scrolling lists, we need to fade out the edges!
-static void app_build_cart_shelf(UI_Context *ui, String title, vec2 card_size, CartridgeCard *cards, u32 ncards)
-{
-	// @THEME
-	UI_TextStyle title_style = app.ui->theme.code;
-	title_style.color = app.ui->theme.text_subtle;
-	title_style.size = 64;
-	title_style.align.y = 0.5f;
-	title_style.align.x = 0.5f;
-	ui_text_box_string(ui, 1, title_style, title);
-
-
-	// TODO(RJ) #1
-	// this doesn't seem to be working properly ...
-	// if I set it to wrap on the Y axis, it shrinks all the way down
-	ui_push(ui);
-	ui_size(ui, AXIS_X, ui_grow(1.f));
-	ui_size(ui, AXIS_Y, ui_grow(1.f));
-	UI_Scroll *scroll = ui_scroll_begin(ui, UI_KEY("shelf scroll"), AXIS_X);
-
-	ui_push(ui);
-	ui_axis(ui, AXIS_X);
-	ui_size(ui, AXIS_X, ui_fill());
-	ui_size(ui, AXIS_Y, ui_wrap());
-	ui_gap(ui, 16.f);
-	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_box_begin(ui, 2, LIT(""));
-
-	for (u32 i = 0; i < ncards; ++ i)
-	{
-		UI_Box *card_box = app_build_cart_card(ui, i, card_size, cards[i]);
-		if (ui_signal_from_box(card_box).pressed) {
-			app_open_rom_path(cards[i].path);
-		}
-	}
-	ui_box_end(ui);
-	ui_pop(ui);
-
-	ui_scroll_end(scroll);
-	ui_pop(ui);
-}
-
+#include "library_ui.c"
 
 static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 {
@@ -1060,8 +1110,8 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 		ui_box_begin(ui, 0, LIT(""));
 		UI_TextStyle style = ui->theme.code;
 		style.color = ui->theme.text_neutral;
-		ui_text_box_string(ui, UI_KEY("1"), style, push_formatted(&ui->frame_arena, "Ctrl+Up Raise Volume"));
-		ui_text_box_string(ui, UI_KEY("2"), style, push_formatted(&ui->frame_arena, "Ctrl+Down Lower Volume"));
+		ui_text_box_string(ui, UI_KEY("1"), style, str_push_copy_f(&ui->frame_arena, "Ctrl+Up Raise Volume"));
+		ui_text_box_string(ui, UI_KEY("2"), style, str_push_copy_f(&ui->frame_arena, "Ctrl+Down Lower Volume"));
 		ui_box_end(ui);
 		ui_pop(ui);
 
@@ -1087,6 +1137,7 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	panel_host_desc.size[AXIS_Y] = ui_grow(1.f);
 	ui_box_begin_desc(ui, 2, LIT("belly"), panel_host_desc);
 	{
+		// Todo, instead we need to stack these two on top!
 		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
 		{
 			Assert(debugger_armed(app.debugger));
@@ -1096,45 +1147,24 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 			panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
 			panels_build_ui(app.panels, app.os_window, frame, panel_rect);
 		}
-		else if (app.mode == APP_MODE_UNARMED)
+		if (app.library_overlay_on)
 		{
-			UI_TextStyle style = app.ui->theme.code;
-			style.color = app.ui->theme.palette.amber;
-			style.align.y = 0.5f;
-			style.align.x = 0.5f;
-			ui_push(ui);
-			ui_emission(ui, app.ui->theme.palette.emission_high * pulse);
-			ui_padd(ui, AXIS_X, 24.f, 24.f);
-			ui_padd(ui, AXIS_Y, 24.f, 24.f);
-			ui_text_box_string(ui, UI_KEY("no_cart"), style, LIT("Ctrl+O - Insert Cartridge"));
-			ui_pop(ui);
+			ui_push_box_z(ui, UI_Z_OVERLAY);
 
-			ui_push(ui);
-			ui_size(ui, AXIS_X, ui_grow(1.f));
-			ui_size(ui, AXIS_Y, ui_grow(1.f));
-			UI_Scroll *scroll = ui_scroll_begin(ui, UI_KEY("library vertical scroll"), AXIS_Y);
+			ui_clean(ui);
+			ui_rect(ui, window_rect);
+			ui_backdrop(ui, 0.f);
+			ui_background(ui, (Color_SRGBA){0,0,0,0.2});
+			ui_box_begin(ui, UI_KEY("overlay"), LIT(""));
 
-			ui_push(ui);
-			ui_axis(ui, AXIS_Y);
-			ui_size(ui, AXIS_X, ui_fill());
-			ui_size(ui, AXIS_Y, ui_fill());
-			ui_padd(ui, AXIS_X, 32.f, 32.f);
-			ui_padd(ui, AXIS_Y, 32.f, 32.f);
-			ui_gap(ui, 16.f);
-			ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-			ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
-			ui_box_begin(ui, UI_KEY("library shelves"), LIT("library shelves"));
-			ui_pop(ui);
-
-			f32 card_width = window_rect.w * 0.20f;
-			f32 card_height = card_width * 0.75f;
-
-			app_build_cart_shelf(ui, LIT("Recently Played"), v2(card_width, card_height), dummy_cards, ArrayCount(dummy_cards));
+			ui_clean(ui);
+			library_build_ui(ui, window_rect);
 
 			ui_box_end(ui);
-			ui_scroll_end(scroll);
-			ui_pop(ui);
+
+			ui_pop_box_z(ui);
 		}
+
 	}
 	ui_box_end(ui);
 
@@ -1145,8 +1175,8 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 
 	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
-	String rom_name = app_rom_name(app.last_rom_path);
-	String bottom_left = rom_name.size ? push_formatted(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
+	Str rom_name = app_rom_name(app.last_rom_path);
+	Str bottom_left = rom_name.size ? str_push_copy_f(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
 	style.align.x = 0.f;
 	app_status_text(app.ui, 1, bottom_left, style, 0.f);
@@ -1228,7 +1258,7 @@ static void app_capture_gifs(GFX_Texture *frame_texture)
 static void app_resize_graphics_outputs(vec2i size)
 {
 	Assert(size.x > 1 && size.y > 1);
-	gfx_window_resize(app.gfx_window, size);
+	gfx_resize_window(app.gfx_window, size);
 }
 
 // Render passes
@@ -1358,6 +1388,8 @@ static void app_draw(void)
 	else {
 		app_draw_debugger(frame_texture, window_rect);
 	}
+	PROF_BLOCK("UI audio feedback") app_play_ui_feedback();
+	PROF_BLOCK("drain audio") app_drain_audio();
 
 	GFX_Texture *present_texture = frame_texture;
 	if (app.mode == APP_MODE_REWINDING) present_texture = app_rewind_pass(present_texture);
@@ -1375,7 +1407,7 @@ static void app_draw(void)
 
 	app_capture_gifs(present_texture);
 
-	PROF_BLOCK("present wait") gfx_window_present(app.gfx_window);
+	PROF_BLOCK("present wait") gfx_present_window(app.gfx_window);
 
 	ui_end_frame(app.ui);
 }
@@ -1383,7 +1415,7 @@ static void app_draw(void)
 static void app_frame(void)
 {
 	prof_begin_frame();
-	ARENA_SCOPE(&app.frame_arena)
+	SCRATCH_SCOPE(&app.frame_arena)
 	{
 		PROF_BLOCK("main frame")
 		{
@@ -1410,13 +1442,12 @@ static void app_frame(void)
 				}
 				PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
 				PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
-				PROF_BLOCK("drain audio")        app_drain_audio();
 				PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
 				PROF_BLOCK("app publish")        app_publish();
 			}
 
-			PROF_BLOCK("app draw")    app_draw();
-			PROF_BLOCK("pace frame")  app_pace_frame();
+			PROF_BLOCK("app draw")   app_draw();
+			PROF_BLOCK("pace frame") app_pace_frame();
 		}
 	}
 	prof_close_frame();
@@ -1434,6 +1465,9 @@ static void app_init(void)
 	Assert(os_graphical_init());
 	app.arena = arena_create(0, "app arena");
 	app.frame_arena = arena_create(0, "app frame arena");
+	catalog_init(&app.catalog, &app.arena);
+	app_load_catalog();
+	app_refresh_catalog();
 
 	OS_AudioInfo audio_info;
 	app.audio_backend_available = os_audio_init(&audio_info);
@@ -1458,6 +1492,10 @@ static void app_init(void)
 	app.audio = audio_stream_create(&app.arena, (Audio_StreamDesc) {
 		.frame_capacity = audio_capacity,
 	});
+	app.audio_mixer = audio_mixer_create(&app.arena, (Audio_MixerDesc) {
+		.voice_capacity = 32,
+	});
+	app.ui_click = app_make_ui_click(&app.arena, audio_info.sample_rate);
 
 	// Font_Handle code_font = ttf_load(app_read_file(&app.arena, "data/fonts/IBMPlexMono-Medium.ttf"));
 	ttf_init_api();
@@ -1476,8 +1514,8 @@ static void app_init(void)
 		},
 	});
 	Assert(app.os_window);
-	app.renderer = gfx_renderer_create(&app.arena);
-	app.gfx_window = gfx_window_create(&app.arena, app.renderer, app.os_window);
+	app.renderer = gfx_create_renderer(&app.arena);
+	app.gfx_window = gfx_create_window(&app.arena, app.renderer, app.os_window);
 	app.draw = draw_create(&app.arena, app.renderer);
 	app.text = text_create(&app.arena);
 	app.text_gfx = text_gfx_create(&app.arena, app.renderer, app.text);
@@ -1504,11 +1542,8 @@ static void app_init(void)
 
 	app.debugger = debugger_create(&app.arena);
 
-	// TODO(RJ) wtf is this even doing, the state already contains the entire cartridge ...
 	app_load_config();
-	if (debugger_armed(app.debugger)) {
-		app_restore_state();
-	}
+	app_restore_state();
 
 	if (debugger_armed(app.debugger)) {
 		app.mode = APP_MODE_EMULATOR;
@@ -1516,6 +1551,7 @@ static void app_init(void)
 		// TODO(RJ) why do we do this here, the loop should just publish once the emulator runs and before the views draw
 		app_publish();
 	}
+	else app.library_overlay_on = true;
 
 	app.frame_begin = seconds_now();
 }
@@ -1525,7 +1561,9 @@ static void app_shutdown(void)
 	if (debugger_armed(app.debugger)) {
 		app_save_state();
 	}
+	app_save_catalog();
 	app_save_config();
+	catalog_destroy(&app.catalog);
 	os_window_destroy(app.os_window);
 	os_audio_shutdown();
 	os_graphical_shutdown();

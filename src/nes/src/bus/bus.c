@@ -111,10 +111,6 @@ NES_MappedRead nes_cpu_bus_read_mapped(NES_Emulator *core, u16 address)
 	return (NES_MappedRead) { access.mapped, access.value };
 }
 
-u8 nes_cpu_bus_read(NES_Emulator *core, u16 address)
-{
-	return nes_cpu_bus_read_mapped(core, address).value;
-}
 
 void nes_cpu_bus_write(NES_Emulator *core, u16 address, u8 value)
 {

@@ -54,7 +54,7 @@ ExecutionPathState;
 
 void execution_graph_reset(ExecutionGraph *graph);
 ExecutionEdge *execution_graph_record(ExecutionGraph *graph, u32 source_offset, u32 destination_offset);
-void execution_graph_observe_execution(ExecutionGraph *graph, ExecutionPathState *path, const Program *program, NES_SchedulerBoundary boundary);
+void execution_graph_observe_execution(ExecutionGraph *graph, ExecutionPathState *path, const Program *program, NES_TraceEntry boundary);
 void execution_path_discard(ExecutionPathState *path);
 
 #endif

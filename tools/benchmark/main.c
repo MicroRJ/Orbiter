@@ -8,12 +8,9 @@
 #include "execution_activity.h"
 #include "os.h"
 
-#include <errno.h>
-#include <stdlib.h>
-
-static String benchmark_read_file(Arena *arena, const char *path)
+static Str benchmark_read_file(Arena *arena, const char *path)
 {
-	String result = {};
+	Str result = {};
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
 	if (!platform_file_is_valid(file)) return result;
 	u64 size = 0;
@@ -24,7 +21,7 @@ static String benchmark_read_file(Arena *arena, const char *path)
 		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
 		{
 			data[size] = 0;
-			result = string_from_data((char *)data, (u32)size);
+			result = str_from_data((char *)data, (u32)size);
 		}
 	}
 	platform_close_file(file);
@@ -152,13 +149,9 @@ static void benchmark_print_bus(const char *name, NES_BusMetrics metrics, u32 it
 
 static b32 benchmark_parse_iterations(const char *text, u32 *result)
 {
-	char *end = 0;
-	errno = 0;
-	unsigned long value = strtoul(text, &end, 10);
-	if (errno || end == text || *end || !value || value > BENCHMARK_MAX_ITERATIONS) {
-		return false;
-	}
-	*result = (u32)value;
+	u32 value = 0;
+	if (!str_to_u32(str_from_cstr(text), &value) || !value || value > BENCHMARK_MAX_ITERATIONS) return false;
+	*result = value;
 	return true;
 }
 
@@ -170,8 +163,8 @@ static void benchmark_scan_trace(BenchmarkTraceRange range)
 	for (u32 span_index = 0; span_index < ArrayCount(spans.spans); ++span_index)
 	{
 		NES_SchedulerTraceSpan span = spans.spans[span_index];
-		const NES_SchedulerTraceEntry *end = span.entries + span.count;
-		for (const NES_SchedulerTraceEntry *entry = span.entries; entry < end; ++entry) {
+		const NES_PackedTraceEntry *end = span.entries + span.count;
+		for (const NES_PackedTraceEntry *entry = span.entries; entry < end; ++entry) {
 			sum += nes_scheduler_trace_decode(range.trace, *entry).cpu_address;
 		}
 	}
@@ -213,8 +206,8 @@ static BenchmarkHashStats benchmark_measure_execution_hash(BenchmarkTraceRange r
 	BenchmarkHashStats result = {};
 	for (u64 index = range.first + 1; index < range.trace.index; ++index)
 	{
-		NES_SchedulerBoundary source = nes_scheduler_trace_at(range.trace, index - 1);
-		NES_SchedulerBoundary destination = nes_scheduler_trace_at(range.trace, index);
+		NES_TraceEntry source = nes_scheduler_trace_at(range.trace, index - 1);
+		NES_TraceEntry destination = nes_scheduler_trace_at(range.trace, index);
 		if (!nes_instruction_links_to_next(source.cpu_address, source.cpu_byte, destination.cpu_address)) continue;
 		u32 source_offset = 0;
 		u32 destination_offset = 0;
@@ -264,8 +257,8 @@ static void benchmark_print_control_flow(BenchmarkTraceRange range)
 	{
 		NES_SchedulerTraceSpan span = spans.spans[span_index];
 		u32 count = Min(span.count, remaining);
-		const NES_SchedulerTraceEntry *end = span.entries + count;
-		for (const NES_SchedulerTraceEntry *entry = span.entries; entry < end; ++entry)
+		const NES_PackedTraceEntry *end = span.entries + count;
+		for (const NES_PackedTraceEntry *entry = span.entries; entry < end; ++entry)
 		{
 			u8 opcode = nes_scheduler_trace_decode(range.trace, *entry).cpu_byte;
 			if (nes_instruction_is_control_flow(opcode))
@@ -289,8 +282,8 @@ static void benchmark_scan_program(Debugger *debugger, BenchmarkTraceRange range
 	for (u32 span_index = 0; span_index < ArrayCount(spans.spans); ++span_index)
 	{
 		NES_SchedulerTraceSpan span = spans.spans[span_index];
-		const NES_SchedulerTraceEntry *end = span.entries + span.count;
-		for (const NES_SchedulerTraceEntry *entry = span.entries; entry < end; ++entry) {
+		const NES_PackedTraceEntry *end = span.entries + span.count;
+		for (const NES_PackedTraceEntry *entry = span.entries; entry < end; ++entry) {
 			program_observe_execution(debugger, nes_scheduler_trace_decode(range.trace, *entry));
 		}
 	}
@@ -305,10 +298,10 @@ static void benchmark_scan_program_graph(Debugger *debugger, ExecutionGraph *gra
 	for (u32 span_index = 0; span_index < ArrayCount(spans.spans); ++span_index)
 	{
 		NES_SchedulerTraceSpan span = spans.spans[span_index];
-		const NES_SchedulerTraceEntry *end = span.entries + span.count;
-		for (const NES_SchedulerTraceEntry *entry = span.entries; entry < end; ++entry)
+		const NES_PackedTraceEntry *end = span.entries + span.count;
+		for (const NES_PackedTraceEntry *entry = span.entries; entry < end; ++entry)
 		{
-			NES_SchedulerBoundary boundary = nes_scheduler_trace_decode(range.trace, *entry);
+			NES_TraceEntry boundary = nes_scheduler_trace_decode(range.trace, *entry);
 			program_observe_execution(debugger, boundary);
 			execution_graph_observe_execution(graph, path, program, boundary);
 			for (u32 breakpoint_index = 0; breakpoint_index < breakpoint_count; ++breakpoint_index) {
@@ -336,7 +329,7 @@ int main(int argc, char **argv)
 
 	Assert(os_init());
 	Arena arena = arena_create(0, "NES benchmark");
-	String file = benchmark_read_file(&arena, argv[1]);
+	Str file = benchmark_read_file(&arena, argv[1]);
 	NES_CartridgeDesc cartridge;
 	if (!file.size || !nes_cartridge_parse_ines(byte_span((void *)file.text, file.size), &cartridge))
 	{

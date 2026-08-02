@@ -108,11 +108,12 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	playground_make_box(ui, 28, LIT("1x  2x  3x  4x  5x grow weights"), timeline_status, color_srgba_mix(blue, slate, 0.35f), false);
 	ui_box_end(ui);
 
-	UI_BoxDesc inspector_area = playground_fill_desc();
-	inspector_area.size[AXIS_X] = ui_flex(1.f, 1.f);
-	inspector_area.min_size.x = 180.f;
-	inspector_area.max_size.x = 420.f;
-	PlaygroundScrollArea scroll_area = playground_scroll_area_begin(ui, 30, inspector_area);
+	ui_push(ui);
+	ui_size(ui, AXIS_X, ui_flex(1.f, 1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_min_size(ui, AXIS_X, 180.f);
+	ui_max_size(ui, AXIS_X, 420.f);
+	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 30, AXIS_Y);
 
 	UI_BoxDesc inspector = playground_fill_desc();
 	inspector.horz_padd[0] = inspector.horz_padd[1] = density.card_padding;
@@ -120,7 +121,6 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	inspector.vert_padd[1] = density.card_padding;
 	inspector.gap = 8.f;
 	inspector.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	inspector.overflow[AXIS_Y] = UI_BOX_OVERFLOW_SCROLL;
 	PlaygroundProfilerRows *profiler_rows = arena_push_zero(arena, sizeof(*profiler_rows));
 	profiler_rows->violet = violet;
 	profiler_rows->slate = slate;
@@ -132,9 +132,11 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 		.build_item = playground_build_profiler_row,
 	});
 	inspector_box->user = playground_visual(arena, violet, true);
-	scroll_area.root->intrinsic_size.x = 300.f;
-	playground_scroll_area_end(ui, &scroll_area, inspector_box, color_srgba_mix(violet, slate, 0.72f), color_srgba(0xC99CFF));
-	scene.scroll_areas[scene.scroll_area_count++] = scroll_area;
+	ui_scroll_box_end(scroll);
+	scroll->root->intrinsic_size.x = 300.f;
+	scroll->track->user = playground_visual(arena, color_srgba_mix(violet, slate, 0.72f), false);
+	scroll->thumb->user = playground_visual(arena, color_srgba(0xC99CFF), false);
+	ui_pop(ui);
 
 	ui_box_end(ui);
 

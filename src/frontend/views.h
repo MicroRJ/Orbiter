@@ -84,7 +84,7 @@ struct ViewFrameData
 	GFX_Texture *chr_texture;
 };
 
-ViewFrameData view_begin_frame(ViewFrameData *frame, String title);
+ViewFrameData view_begin_frame(ViewFrameData *frame, Str title);
 void view_end_frame(ViewFrameData *frame);
 void view_build_ui(ViewFrameData *frame);
 void video_view_build_ui(ViewFrameData *frame);

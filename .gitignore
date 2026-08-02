@@ -16,6 +16,8 @@
 
 # Runtime and local development data.
 /data/debugger.cfg
+/data/user.tab
+/data/*.orb
 /data/*.orbiter
 /data/*.gif
 /data/roms/

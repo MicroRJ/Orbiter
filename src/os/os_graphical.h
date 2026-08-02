@@ -76,7 +76,7 @@ typedef struct
 		vec2i mouse;
 		struct { f32 wheel_x, wheel_y; };
 		vec2i size;
-		String path;
+		Str path;
 	};
 }
 OS_Event;
@@ -102,7 +102,7 @@ struct OS_Window
 	u32 event_capacity;
 };
 
-// Events and any String data they reference remain valid until the next
+// Events and any Str data they reference remain valid until the next
 // os_graphical_poll call. Persistent key and mouse state remains on the window.
 
 typedef struct

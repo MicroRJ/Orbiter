@@ -16,6 +16,13 @@ typedef struct
 }
 UI_Response;
 
+typedef enum
+{
+	UI_FEEDBACK_NONE  = 0,
+	UI_FEEDBACK_PRESS = 1 << 0,
+}
+UI_Feedback;
+
 typedef struct
 {
 	Font_Handle font;
@@ -86,7 +93,7 @@ UI_Theme;
 
 typedef struct UI_Box UI_Box;
 typedef struct UI_BoxState UI_BoxState;
-typedef struct UI_BoxBuilder UI_BoxBuilder;
+typedef struct UI_Builder UI_Builder;
 typedef struct UI_Context UI_Context;
 struct UI_Context
 {
@@ -99,7 +106,7 @@ struct UI_Context
 	UI_BoxState  **box_state_slots;
 	UI_BoxState   *free_box_states;
 	u32            box_state_slot_count;
-	UI_BoxBuilder *builder;
+	UI_Builder *builder;
 	UI_Box        *root;
 	UI_Box        *overlay_root;
 	UI_Box        *tooltip_box;
@@ -110,6 +117,7 @@ struct UI_Context
 	f32            frame_elapsed;
 	vec2i          previous_window_size;
 	b32            mouse_wheel_consumed;
+	u32            feedback;
 	UI_Id          hot;
 	UI_Id          active;
 	vec2           mouse;
@@ -131,6 +139,8 @@ void ui_pop_z(UI_Context *ui);
 
 b32 ui_is_hot(UI_Context *ui, UI_Id id);
 b32 ui_is_active(UI_Context *ui, UI_Id id);
+void ui_feedback_emit(UI_Context *ui, UI_Feedback feedback);
+UI_Feedback ui_feedback_take(UI_Context *ui);
 
 UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect);
 UI_Response ui_signal_from_box(UI_Box *box);
@@ -146,8 +156,8 @@ void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength);
 void ui_draw_backdrop(UI_Context *ui, rect_f32 rect, f32 roundness);
 
 void ui_draw_image(UI_Context *ui, Draw_TextureParams params);
-vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text);
-vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text);
+vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, Str text);
+vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, Str text);
 UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_height, f32 *position, f32 content_height);
 
 #endif

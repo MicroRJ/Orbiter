@@ -62,7 +62,7 @@ UI_BoxPaintDesc ui_default_paint(void)
 	};
 }
 
-static UI_Box *ui_box__allocate_box(UI_BoxBuilder *builder, UI_Id id, UI_Key key, String name, UI_BoxDesc desc)
+static UI_Box *ui_box__allocate_box(UI_Builder *builder, UI_Id id, UI_Key key, Str name, UI_BoxDesc desc)
 {
 	UI_Box *box = arena_push_zero(builder->arena, sizeof(*box));
 	box->id = id;
@@ -70,12 +70,12 @@ static UI_Box *ui_box__allocate_box(UI_BoxBuilder *builder, UI_Id id, UI_Key key
 	box->name = name;
 	box->desc = desc;
 	box->paint = builder->paint;
+	if (builder->box_z_count) box->paint.z += builder->box_z_stack[builder->box_z_count - 1];
 	box->ui = builder->ui;
 	if (box->ui)
 	{
 		box->state = ui_box_state_get(box->ui, box->id);
 		box->has_previous = box->state->last_layout_frame + 1 == box->ui->frame_index && box->state->layout_generation == box->ui->layout_generation;
-		box->scroll_offset = box->state->view_offset;
 	}
 	return box;
 }
@@ -110,7 +110,7 @@ void ui_box_clear_children(UI_Box *parent)
 	parent->child_count = 0;
 }
 
-UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc)
+UI_Box *ui_box_builder_begin(UI_Builder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDesc root_desc)
 {
 	Assert(builder);
 	Assert(arena);
@@ -125,7 +125,7 @@ UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *u
 	return builder->root;
 }
 
-UI_Box *ui_builder_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
+UI_Box *ui_builder_box_make_desc(UI_Builder *builder, UI_Key key, Str name, UI_BoxDesc desc)
 {
 	Assert(builder);
 	Assert(builder->parent);
@@ -138,12 +138,12 @@ UI_Box *ui_builder_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name
 	return box;
 }
 
-UI_Box *ui_builder_box_make(UI_BoxBuilder *builder, UI_Key key, String name)
+UI_Box *ui_builder_box_make(UI_Builder *builder, UI_Key key, Str name)
 {
 	return ui_builder_box_make_desc(builder, key, name, builder->desc);
 }
 
-UI_Box *ui_builder_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc)
+UI_Box *ui_builder_box_begin_desc(UI_Builder *builder, UI_Key key, Str name, UI_BoxDesc desc)
 {
 	UI_Box *box = ui_builder_box_make_desc(builder, key, name, desc);
 	Assert(builder->parent_count < ArrayCount(builder->parent_id_stack));
@@ -153,12 +153,12 @@ UI_Box *ui_builder_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String nam
 	return box;
 }
 
-UI_Box *ui_builder_box_begin(UI_BoxBuilder *builder, UI_Key key, String name)
+UI_Box *ui_builder_box_begin(UI_Builder *builder, UI_Key key, Str name)
 {
 	return ui_builder_box_begin_desc(builder, key, name, builder->desc);
 }
 
-void ui_builder_box_end(UI_BoxBuilder *builder)
+void ui_builder_box_end(UI_Builder *builder)
 {
 	Assert(builder);
 	Assert(builder->parent_count);
@@ -167,7 +167,7 @@ void ui_builder_box_end(UI_BoxBuilder *builder)
 	builder->id = builder->parent_id_stack[builder->parent_count];
 }
 
-UI_Box *ui_box_builder_end(UI_BoxBuilder *builder)
+UI_Box *ui_box_builder_end(UI_Builder *builder)
 {
 	Assert(builder);
 	Assert(builder->root);
@@ -175,11 +175,12 @@ UI_Box *ui_box_builder_end(UI_BoxBuilder *builder)
 	Assert(builder->parent_count == 0);
 	Assert(builder->id_count == 0);
 	Assert(builder->desc_count == 0);
+	Assert(builder->box_z_count == 0);
 	Assert(ui_id_equal(builder->id, builder->root->id));
 	return builder->root;
 }
 
-void ui_builder_push_id(UI_BoxBuilder *builder, UI_Key key)
+void ui_builder_push_id(UI_Builder *builder, UI_Key key)
 {
 	Assert(builder);
 	Assert(builder->id_count < ArrayCount(builder->id_stack));
@@ -187,14 +188,28 @@ void ui_builder_push_id(UI_BoxBuilder *builder, UI_Key key)
 	builder->id = ui_id_child(builder->id, key);
 }
 
-void ui_builder_pop_id(UI_BoxBuilder *builder)
+void ui_builder_pop_id(UI_Builder *builder)
 {
 	Assert(builder);
 	Assert(builder->id_count);
 	builder->id = builder->id_stack[--builder->id_count];
 }
 
-void ui_builder_push(UI_BoxBuilder *builder)
+void ui_builder_push_box_z(UI_Builder *builder, i32 z)
+{
+	Assert(builder);
+	Assert(builder->box_z_count < ArrayCount(builder->box_z_stack));
+	builder->box_z_stack[builder->box_z_count++] = z;
+}
+
+void ui_builder_pop_box_z(UI_Builder *builder)
+{
+	Assert(builder);
+	Assert(builder->box_z_count);
+	builder->box_z_count--;
+}
+
+void ui_builder_push(UI_Builder *builder)
 {
 	Assert(builder);
 	Assert(builder->desc_count < ArrayCount(builder->desc_stack));
@@ -202,7 +217,7 @@ void ui_builder_push(UI_BoxBuilder *builder)
 	builder->paint_stack[builder->desc_count++] = builder->paint;
 }
 
-void ui_builder_pop(UI_BoxBuilder *builder)
+void ui_builder_pop(UI_Builder *builder)
 {
 	Assert(builder);
 	Assert(builder->desc_count);
@@ -211,13 +226,20 @@ void ui_builder_pop(UI_BoxBuilder *builder)
 	builder->paint = builder->paint_stack[builder->desc_count];
 }
 
-void ui_builder_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size)
+void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size)
 {
 	Assert(builder);
 	builder->desc.size[axis] = size;
 }
 
-void ui_builder_position(UI_BoxBuilder *builder, AXIS axis, f32 position)
+void ui_builder_clean(UI_Builder *builder)
+{
+	Assert(builder);
+	builder->desc = ui_defaults();
+	builder->paint = ui_default_paint();
+}
+
+void ui_builder_position(UI_Builder *builder, AXIS axis, f32 position)
 {
 	Assert(builder);
 	builder->desc.position[axis] = (UI_BoxPosition) {
@@ -226,7 +248,7 @@ void ui_builder_position(UI_BoxBuilder *builder, AXIS axis, f32 position)
 	};
 }
 
-void ui_builder_rect(UI_BoxBuilder *builder, rect_f32 rect)
+void ui_builder_rect(UI_Builder *builder, rect_f32 rect)
 {
 	Assert(builder);
 	ui_builder_position(builder, AXIS_X, rect.x);
@@ -235,64 +257,64 @@ void ui_builder_rect(UI_BoxBuilder *builder, rect_f32 rect)
 	ui_builder_size(builder, AXIS_Y, ui_fixed(rect.h));
 }
 
-void ui_builder_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
+void ui_builder_min_size(UI_Builder *builder, AXIS axis, f32 size)
 {
 	Assert(builder);
 	builder->desc.min_size.xy[axis] = size;
 }
 
-void ui_builder_max_size(UI_BoxBuilder *builder, AXIS axis, f32 size)
+void ui_builder_max_size(UI_Builder *builder, AXIS axis, f32 size)
 {
 	Assert(builder);
 	builder->desc.max_size.xy[axis] = size;
 }
 
-void ui_builder_margin(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
+void ui_builder_margin(UI_Builder *builder, AXIS axis, f32 before, f32 after)
 {
 	Assert(builder);
 	builder->desc.margin[axis][0] = before;
 	builder->desc.margin[axis][1] = after;
 }
 
-void ui_builder_padd(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after)
+void ui_builder_padd(UI_Builder *builder, AXIS axis, f32 before, f32 after)
 {
 	Assert(builder);
 	builder->desc.padd[axis][0] = before;
 	builder->desc.padd[axis][1] = after;
 }
 
-void ui_builder_axis(UI_BoxBuilder *builder, AXIS axis)
+void ui_builder_axis(UI_Builder *builder, AXIS axis)
 {
 	Assert(builder);
 	builder->desc.axis = axis;
 }
 
-void ui_builder_gap(UI_BoxBuilder *builder, f32 gap)
+void ui_builder_gap(UI_Builder *builder, f32 gap)
 {
 	Assert(builder);
 	builder->desc.gap = gap;
 }
 
-void ui_builder_perp_align(UI_BoxBuilder *builder, f32 align)
+void ui_builder_perp_align(UI_Builder *builder, f32 align)
 {
 	Assert(builder);
 	builder->desc.perp_align = align;
 }
 
-void ui_builder_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow)
+void ui_builder_overflow(UI_Builder *builder, AXIS axis, UI_BoxOverflow overflow)
 {
 	Assert(builder);
 	builder->desc.overflow[axis] = overflow;
 }
 
-void ui_builder_background(UI_BoxBuilder *builder, Color_SRGBA color)
+void ui_builder_background(UI_Builder *builder, Color_SRGBA color)
 {
 	Assert(builder);
 	builder->paint.flags |= UI_BOX_DRAW_BACKGROUND;
 	builder->paint.background = color;
 }
 
-void ui_builder_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width)
+void ui_builder_border(UI_Builder *builder, Color_SRGBA color, f32 width)
 {
 	Assert(builder);
 	builder->paint.flags |= UI_BOX_DRAW_BORDER;
@@ -300,45 +322,45 @@ void ui_builder_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width)
 	builder->paint.border_width = Max(0.f, width);
 }
 
-void ui_builder_backdrop(UI_BoxBuilder *builder, f32 roundness)
+void ui_builder_backdrop(UI_Builder *builder, f32 roundness)
 {
 	Assert(builder);
 	builder->paint.flags |= UI_BOX_DRAW_BACKDROP;
 	builder->paint.roundness = Max(0.f, roundness);
 }
 
-void ui_builder_roundness(UI_BoxBuilder *builder, f32 roundness)
+void ui_builder_roundness(UI_Builder *builder, f32 roundness)
 {
 	Assert(builder);
 	builder->paint.roundness = Max(0.f, roundness);
 }
 
-void ui_builder_edge_softness(UI_BoxBuilder *builder, f32 edge_softness)
+void ui_builder_edge_softness(UI_Builder *builder, f32 edge_softness)
 {
 	Assert(builder);
 	builder->paint.edge_softness = Max(0.f, edge_softness);
 }
 
-void ui_builder_inset_shadow(UI_BoxBuilder *builder, f32 strength)
+void ui_builder_inset_shadow(UI_Builder *builder, f32 strength)
 {
 	Assert(builder);
 	builder->paint.flags |= UI_BOX_DRAW_INSET_SHADOW;
 	builder->paint.inset_shadow = Max(0.f, strength);
 }
 
-void ui_builder_emission(UI_BoxBuilder *builder, f32 emission)
+void ui_builder_emission(UI_Builder *builder, f32 emission)
 {
 	Assert(builder);
 	builder->paint.emission = Max(0.f, emission);
 }
 
-void ui_builder_paint_z(UI_BoxBuilder *builder, i32 z)
+void ui_builder_paint_z(UI_Builder *builder, i32 z)
 {
 	Assert(builder);
 	builder->paint.z = z;
 }
 
-static UI_BoxBuilder *ui_box__builder(UI_Context *ui)
+static UI_Builder *ui_box__builder(UI_Context *ui)
 {
 	Assert(ui);
 	Assert(ui->builder);
@@ -346,14 +368,14 @@ static UI_BoxBuilder *ui_box__builder(UI_Context *ui)
 	return ui->builder;
 }
 
-UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc)
+UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDesc root_desc)
 {
 	static const UI_Key overlay_root_key = 0x4F5645524C415900ull;
 	Assert(ui);
 	Assert(!ui->builder);
 	Assert(!ui->root);
 	Assert(!ui->overlay_root);
-	UI_BoxBuilder *builder = arena_push_zero(&ui->frame_arena, sizeof(*builder));
+	UI_Builder *builder = arena_push_zero(&ui->frame_arena, sizeof(*builder));
 	ui->builder = builder;
 	UI_Box *root = ui_box_builder_begin(builder, &ui->frame_arena, ui, root_key, root_name, root_desc);
 	ui->root = root;
@@ -368,7 +390,7 @@ UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, String root_name, UI_Box
 
 UI_Box *ui_build_end(UI_Context *ui)
 {
-	UI_BoxBuilder *builder = ui_box__builder(ui);
+	UI_Builder *builder = ui_box__builder(ui);
 	Assert(!ui->tooltip_open);
 	UI_Box *root = ui_box_builder_end(builder);
 	for (UI_Box *child = root->first; child; child = child->next) {
@@ -379,22 +401,22 @@ UI_Box *ui_build_end(UI_Context *ui)
 	return root;
 }
 
-UI_Box *ui_box_make(UI_Context *ui, UI_Key key, String name)
+UI_Box *ui_box_make(UI_Context *ui, UI_Key key, Str name)
 {
 	return ui_builder_box_make(ui_box__builder(ui), key, name);
 }
 
-UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, String name)
+UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, Str name)
 {
 	return ui_builder_box_begin(ui_box__builder(ui), key, name);
 }
 
-UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc)
+UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc)
 {
 	return ui_builder_box_make_desc(ui_box__builder(ui), key, name, desc);
 }
 
-UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc)
+UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc)
 {
 	return ui_builder_box_begin_desc(ui_box__builder(ui), key, name, desc);
 }
@@ -414,6 +436,16 @@ void ui_box_pop_id(UI_Context *ui)
 	ui_builder_pop_id(ui_box__builder(ui));
 }
 
+void ui_push_box_z(UI_Context *ui, i32 z)
+{
+	ui_builder_push_box_z(ui_box__builder(ui), z);
+}
+
+void ui_pop_box_z(UI_Context *ui)
+{
+	ui_builder_pop_box_z(ui_box__builder(ui));
+}
+
 void ui_push(UI_Context *ui)
 {
 	ui_builder_push(ui_box__builder(ui));
@@ -427,6 +459,11 @@ void ui_pop(UI_Context *ui)
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size)
 {
 	ui_builder_size(ui_box__builder(ui), axis, size);
+}
+
+void ui_clean(UI_Context *ui)
+{
+	ui_builder_clean(ui_box__builder(ui));
 }
 
 void ui_position(UI_Context *ui, AXIS axis, f32 position)
@@ -535,15 +572,15 @@ vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 		.min = v2(Max(0.f, constraints.min.x - padd.x), Max(0.f, constraints.min.y - padd.y)),
 		.max = v2(Max(0.f, constraints.max.x - padd.x), Max(0.f, constraints.max.y - padd.y)),
 	};
-	if (box->ops && box->ops->measure)
+	if (box->hooks && box->hooks->measure)
 	{
-		vec2 measured_content = box->ops->measure(box, content_constraints);
+		vec2 measured_content = box->hooks->measure(box, content_constraints);
 		natural.x = Max(natural.x, measured_content.x);
 		natural.y = Max(natural.y, measured_content.y);
 	}
-	if (box->ops && box->ops->measure_children)
+	if (box->hooks && box->hooks->measure_children)
 	{
-		content = box->ops->measure_children(box, content_constraints);
+		content = box->hooks->measure_children(box, content_constraints);
 		natural.x = Max(natural.x, content.x);
 		natural.y = Max(natural.y, content.y);
 	}
@@ -656,16 +693,7 @@ static rect_f32 ui_box__child_clip(UI_Box *box, rect_f32 clip)
 
 static rect_f32 ui_box__intersect(rect_f32 a, rect_f32 b)
 {
-	f32 minimum_x = Max(a.x, b.x);
-	f32 minimum_y = Max(a.y, b.y);
-	f32 maximum_x = Min(a.x + a.w, b.x + b.w);
-	f32 maximum_y = Min(a.y + a.h, b.y + b.h);
-	return (rect_f32) {
-		.x = minimum_x,
-		.y = minimum_y,
-		.w = Max(0.f, maximum_x - minimum_x),
-		.h = Max(0.f, maximum_y - minimum_y),
-	};
+	return rect_f32_intersect(a, b);
 }
 
 static void ui_box__commit_state(UI_Box *box)
@@ -677,15 +705,12 @@ static void ui_box__commit_state(UI_Box *box)
 	box->state->hit_rect = ui_box__intersect(box->rect, box->clip_rect);
 	box->state->viewport = box->viewport;
 	box->state->content_size = box->content_size;
-	box->state->scroll_min = box->scroll_min;
-	box->state->scroll_max = box->scroll_max;
-	box->state->view_offset = box->scroll_offset;
 }
 
 static void ui_box__finish_layout(UI_Box *box)
 {
-	if (box->ops && box->ops->finish_layout) {
-		box->ops->finish_layout(box);
+	if (box->hooks && box->hooks->finish_layout) {
+		box->hooks->finish_layout(box);
 	}
 	ui_box__commit_state(box);
 }
@@ -701,19 +726,13 @@ void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		.w = Max(0.f, rect.w - box->desc.horz_padd[0] - box->desc.horz_padd[1]),
 		.h = Max(0.f, rect.h - box->desc.vert_padd[0] - box->desc.vert_padd[1]),
 	};
-	if (box->ops && box->ops->prepare_layout) {
-		box->ops->prepare_layout(box);
+	if (box->hooks && box->hooks->prepare_layout) {
+		box->hooks->prepare_layout(box);
 	}
 
-	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+	if (box->hooks && box->hooks->layout)
 	{
-		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_SCROLL) {
-			box->scroll_offset.xy[axis] = 0.f;
-		}
-	}
-	if (box->ops && box->ops->layout)
-	{
-		box->ops->layout(box, clip);
+		box->hooks->layout(box, clip);
 		ui_box__finish_layout(box);
 		return;
 	}
@@ -759,18 +778,9 @@ void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 
 	box->content_size.xy[main_axis] = Max(0.f, box->viewport.wh[main_axis] - free_space);
 	box->content_bounds = (rect_f32) { .pos = box->viewport.pos, .size = box->content_size };
-
-	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
-	{
-		box->scroll_min.xy[axis] = 0.f;
-		box->scroll_max.xy[axis] = Max(box->content_size.xy[axis] - box->viewport.wh[axis], 0.f);
-		if (box->desc.overflow[axis] == UI_BOX_OVERFLOW_SCROLL) {
-			box->scroll_offset.xy[axis] = ui_box__clamp(box->scroll_offset.xy[axis], box->scroll_min.xy[axis], box->scroll_max.xy[axis]);
-		}
-	}
 	rect_f32 child_clip = ui_box__child_clip(box, clip);
 
-	f32 cursor = box->viewport.xy[main_axis] - box->scroll_offset.xy[main_axis];
+	f32 cursor = box->viewport.xy[main_axis];
 	for (UI_Box *child = box->first; child; child = child->next)
 	{
 		f32 main_before = child->desc.margin[main_axis][0];
@@ -780,9 +790,9 @@ void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 		f32 perp_available = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
 		f32 perp_size = child->arranged_size.xy[perp_axis];
 		rect_f32 child_rect = {};
-		child_rect.xy[main_axis] = ui_box__is_absolute(child, main_axis) ? box->viewport.xy[main_axis] + child->desc.position[main_axis].value - box->scroll_offset.xy[main_axis] : cursor + main_before;
+		child_rect.xy[main_axis] = ui_box__is_absolute(child, main_axis) ? box->viewport.xy[main_axis] + child->desc.position[main_axis].value : cursor + main_before;
 		child_rect.wh[main_axis] = child->arranged_size.xy[main_axis];
-		child_rect.xy[perp_axis] = ui_box__is_absolute(child, perp_axis) ? box->viewport.xy[perp_axis] + child->desc.position[perp_axis].value - box->scroll_offset.xy[perp_axis] : box->viewport.xy[perp_axis] - box->scroll_offset.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
+		child_rect.xy[perp_axis] = ui_box__is_absolute(child, perp_axis) ? box->viewport.xy[perp_axis] + child->desc.position[perp_axis].value : box->viewport.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
 		child_rect.wh[perp_axis] = perp_size;
 		ui_box_layout_clipped(child, child_rect, child_clip);
 		if (!ui_box__is_absolute(child, main_axis)) cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;

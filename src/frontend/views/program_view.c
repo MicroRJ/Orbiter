@@ -10,25 +10,25 @@ typedef struct
 }
 ProgramBoxData;
 
-static String program_format_operand(Arena *arena, u16 base,
+static Str program_format_operand(Arena *arena, u16 base,
 	u32 type, u32 data)
 {
 	NES_InstructionDesc desc = nes_instruction_desc(type);
 	switch (desc.mode)
 	{
-		case IMP: return push_append_string(arena, LIT(""));
-		case ACC: return push_append_string(arena, LIT("A"));
-		case IMM: return push_append_formatted(arena, "#$%02X", (u32)(u8)data);
-		case ZPG: return push_append_formatted(arena, "$%02X", (u32)(u8)data);
-		case ZPX: return push_append_formatted(arena, "$%02X,X", (u32)(u8)data);
-		case ZPY: return push_append_formatted(arena, "$%02X,Y", (u32)(u8)data);
-		case ABS: return push_append_formatted(arena, "$%04X", (u32)(u16)data);
-		case ABX: return push_append_formatted(arena, "$%04X,X", (u32)(u16)data);
-		case ABY: return push_append_formatted(arena, "$%04X,Y", (u32)(u16)data);
-		case IND: return push_append_formatted(arena, "[$%04X]", (u32)(u16)data);
-		case INX: return push_append_formatted(arena, "[$%02X,X]", (u32)(u8)data);
-		case INY: return push_append_formatted(arena, "[$%02X],Y", (u32)(u8)data);
-		case REL: return push_append_formatted(arena, "$%04X", (u32)(u16)(base + 2 + (i8)data));
+		case IMP: return str_push(arena, LIT(""));
+		case ACC: return str_push(arena, LIT("A"));
+		case IMM: return str_push_f(arena, "#$%02X", (u32)(u8)data);
+		case ZPG: return str_push_f(arena, "$%02X", (u32)(u8)data);
+		case ZPX: return str_push_f(arena, "$%02X,X", (u32)(u8)data);
+		case ZPY: return str_push_f(arena, "$%02X,Y", (u32)(u8)data);
+		case ABS: return str_push_f(arena, "$%04X", (u32)(u16)data);
+		case ABX: return str_push_f(arena, "$%04X,X", (u32)(u16)data);
+		case ABY: return str_push_f(arena, "$%04X,Y", (u32)(u16)data);
+		case IND: return str_push_f(arena, "[$%04X]", (u32)(u16)data);
+		case INX: return str_push_f(arena, "[$%02X,X]", (u32)(u8)data);
+		case INY: return str_push_f(arena, "[$%02X],Y", (u32)(u8)data);
+		case REL: return str_push_f(arena, "$%04X", (u32)(u16)(base + 2 + (i8)data));
 	}
 	return LIT("<internal error>");
 }
@@ -73,24 +73,24 @@ static void program_view_clamp_scroll(ViewState *state, rect_f32 viewport, f32 h
 	state->scroll = Min(state->scroll, max_scroll);
 }
 
-static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_rect, ProgramInstruction instruction, NES_InstructionDesc desc, String formatted_instruction)
+static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_rect, ProgramInstruction instruction, NES_InstructionDesc desc, Str formatted_instruction)
 {
 	UI_Context *ui = frame->ui;
 	if (!rect_f32_contains(hit_rect, ui->mouse)) {
 		return;
 	}
-	String lines[3] = {};
-	lines[0] = push_formatted(frame->scratch, "$%04X   OPCODE $%02X   %.*s", instruction.cpu_address, instruction.type, formatted_instruction.size, formatted_instruction.text);
-	lines[1] = push_formatted(frame->scratch, "%s   %s   %u BYTE%s", program_opcode_class_name(desc.classification), program_addressing_mode_name(desc.mode), desc.size, desc.size == 1 ? "" : "S");
-	lines[2].text = begin_append_sequence(frame->scratch);
-	push_append_formatted(frame->scratch, "%u CYCLE%s", desc.cycles, desc.cycles == 1 ? "" : "S");
+	Str lines[3] = {};
+	lines[0] = str_push_copy_f(frame->scratch, "$%04X   OPCODE $%02X   %.*s", instruction.cpu_address, instruction.type, formatted_instruction.size, formatted_instruction.text);
+	lines[1] = str_push_copy_f(frame->scratch, "%s   %s   %u BYTE%s", program_opcode_class_name(desc.classification), program_addressing_mode_name(desc.mode), desc.size, desc.size == 1 ? "" : "S");
+	lines[2].text = str_top(frame->scratch);
+	str_push_f(frame->scratch, "%u CYCLE%s", desc.cycles, desc.cycles == 1 ? "" : "S");
 	if (desc.page_cross_cycles) {
-		push_append_formatted(frame->scratch, "   +%u PAGE CROSS", desc.page_cross_cycles);
+		str_push_f(frame->scratch, "   +%u PAGE CROSS", desc.page_cross_cycles);
 	}
 	if (desc.branch_taken_cycles) {
-		push_append_formatted(frame->scratch, "   +%u BRANCH TAKEN", desc.branch_taken_cycles);
+		str_push_f(frame->scratch, "   +%u BRANCH TAKEN", desc.branch_taken_cycles);
 	}
-	lines[2].size = end_append_sequence(frame->scratch, lines[2].text);
+	lines[2].size = str_end(frame->scratch, lines[2].text);
 	UI_TextStyle style = ui->theme.code;
 	style.color = ui->theme.text_neutral;
 	f32 line_height = style.size + 4.f;
@@ -220,12 +220,12 @@ static void program_view_content(ViewFrameData *frame)
 		NES_InstructionDesc desc = nes_instruction_desc(instruction.type);
 		u16 address = instruction.cpu_address;
 
-		String formatted_address = push_formatted(scratch, "%04X", address);
-		String formatted_instruction;
-		formatted_instruction.text = begin_append_sequence(scratch);
-		push_append_formatted(scratch, "%s ", desc.name);
+		Str formatted_address = str_push_copy_f(scratch, "%04X", address);
+		Str formatted_instruction;
+		formatted_instruction.text = str_top(scratch);
+		str_push_f(scratch, "%s ", desc.name);
 		program_format_operand(scratch, address, instruction.type, instruction.data);
-		formatted_instruction.size = end_append_sequence(scratch, formatted_instruction.text);
+		formatted_instruction.size = str_end(scratch, formatted_instruction.text);
 
 		u32 indent_size_px = 24;
 		rect_f32 row_rect = rect_f32_slice(&scroll_rect, AXIS_Y, row_height);
@@ -302,7 +302,7 @@ static const UI_BoxHooks program_box_hooks = {
 void program_view_build_ui(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
-	String title = LIT("PROGRAM");
+	Str title = LIT("PROGRAM");
 	if (debugger_armed(debugger) && frame->publication->valid)
 	{
 		u16 cpu_address = frame->publication->cpu.PC;
@@ -310,20 +310,20 @@ void program_view_build_ui(ViewFrameData *frame)
 		u32 instruction_index = 0;
 		const char *mode = seconds_now().seconds >= frame->view->program.tracking_resume_time.seconds ? "tracking" : "manual";
 		if (mapped.device == NES_DEVICE_PRG_ROM && program_index_from_cpu_address(debugger, cpu_address, &instruction_index)) {
-			title = push_formatted(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, PRG=$%05X] (%s)", instruction_index, cpu_address, mapped.address, mode);
+			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, PRG=$%05X] (%s)", instruction_index, cpu_address, mapped.address, mode);
 		} else if (mapped.device == NES_DEVICE_PRG_ROM) {
-			title = push_formatted(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=$%05X] (%s)", cpu_address, mapped.address, mode);
+			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=$%05X] (%s)", cpu_address, mapped.address, mode);
 		} else if (mapped.device == NES_DEVICE_PRG_RAM && program_index_from_cpu_address(debugger, cpu_address, &instruction_index)) {
-			title = push_formatted(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, RAM=$%04X] (%s)", instruction_index, cpu_address, mapped.address, mode);
+			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, RAM=$%04X] (%s)", instruction_index, cpu_address, mapped.address, mode);
 		} else {
-			title = push_formatted(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=?] (%s)", cpu_address, mode);
+			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=?] (%s)", cpu_address, mode);
 		}
 	}
 	ViewFrameData content = view_begin_frame(frame, title);
 	ProgramBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
 	data->frame = content;
 	data->clip = frame->rect;
-	content.content_box->ops = &program_box_hooks;
+	content.content_box->hooks = &program_box_hooks;
 	content.content_box->content = data;
 	view_end_frame(&content);
 }

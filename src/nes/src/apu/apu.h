@@ -8,7 +8,7 @@
 enum
 {
 	// the timer is 11 bits
-	APU_MAX_PULSE_TIMER_VALUE = NES_APU_MAX_PULSE_TIMER_VALUE,
+	APU_MAX_PULSE_TIMER_VALUE = 1 << 11,
 };
 
 void nes_apu_reset(NES_APUState *apu);

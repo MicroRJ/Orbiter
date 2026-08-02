@@ -28,7 +28,7 @@ static void profiler_graph_box_paint(UI_Box *box)
 	UI_TextStyle label_style = ui->theme.code;
 	label_style.color = ui->theme.text_neutral;
 
-	String graph_label = push_formatted(&ui->frame_arena, "FRAME TIME  %i MS / 16 MS BUDGET  %s  WHEEL SCROLLS  CTRL+WHEEL ZOOMS  CLICK: TOGGLE LIVE", (i32)scale_ms, state->following ? "LIVE" : "HISTORY");
+	Str graph_label = str_push_copy_f(&ui->frame_arena, "FRAME TIME  %i MS / 16 MS BUDGET  %s  WHEEL SCROLLS  CTRL+WHEEL ZOOMS  CLICK: TOGGLE LIVE", (i32)scale_ms, state->following ? "LIVE" : "HISTORY");
 	ui_draw_text(ui, rect_f32_inset(rect, 4.f), label_style, graph_label);
 	ui_pop_clip(ui);
 }
@@ -47,7 +47,7 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 	ui_max_size(ui, AXIS_Y, 128.f * 2.f);
 	UI_Box *box = ui_box_make(ui, 1, LIT("profiler graph"));
 	ui_pop(ui);
-	box->ops = &profiler_graph_box_hooks;
+	box->hooks = &profiler_graph_box_hooks;
 	box->content = state;
 
 	i32 paint_z = box->paint.z;
@@ -143,8 +143,8 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 
 			UI_TextStyle style = ui->theme.code;
 			style.color = ui->theme.text_neutral;
-			ui_text_box_string(ui, UI_KEY("1"), style, push_formatted(&ui->frame_arena, "Frame %llu", selected_frame));
-			ui_text_box_string(ui, UI_KEY("2"), style, push_formatted(&ui->frame_arena, "%.2f MS", frame->time.seconds * 1000));
+			ui_text_box_string(ui, UI_KEY("1"), style, str_push_copy_f(&ui->frame_arena, "Frame %llu", selected_frame));
+			ui_text_box_string(ui, UI_KEY("2"), style, str_push_copy_f(&ui->frame_arena, "%.2f MS", frame->time.seconds * 1000));
 
 			ui_box_end(ui);
 
@@ -162,7 +162,7 @@ static Color_SRGBA profiler_color_for_frame_pct(const UI_Theme *theme, Color_SRG
 	return color_srgba_mix(low, theme->palette.error, amount);
 }
 
-static void profiler_table_cell(UI_BoxTable *table, UI_TextStyle style, String sizing_text, String text, f32 align)
+static void profiler_table_cell(UI_BoxTable *table, UI_TextStyle style, Str sizing_text, Str text, f32 align)
 {
 	ui_box_table_cell_begin(table);
 	UI_BoxDesc desc = ui_defaults();
@@ -190,7 +190,6 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
 	UI_BoxTable table = ui_box_table_begin(ui, 1, LIT("profiler timing table"), (UI_BoxTableDesc) {
 		.columns = columns,
 		.column_count = ArrayCount(columns),
@@ -201,7 +200,7 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 	ui_pop(ui);
 
 	ui_box_table_row_begin(&table, 1);
-	profiler_table_cell(&table, header_style, (String) {}, LIT("SCOPE"), 0.f);
+	profiler_table_cell(&table, header_style, (Str) {}, LIT("SCOPE"), 0.f);
 	profiler_table_cell(&table, header_style, LIT("999.999"), LIT("MS"), 1.f);
 	profiler_table_cell(&table, header_style, LIT("100.0"), LIT("FRAME %"), 1.f);
 	profiler_table_cell(&table, header_style, LIT("999999"), LIT("CALLS"), 1.f);
@@ -216,11 +215,11 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 		UI_TextStyle row_style = value_style;
 		row_style.color = profiler_color_for_frame_pct(&ui->theme, value_style.color, frame_pct);
 		ui_box_table_row_begin(&table, index + 2);
-		profiler_table_cell(&table, row_style, (String) {}, field->name, 0.f);
-		profiler_table_cell(&table, row_style, LIT("999.999"), push_formatted(&ui->frame_arena, "%.3f", field->time.seconds * 1000.0), 1.f);
-		profiler_table_cell(&table, row_style, LIT("100.0"), push_formatted(&ui->frame_arena, "%.1f", frame_pct * 100.0), 1.f);
-		profiler_table_cell(&table, row_style, LIT("999999"), push_formatted(&ui->frame_arena, "%u", field->freq), 1.f);
-		profiler_table_cell(&table, row_style, LIT("99999.99"), push_formatted(&ui->frame_arena, "%.2f", microseconds_per_call), 1.f);
+		profiler_table_cell(&table, row_style, (Str) {}, field->name, 0.f);
+		profiler_table_cell(&table, row_style, LIT("999.999"), str_push_copy_f(&ui->frame_arena, "%.3f", field->time.seconds * 1000.0), 1.f);
+		profiler_table_cell(&table, row_style, LIT("100.0"), str_push_copy_f(&ui->frame_arena, "%.1f", frame_pct * 100.0), 1.f);
+		profiler_table_cell(&table, row_style, LIT("999999"), str_push_copy_f(&ui->frame_arena, "%u", field->freq), 1.f);
+		profiler_table_cell(&table, row_style, LIT("99999.99"), str_push_copy_f(&ui->frame_arena, "%.2f", microseconds_per_call), 1.f);
 		ui_box_table_row_end(&table);
 	}
 	return ui_box_table_end(&table);
@@ -228,7 +227,7 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 
 static UI_Box *profiler_build_metric_table(UI_Context *ui, const Prof_Frame *snapshot, f32 row_height)
 {
-	static const String metric_names[] = {
+	static const Str metric_names[] = {
 #define XPAND(name, text) LIT(text),
 		PROF_METRICS_XDEF(XPAND)
 #undef XPAND
@@ -247,7 +246,6 @@ static UI_Box *profiler_build_metric_table(UI_Context *ui, const Prof_Frame *sna
 	ui_size(ui, AXIS_X, ui_flex(0.5f, 2.0f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
 	UI_BoxTable table = ui_box_table_begin(ui, 2, LIT("profiler metric table"), (UI_BoxTableDesc) {
 		.columns = columns,
 		.column_count = ArrayCount(columns),
@@ -258,15 +256,15 @@ static UI_Box *profiler_build_metric_table(UI_Context *ui, const Prof_Frame *sna
 	ui_pop(ui);
 
 	ui_box_table_row_begin(&table, 1);
-	profiler_table_cell(&table, header_style, (String) {}, LIT("METRIC"), 0.f);
+	profiler_table_cell(&table, header_style, (Str) {}, LIT("METRIC"), 0.f);
 	profiler_table_cell(&table, header_style, LIT("9999999999"), LIT("VALUE"), 1.f);
 	ui_box_table_row_end(&table);
 
 	for (u32 index = 0; index < PROF_METRIC_COUNT_; ++index)
 	{
 		ui_box_table_row_begin(&table, index + 2);
-		profiler_table_cell(&table, value_style, (String) {}, metric_names[index], 0.f);
-		profiler_table_cell(&table, value_style, LIT("9999999999"), push_formatted(&ui->frame_arena, "%lld", snapshot->metrics.fields[index]), 1.f);
+		profiler_table_cell(&table, value_style, (Str) {}, metric_names[index], 0.f);
+		profiler_table_cell(&table, value_style, LIT("9999999999"), str_push_copy_f(&ui->frame_arena, "%lld", snapshot->metrics.fields[index]), 1.f);
 		ui_box_table_row_end(&table);
 	}
 	return ui_box_table_end(&table);
@@ -294,7 +292,7 @@ static void profiler_view_content(ViewFrameData *frame)
 	UI_BoxDesc selection_desc = ui_defaults();
 	selection_desc.size[AXIS_X] = ui_grow(1.f);
 	selection_desc.size[AXIS_Y] = ui_fixed(row_height);
-	ui_text_box_string_desc(ui, 2, selection_desc, selection_style, push_formatted(&ui->frame_arena, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
+	ui_text_box_string_desc(ui, 2, selection_desc, selection_style, str_push_copy_f(&ui->frame_arena, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
 
 	ui_push(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -310,17 +308,17 @@ static void profiler_view_content(ViewFrameData *frame)
 	ui_push(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
-	UI_Scroll *timing_scroll = ui_scroll_begin(ui, 1, AXIS_Y);
+	UI_ScrollBox *timing_scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
 	profiler_build_time_table(ui, snapshot, row_height);
-	ui_scroll_end(timing_scroll);
+	ui_scroll_box_end(timing_scroll);
 	ui_pop(ui);
 
 	ui_push(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
-	UI_Scroll *metric_scroll = ui_scroll_begin(ui, 2, AXIS_Y);
+	UI_ScrollBox *metric_scroll = ui_scroll_box_begin(ui, 2, AXIS_Y);
 	profiler_build_metric_table(ui, snapshot, row_height);
-	ui_scroll_end(metric_scroll);
+	ui_scroll_box_end(metric_scroll);
 	ui_pop(ui);
 
 	ui_box_end(ui);

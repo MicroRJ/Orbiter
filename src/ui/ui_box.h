@@ -24,7 +24,6 @@ typedef enum
 {
 	UI_BOX_OVERFLOW_VISIBLE,
 	UI_BOX_OVERFLOW_CLIP,
-	UI_BOX_OVERFLOW_SCROLL,
 }
 UI_BoxOverflow;
 
@@ -114,7 +113,7 @@ UI_BoxConstraints;
 
 typedef struct UI_Box UI_Box;
 typedef struct UI_BoxState UI_BoxState;
-typedef struct UI_BoxBuilder UI_BoxBuilder;
+typedef struct UI_Builder UI_Builder;
 typedef struct UI_Context UI_Context;
 typedef vec2 UI_BoxMeasure(UI_Box *box, UI_BoxConstraints constraints);
 typedef vec2 UI_BoxMeasureChildren(UI_Box *box, UI_BoxConstraints constraints);
@@ -150,8 +149,8 @@ struct UI_BoxState
 	rect_f32 hit_rect;
 	rect_f32 viewport;
 	vec2 content_size;
-	vec2 scroll_min;
-	vec2 scroll_max;
+	// Widget-owned persistent values. The core box layout does not interpret
+	// these; widgets such as scroll boxes may use them across frames.
 	vec2 view_offset;
 	vec2 view_target;
 	f32 hot_t;
@@ -161,38 +160,40 @@ struct UI_BoxState
 
 struct UI_Box
 {
+	UI_Context     *ui;
+	UI_BoxState *state;
 	UI_Id           id;
 	UI_Key         key;
-	String        name;
-	UI_BoxState *state;
+	Str           name;
+
 	// The state contains geometry from the immediately preceding compatible layout.
-	b32 has_previous;
-	UI_BoxDesc desc;
+	b32      has_previous;
+
+	UI_BoxDesc       desc;
 	UI_BoxPaintDesc paint;
-	UI_Box *parent;
-	UI_Box *first;
-	UI_Box *last;
-	UI_Box *next;
-	UI_Box *prev;
-	u32 child_count;
-	vec2 intrinsic_size;
-	vec2 measured_size;
-	vec2 arranged_size;
-	rect_f32 rect;
-	rect_f32 viewport;
+	UI_Box        *parent;
+	UI_Box         *first;
+	UI_Box          *last;
+	UI_Box          *next;
+	UI_Box          *prev;
+	u32       child_count;
+	//
+	vec2   intrinsic_size;
+	vec2    measured_size;
+	vec2    arranged_size;
+	//
+	rect_f32           rect;
+	rect_f32      clip_rect;
+	rect_f32       viewport;
 	rect_f32 content_bounds;
-	rect_f32 clip_rect;
-	vec2 content_size;
-	vec2 scroll_offset;
-	vec2 scroll_min;
-	vec2 scroll_max;
-	UI_Context *ui;
-	const UI_BoxHooks *ops;
-	void *content;
-	void *user;
+	vec2       content_size;
+
+	const UI_BoxHooks *hooks;
+	void            *content;
+	void               *user;
 };
 
-struct UI_BoxBuilder
+struct UI_Builder
 {
 	Arena *arena;
 	UI_Context *ui;
@@ -205,9 +206,11 @@ struct UI_BoxBuilder
 	UI_BoxDesc desc_stack[UI_BOX_MAX_DEPTH];
 	UI_BoxPaintDesc paint;
 	UI_BoxPaintDesc paint_stack[UI_BOX_MAX_DEPTH];
+	i32 box_z_stack[UI_BOX_MAX_DEPTH];
 	u32 parent_count;
 	u32 id_count;
 	u32 desc_count;
+	u32 box_z_count;
 };
 
 UI_BoxSize ui_wrap(void);
@@ -220,21 +223,25 @@ static inline UI_BoxSize ui_fill() {
 UI_BoxDesc ui_defaults(void);
 UI_BoxPaintDesc ui_default_paint(void);
 
-UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc);
+UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDesc root_desc);
 UI_Box *ui_build_end(UI_Context *ui);
-UI_Box *ui_box_make(UI_Context *ui, UI_Key key, String name);
+UI_Box *ui_box_make(UI_Context *ui, UI_Key key, Str name);
 
 void ui_box_end(UI_Context *ui);
-UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, String name);
+UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, Str name);
 
-UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc);
-UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, String name, UI_BoxDesc desc);
+UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc);
+UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc);
 
 void ui_box_push_id(UI_Context *ui, UI_Key key);
 void ui_box_pop_id(UI_Context *ui);
 
+void ui_push_box_z(UI_Context *ui, i32 z);
+void ui_pop_box_z(UI_Context *ui);
+
 void ui_push(UI_Context *ui);
 void ui_pop(UI_Context *ui);
+void ui_clean(UI_Context *ui);
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size);
 void ui_position(UI_Context *ui, AXIS axis, f32 position);
 void ui_rect(UI_Context *ui, rect_f32 rect);
@@ -256,38 +263,40 @@ void ui_emission(UI_Context *ui, f32 emission);
 void ui_paint_z(UI_Context *ui, i32 z);
 
 // Low-level builder API used by the box implementation and its focused tests.
-UI_Box *ui_box_builder_begin(UI_BoxBuilder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, String root_name, UI_BoxDesc root_desc);
-UI_Box *ui_box_builder_end(UI_BoxBuilder *builder);
+UI_Box *ui_box_builder_begin(UI_Builder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDesc root_desc);
+UI_Box *ui_box_builder_end(UI_Builder *builder);
 void ui_box_clear_children(UI_Box *box);
 void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip);
-UI_Box *ui_builder_box_make(UI_BoxBuilder *builder, UI_Key key, String name);
-UI_Box *ui_builder_box_begin(UI_BoxBuilder *builder, UI_Key key, String name);
-UI_Box *ui_builder_box_make_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc);
-UI_Box *ui_builder_box_begin_desc(UI_BoxBuilder *builder, UI_Key key, String name, UI_BoxDesc desc);
-void ui_builder_box_end(UI_BoxBuilder *builder);
-void ui_builder_push_id(UI_BoxBuilder *builder, UI_Key key);
-void ui_builder_pop_id(UI_BoxBuilder *builder);
-void ui_builder_push(UI_BoxBuilder *builder);
-void ui_builder_pop(UI_BoxBuilder *builder);
-void ui_builder_size(UI_BoxBuilder *builder, AXIS axis, UI_BoxSize size);
-void ui_builder_position(UI_BoxBuilder *builder, AXIS axis, f32 position);
-void ui_builder_rect(UI_BoxBuilder *builder, rect_f32 rect);
-void ui_builder_min_size(UI_BoxBuilder *builder, AXIS axis, f32 size);
-void ui_builder_max_size(UI_BoxBuilder *builder, AXIS axis, f32 size);
-void ui_builder_margin(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after);
-void ui_builder_padd(UI_BoxBuilder *builder, AXIS axis, f32 before, f32 after);
-void ui_builder_axis(UI_BoxBuilder *builder, AXIS axis);
-void ui_builder_gap(UI_BoxBuilder *builder, f32 gap);
-void ui_builder_perp_align(UI_BoxBuilder *builder, f32 align);
-void ui_builder_overflow(UI_BoxBuilder *builder, AXIS axis, UI_BoxOverflow overflow);
-void ui_builder_background(UI_BoxBuilder *builder, Color_SRGBA color);
-void ui_builder_border(UI_BoxBuilder *builder, Color_SRGBA color, f32 width);
-void ui_builder_backdrop(UI_BoxBuilder *builder, f32 roundness);
-void ui_builder_roundness(UI_BoxBuilder *builder, f32 roundness);
-void ui_builder_edge_softness(UI_BoxBuilder *builder, f32 edge_softness);
-void ui_builder_inset_shadow(UI_BoxBuilder *builder, f32 strength);
-void ui_builder_emission(UI_BoxBuilder *builder, f32 emission);
-void ui_builder_paint_z(UI_BoxBuilder *builder, i32 z);
+UI_Box *ui_builder_box_make(UI_Builder *builder, UI_Key key, Str name);
+UI_Box *ui_builder_box_begin(UI_Builder *builder, UI_Key key, Str name);
+UI_Box *ui_builder_box_make_desc(UI_Builder *builder, UI_Key key, Str name, UI_BoxDesc desc);
+UI_Box *ui_builder_box_begin_desc(UI_Builder *builder, UI_Key key, Str name, UI_BoxDesc desc);
+void ui_builder_box_end(UI_Builder *builder);
+void ui_builder_push_id(UI_Builder *builder, UI_Key key);
+void ui_builder_pop_id(UI_Builder *builder);
+void ui_builder_push_box_z(UI_Builder *builder, i32 z);
+void ui_builder_pop_box_z(UI_Builder *builder);
+void ui_builder_push(UI_Builder *builder);
+void ui_builder_pop(UI_Builder *builder);
+void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size);
+void ui_builder_position(UI_Builder *builder, AXIS axis, f32 position);
+void ui_builder_rect(UI_Builder *builder, rect_f32 rect);
+void ui_builder_min_size(UI_Builder *builder, AXIS axis, f32 size);
+void ui_builder_max_size(UI_Builder *builder, AXIS axis, f32 size);
+void ui_builder_margin(UI_Builder *builder, AXIS axis, f32 before, f32 after);
+void ui_builder_padd(UI_Builder *builder, AXIS axis, f32 before, f32 after);
+void ui_builder_axis(UI_Builder *builder, AXIS axis);
+void ui_builder_gap(UI_Builder *builder, f32 gap);
+void ui_builder_perp_align(UI_Builder *builder, f32 align);
+void ui_builder_overflow(UI_Builder *builder, AXIS axis, UI_BoxOverflow overflow);
+void ui_builder_background(UI_Builder *builder, Color_SRGBA color);
+void ui_builder_border(UI_Builder *builder, Color_SRGBA color, f32 width);
+void ui_builder_backdrop(UI_Builder *builder, f32 roundness);
+void ui_builder_roundness(UI_Builder *builder, f32 roundness);
+void ui_builder_edge_softness(UI_Builder *builder, f32 edge_softness);
+void ui_builder_inset_shadow(UI_Builder *builder, f32 strength);
+void ui_builder_emission(UI_Builder *builder, f32 emission);
+void ui_builder_paint_z(UI_Builder *builder, i32 z);
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints);
 void ui_box_layout(UI_Box *box, rect_f32 rect);

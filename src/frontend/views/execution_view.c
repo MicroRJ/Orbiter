@@ -197,12 +197,12 @@ static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGri
 	}
 	u32 cell_begin = cell_index * grid->cell_size;
 	u32 cell_end = Min(cell_begin + grid->cell_size, program_size);
-	String lines[2] = {};
+	Str lines[2] = {};
 	u32 line_count = 0;
-	lines[line_count++] = push_formatted(frame->scratch, "CELL %u   %u BYTES", cell_index, grid->cell_size);
+	lines[line_count++] = str_push_copy_f(frame->scratch, "CELL %u   %u BYTES", cell_index, grid->cell_size);
 	const char *device = cell_begin < program->prg_rom_byte_count ? "PRG ROM" : "PRG RAM";
 	u32 device_base = cell_begin < program->prg_rom_byte_count ? 0 : program->prg_rom_byte_count;
-	lines[line_count++] = push_formatted(frame->scratch, "DESTINATION  %s $%06X-$%06X", device, cell_begin - device_base, cell_end - 1 - device_base);
+	lines[line_count++] = str_push_copy_f(frame->scratch, "DESTINATION  %s $%06X-$%06X", device, cell_begin - device_base, cell_end - 1 - device_base);
 	ui_draw_rect_outline(ui, selected_cell, 2.f, ui->theme.text_neutral);
 	UI_TextStyle style = ui->theme.code;
 	style.color = ui->theme.text_neutral;
@@ -321,20 +321,20 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	f32 label_height = ui->theme.code.size + 10.f;
 	rect_f32 label = rect_f32_slice(&layout, AXIS_Y, label_height);
 	const char *active_device = has_active_cell && active_mapping.device == NES_DEVICE_PRG_RAM ? "PRG RAM" : "PRG ROM";
-	String label_text = has_active_cell
-		? push_formatted(frame->scratch, "%u B / cell   PC $%04X -> %s $%X   active $%X-$%X   Ctrl+wheel zooms", cell_size, pc, active_device, active_mapping.offset, active_begin, active_end - 1)
-		: push_formatted(frame->scratch, "%u B / cell   PC $%04X is not mapped to program storage   Ctrl+wheel zooms", cell_size, pc);
+	Str label_text = has_active_cell
+		? str_push_copy_f(frame->scratch, "%u B / cell   PC $%04X -> %s $%X   active $%X-$%X   Ctrl+wheel zooms", cell_size, pc, active_device, active_mapping.offset, active_begin, active_end - 1)
+		: str_push_copy_f(frame->scratch, "%u B / cell   PC $%04X is not mapped to program storage   Ctrl+wheel zooms", cell_size, pc);
 	ui_draw_text(ui, label, text_style, label_text);
 	label = rect_f32_slice(&layout, AXIS_Y, label_height);
 	const char *crawler_pass = program->refinement_pass_count & 1 ? "BRIDGES" : "DISCOVERY";
 	if (crawler_in_prg)
 	{
 		const char *crawler_device = crawler_mapping.device == NES_DEVICE_PRG_RAM ? "PRG RAM" : "PRG ROM";
-		label_text = push_formatted(frame->scratch, "CRAWLER %s   LAP %llu   CPU $%04X -> %s $%X", crawler_pass, program->refinement_pass_count, crawler_cpu, crawler_device, crawler_mapping.offset);
+		label_text = str_push_copy_f(frame->scratch, "CRAWLER %s   LAP %llu   CPU $%04X -> %s $%X", crawler_pass, program->refinement_pass_count, crawler_cpu, crawler_device, crawler_mapping.offset);
 	}
 	else
 	{
-		label_text = push_formatted(frame->scratch, "CRAWLER %s   LAP %llu   CPU $%05X   NOT IN PROGRAM STORAGE", crawler_pass, program->refinement_pass_count, crawler_cpu);
+		label_text = str_push_copy_f(frame->scratch, "CRAWLER %s   LAP %llu   CPU $%05X   NOT IN PROGRAM STORAGE", crawler_pass, program->refinement_pass_count, crawler_cpu);
 	}
 	UI_TextStyle crawler_style = text_style;
 	crawler_style.color = ui->theme.program_bridge;
@@ -417,7 +417,7 @@ void prg_activity_view_build_ui(ViewFrameData *frame)
 	PRGActivityBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
 	data->frame = content;
 	data->clip = frame->rect;
-	content.content_box->ops = &prg_activity_box_hooks;
+	content.content_box->hooks = &prg_activity_box_hooks;
 	content.content_box->content = data;
 	view_end_frame(&content);
 }

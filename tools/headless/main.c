@@ -2,13 +2,11 @@
 #include "nes_target.h"
 #include "os.h"
 
-#include <errno.h>
-#include <stdlib.h>
 #include <string.h>
 
-static String headless_read_file(Arena *arena, const char *path)
+static Str headless_read_file(Arena *arena, const char *path)
 {
-	String result = {};
+	Str result = {};
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
 	if (!platform_file_is_valid(file)) return result;
 	u64 size = 0;
@@ -19,7 +17,7 @@ static String headless_read_file(Arena *arena, const char *path)
 		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
 		{
 			data[size] = 0;
-			result = string_from_data((char *)data, (u32)size);
+			result = str_from_data((char *)data, (u32)size);
 		}
 	}
 	platform_close_file(file);
@@ -43,13 +41,9 @@ static void print_usage(const char *executable)
 
 static b32 parse_frame_count(const char *text, u32 *frame_count)
 {
-	char *end = 0;
-	errno = 0;
-	unsigned long value = strtoul(text, &end, 10);
-	if (errno || end == text || *end || !value || value > MAX_VALUE_U32) {
-		return false;
-	}
-	*frame_count = (u32)value;
+	u32 value = 0;
+	if (!str_to_u32(str_from_cstr(text), &value) || !value) return false;
+	*frame_count = value;
 	return true;
 }
 
@@ -64,7 +58,7 @@ static ByteSpan capture_state(Debugger *debugger, Arena *arena)
 
 static b32 check_determinism(Debugger *debugger, NES_TargetPublication *publication, Arena *arena, u32 frame)
 {
-	ARENA_SCOPE(arena)
+	SCRATCH_SCOPE(arena)
 	{
 		u64 sample_capacity = nes_required_sample_capacity();
 		f32 *expected_samples = arena_push(arena, sizeof(*expected_samples) * sample_capacity);
@@ -153,7 +147,7 @@ int main(int argc, char **argv)
 	Arena arena = arena_create(0, "headless debugger arena");
 	Debugger *debugger = debugger_create(&arena);
 	NES_TargetPublication *publication = arena_push_zero(&arena, sizeof(*publication));
-	String rom = headless_read_file(&arena, argv[1]);
+	Str rom = headless_read_file(&arena, argv[1]);
 	if (!rom.text || !rom.size)
 	{
 		LOG_ERROR("could not read ROM '%s'", argv[1]);
@@ -166,7 +160,7 @@ int main(int argc, char **argv)
 	}
 	if (positional_argc >= 4)
 	{
-		String state = headless_read_file(&arena, argv[3]);
+		Str state = headless_read_file(&arena, argv[3]);
 		if (!state.text || !state.size || !debugger_restore_state(debugger, byte_span((void *)state.text, state.size)))
 		{
 			LOG_ERROR("could not restore state '%s'", argv[3]);

@@ -16,10 +16,10 @@ CPU_MappingSnapshot;
 enum
 {
 	DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY = 256,
-	DEBUGGER_SNAPSHOT_CAPACITY = 1024,
-	DEBUGGER_SNAPSHOT_MASK = DEBUGGER_SNAPSHOT_CAPACITY - 1,
-	DEBUGGER_RUNTIME_CHR_RAM_SIZE = KiB(8),
-	DEBUGGER_RUNTIME_PRG_RAM_SIZE = KiB(8),
+	DEBUGGER_SNAPSHOT_CAPACITY     = 1024,
+	DEBUGGER_SNAPSHOT_MASK         = DEBUGGER_SNAPSHOT_CAPACITY - 1,
+	DEBUGGER_RUNTIME_CHR_RAM_SIZE  = KiB(8),
+	DEBUGGER_RUNTIME_PRG_RAM_SIZE  = KiB(8),
 };
 
 typedef struct
@@ -61,8 +61,11 @@ struct Debugger
 	u64 personal_scheduler_trace_clock;
 
 	NES_MapAddr       program_breakpoints[DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY];
-	u64               snapshots_marker;
+	u64               snapshots_rewind_marker;
+	u64               snapshots_replay_marker;
 	u64               snapshots_cursor;
+
+	// TODO(RJ) this will become configurable!
 	DBG_LiveSnapshot  snapshots[DEBUGGER_SNAPSHOT_CAPACITY];
 };
 

@@ -50,8 +50,8 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_min_size(ui, AXIS_X, 360.f);
-	UI_Scroll *scroll = ui_scroll_begin(ui, 7100, AXIS_Y);
-	if (reset_scroll || reset_button.pressed) ui_scroll_reset(scroll);
+	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 7100, AXIS_Y);
+	if (reset_scroll || reset_button.pressed) ui_scroll_box_reset(scroll);
 
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
@@ -70,7 +70,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 		.build_item = playground_build_profiler_row,
 	});
 	list_box->user = playground_visual(arena, violet, true);
-	ui_scroll_end(scroll);
+	ui_scroll_box_end(scroll);
 	scroll->track->user = playground_visual(arena, color_srgba_mix(violet, slate, 0.72f), false);
 	scroll->thumb->user = playground_visual(arena, color_srgba(0xC99CFF), false);
 	ui_pop(ui);
@@ -92,22 +92,22 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	line.size[AXIS_Y] = ui_fixed(22.f);
 	ui_text_box_string_desc(ui, 1, line, title, LIT("PERSISTENT STATE"));
 	ui_text_box_string_desc(ui, 2, line, input_ready ? title : accent, input_ready ? LIT("input source: previous frame") : LIT("input source: unavailable"));
-	ui_text_box_string_desc(ui, 3, line, text, push_formatted(arena, "offset          %9.2f", scroll->offset));
-	ui_text_box_string_desc(ui, 4, line, text, push_formatted(arena, "target          %9.2f", scroll->target));
-	ui_text_box_string_desc(ui, 5, line, subtle, push_formatted(arena, "generation      %9llu", ui->layout_generation));
-	ui_text_box_string_desc(ui, 6, line, subtle, push_formatted(arena, "cached gen      %9llu", viewport_previous->layout_generation));
-	ui_text_box_string_desc(ui, 7, line, text, push_formatted(arena, "viewport h      %9.2f", viewport_previous->viewport.h));
-	ui_text_box_string_desc(ui, 8, line, text, push_formatted(arena, "content h       %9.2f", viewport_previous->content_size.y));
-	ui_text_box_string_desc(ui, 9, line, text, push_formatted(arena, "scroll range    %9.2f", viewport_previous->scroll_max.y - viewport_previous->scroll_min.y));
-	ui_text_box_string_desc(ui, 10, line, text, push_formatted(arena, "track y / h  %7.2f / %7.2f", track_previous->rect.y, track_previous->rect.h));
-	ui_text_box_string_desc(ui, 11, line, text, push_formatted(arena, "thumb y / h  %7.2f / %7.2f", thumb_previous->rect.y, thumb_previous->rect.h));
+	ui_text_box_string_desc(ui, 3, line, text, str_push_copy_f(arena, "offset          %9.2f", scroll->offset));
+	ui_text_box_string_desc(ui, 4, line, text, str_push_copy_f(arena, "target          %9.2f", scroll->target));
+	ui_text_box_string_desc(ui, 5, line, subtle, str_push_copy_f(arena, "generation      %9llu", ui->layout_generation));
+	ui_text_box_string_desc(ui, 6, line, subtle, str_push_copy_f(arena, "cached gen      %9llu", viewport_previous->layout_generation));
+	ui_text_box_string_desc(ui, 7, line, text, str_push_copy_f(arena, "viewport h      %9.2f", viewport_previous->viewport.h));
+	ui_text_box_string_desc(ui, 8, line, text, str_push_copy_f(arena, "content h       %9.2f", viewport_previous->content_size.y));
+	ui_text_box_string_desc(ui, 9, line, text, str_push_copy_f(arena, "scroll range    %9.2f", Max(viewport_previous->content_size.y - viewport_previous->viewport.h, 0.f)));
+	ui_text_box_string_desc(ui, 10, line, text, str_push_copy_f(arena, "track y / h  %7.2f / %7.2f", track_previous->rect.y, track_previous->rect.h));
+	ui_text_box_string_desc(ui, 11, line, text, str_push_copy_f(arena, "thumb y / h  %7.2f / %7.2f", thumb_previous->rect.y, thumb_previous->rect.h));
 
 	UI_BoxDesc divider = playground_fill_desc();
 	divider.size[AXIS_Y] = ui_fixed(2.f);
 	playground_make_box(ui, 12, LIT(""), divider, color_srgba_mix(teal, panel, 0.35f), false);
 	ui_text_box_string_desc(ui, 13, line, title, LIT("FRAME PIPELINE"));
 
-	static const String pipeline[] = {
+	static const Str pipeline[] = {
 		LIT("1  boxes recover context-owned state"),
 		LIT("2  box signals handle old geometry"),
 		LIT("3  current box tree lays out once"),

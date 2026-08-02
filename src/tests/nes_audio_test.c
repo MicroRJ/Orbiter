@@ -169,8 +169,8 @@ static void test_instruction_boundary_clocks(void)
 	Assert(!nes_scheduler_trace_dropped_since(boundaries, 0));
 	Assert(boundaries.index > 0);
 	for (u64 index = 1; index < boundaries.index; index ++) {
-		NES_SchedulerBoundary current = nes_scheduler_trace_at(boundaries, index);
-		NES_SchedulerBoundary previous = nes_scheduler_trace_at(boundaries, index - 1);
+		NES_TraceEntry current = nes_scheduler_trace_at(boundaries, index);
+		NES_TraceEntry previous = nes_scheduler_trace_at(boundaries, index - 1);
 		Assert(current.scheduler_clock > previous.scheduler_clock);
 	}
 	arena_destroy(&arena);

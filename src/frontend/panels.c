@@ -1,12 +1,5 @@
 #include "panels.h"
 
-typedef struct
-{
-	const char *at;
-	const char *end;
-}
-LayoutParser;
-
 struct PanelViewAllocation
 {
 	PanelViewAllocation *next_free;
@@ -17,15 +10,6 @@ static UI_Id panel_ui_id(const Panel *panel, u64 key)
 {
 	UI_Id namespace = ui_id_child(UI_ID_NONE, UI_KEY("panels"));
 	return ui_id_child(ui_id_child(namespace, panel->id), key);
-}
-
-static void layout_push_formatted(Arena *arena, const char *format, ...)
-{
-	va_list arguments;
-	va_start(arguments, format);
-	push_formatted_v(arena, format, arguments);
-	va_end(arguments);
-	arena_pop(arena, 1);
 }
 
 static
@@ -197,11 +181,11 @@ static void panel_save_layout(Panel *panel, Arena *arena)
 {
 	switch (panel->kind)
 	{
-		case PANEL_EMPTY: layout_push_formatted(arena, "empty\n"); break;
-		case PANEL_VIEW: layout_push_formatted(arena, "view %s\n", panel->view->desc->name); break;
+		case PANEL_EMPTY: str_push_f(arena, "empty\n"); break;
+		case PANEL_VIEW: str_push_f(arena, "view %s\n", panel->view->desc->name); break;
 		case PANEL_SPLIT:
 		{
-			layout_push_formatted(arena, "split %c %.6f\n", panel->axis == AXIS_X ? 'x' : 'y', panel->ratio);
+			str_push_f(arena, "split %c %.6f\n", panel->axis == AXIS_X ? 'x' : 'y', panel->ratio);
 			panel_save_layout(panel->left, arena);
 			panel_save_layout(panel->right, arena);
 		}
@@ -209,54 +193,35 @@ static void panel_save_layout(Panel *panel, Arena *arena)
 	}
 }
 
-String panels_save_layout(Panels *panels, Arena *arena)
+Str panels_save_layout(Panels *panels, Arena *arena)
 {
-	char *begin = arena_top(arena);
+	char *begin = str_top(arena);
 	panel_save_layout(panels->root, arena);
-	return string_from_data(begin, (u32)arena_distance(arena, begin));
+	return str_from_data(begin, str_end(arena, begin));
 }
 
-static String layout_read_line(LayoutParser *parser)
-{
-	const char *begin = parser->at;
-	while (parser->at < parser->end && *parser->at != '\n') {
-		++parser->at;
-	}
-	const char *end = parser->at;
-	if (end > begin && end[-1] == '\r') {
-		--end;
-	}
-	if (parser->at < parser->end) {
-		++parser->at;
-	}
-	return string_from_data(begin, (u32)(end - begin));
-}
-
-static const ViewDesc *layout_parse_view_desc(String name)
+static const ViewDesc *layout_parse_view_desc(Str name)
 {
 	for (u32 i = 0; i < view_desc_count; ++i)
 	{
 		const ViewDesc *desc = &view_descs[i];
-		u32 size = (u32)strlen(desc->name);
-		if (name.size == size && memory_match(name.text, desc->name, size)) {
+		if (str_match(name, str_from_cstr(desc->name))) {
 			return desc;
 		}
 	}
 	return 0;
 }
 
-static Panel *panel_restore_layout(Panels *panels, Panel *parent, LayoutParser *parser)
+static Panel *panel_restore_layout(Panels *panels, Panel *parent, Str *remaining)
 {
-	if (parser->at >= parser->end) {
-		return 0;
-	}
-	String line = layout_read_line(parser);
-	if (string_match(line, LIT("empty"))) {
+	if (!remaining->size) return 0;
+	Str line = str_consume_line(remaining);
+	if (str_match(line, LIT("empty"))) {
 		return panel_new(panels, parent, PANEL_EMPTY);
 	}
-	if (line.size > 5 && memory_match(line.text, "view ", 5))
+	if (str_consume_prefix(&line, LIT("view ")))
 	{
-		const ViewDesc *desc = layout_parse_view_desc(string_slice(line, 5, line.size - 5));
+		const ViewDesc *desc = layout_parse_view_desc(line);
 		if (!desc) {
 			return 0;
 		}
@@ -264,7 +229,7 @@ static Panel *panel_restore_layout(Panels *panels, Panel *parent, LayoutParser *
 		panel_open_view(panels, panel, desc);
 		return panel;
 	}
-	if (line.size > 8 && memory_match(line.text, "split ", 6))
+	if (str_consume_prefix(&line, LIT("split ")))
 	{
 		char axis_name = 0;
 		f32 ratio = 0.f;
@@ -273,14 +238,14 @@ static Panel *panel_restore_layout(Panels *panels, Panel *parent, LayoutParser *
 			return 0;
 		}
 		memory_copy(buffer, line.text, line.size);
-		if (sscanf_s(buffer, "split %c %f", &axis_name, 1, &ratio) != 2 || (axis_name != 'x' && axis_name != 'y') || ratio < 0.05f || ratio > 0.95f) {
+		if (sscanf_s(buffer, "%c %f", &axis_name, 1, &ratio) != 2 || (axis_name != 'x' && axis_name != 'y') || ratio < 0.05f || ratio > 0.95f) {
 			return 0;
 		}
 		Panel *panel = panel_new(panels, parent, PANEL_SPLIT);
 		panel->axis = axis_name == 'x' ? AXIS_X : AXIS_Y;
 		panel->ratio = ratio;
-		panel->left = panel_restore_layout(panels, panel, parser);
-		panel->right = panel_restore_layout(panels, panel, parser);
+		panel->left = panel_restore_layout(panels, panel, remaining);
+		panel->right = panel_restore_layout(panels, panel, remaining);
 		if (!panel->left || !panel->right)
 		{
 			panel_free_tree(panels, panel->left);
@@ -295,14 +260,15 @@ static Panel *panel_restore_layout(Panels *panels, Panel *parent, LayoutParser *
 	return 0;
 }
 
-b32 panels_restore_layout(Panels *panels, String text)
+b32 panels_restore_layout(Panels *panels, Str text)
 {
-	LayoutParser parser = { text.text, text.text + text.size };
-	Panel *root = panel_restore_layout(panels, 0, &parser);
-	while (parser.at < parser.end && (*parser.at == '\r' || *parser.at == '\n' || *parser.at == ' ' || *parser.at == '\t')) {
-		++parser.at;
+	Str remaining = text;
+	Panel *root = panel_restore_layout(panels, 0, &remaining);
+	while (remaining.size && (*remaining.text == '\r' || *remaining.text == '\n' || *remaining.text == ' ' || *remaining.text == '\t')) {
+		remaining.text ++;
+		remaining.size --;
 	}
-	if (!root || parser.at != parser.end)
+	if (!root || remaining.size)
 	{
 		panel_free_tree(panels, root);
 		return false;

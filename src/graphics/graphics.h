@@ -95,81 +95,6 @@ typedef struct
 }
 GFX_TextureUpdateParams;
 
-typedef struct
-{
-	f32 offset;
-	f32 weight;
-	f32 padding0;
-	f32 padding1;
-}
-GFX_GaussianPair;
-
-typedef union
-{
-	f32 values[16];
-	struct
-	{
-		f32 direction_x;
-		f32 direction_y;
-		f32 center_weight;
-		f32 padding;
-		GFX_GaussianPair pairs[3];
-	}
-	gaussian;
-	struct
-	{
-		f32 saturation;
-		f32 tint_opacity;
-		f32 grain;
-		f32 padding0;
-		f32 tint_r;
-		f32 tint_g;
-		f32 tint_b;
-		f32 padding1;
-		f32 padding2[8];
-	}
-	blur_material;
-	struct
-	{
-		f32 strength;
-		f32 padding[15];
-	}
-	barrel;
-	struct
-	{
-		f32 saturation;
-		f32 tint_opacity;
-		f32 grain;
-		f32 corner_radius;
-		f32 distortion;
-		f32 distortion_width;
-		f32 highlight;
-		f32 shadow;
-		f32 tint_r;
-		f32 tint_g;
-		f32 tint_b;
-		f32 padding[5];
-	}
-	glass;
-	struct
-	{
-		f32 time;
-		f32 strength;
-		f32 padding[14];
-	}
-	rewind;
-	struct
-	{
-		f32 threshold;
-		f32 gain;
-		f32 padding[14];
-	}
-	luminance;
-}
-GFX_ShaderBlock;
-
-STATIC_ASSERT(sizeof(GFX_GaussianPair) == 16);
-STATIC_ASSERT(sizeof(GFX_ShaderBlock) == sizeof(f32) * 16);
 
 GFX_Texture *gfx_create_texture(GFX_Renderer *renderer, GFX_TextureDesc desc);
 GFX_Texture *gfx_acquire_transient_texture(GFX_Renderer *renderer, GFX_TextureDesc desc);
@@ -183,6 +108,7 @@ void gfx_update_texture(GFX_Texture *texture, GFX_TextureUpdateParams desc);
 // stride must hold one complete row.
 b32 gfx_read_texture(GFX_Texture *texture, void *data, u32 stride);
 
+
 typedef UV_Rect Draw_MaskRect;
 
 typedef struct
@@ -193,6 +119,11 @@ typedef struct
 	f32 bot_right;
 }
 Draw_CornerRadii;
+
+static inline Draw_CornerRadii draw_corner_radii_all(f32 radii) {
+	return (Draw_CornerRadii){radii,radii,radii,radii};
+}
+
 
 typedef struct
 {
@@ -389,11 +320,20 @@ void draw_list_inset_shadow(Draw_Context *draw, Draw_InsetShadowParams params);
 void draw_list_backdrop(Draw_Context *draw, Draw_BackdropParams params);
 void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, rect_f32 output_rect);
 
-GFX_Renderer *gfx_renderer_create(Arena *owner);
-GFX_Window *gfx_window_create(Arena *owner, GFX_Renderer *renderer, OS_Window *window);
-void gfx_window_resize(GFX_Window *window, vec2i size);
+
+GFX_Renderer *gfx_create_renderer(Arena *owner);
+GFX_Texture *gfx_get_fallback_texture(GFX_Renderer *renderer);
+void gfx_renderer_begin_frame(GFX_Renderer *renderer);
+GFX_Window *gfx_create_window(Arena *owner, GFX_Renderer *renderer, OS_Window *window);
 GFX_Texture *gfx_window_texture(GFX_Window *window);
-void gfx_window_present(GFX_Window *window);
+void gfx_resize_window(GFX_Window *window, vec2i resolution);
+void gfx_present_window(GFX_Window *window);
+
+GFX_Renderer *gfx_create_renderer(Arena *owner);
+GFX_Window *gfx_create_window(Arena *owner, GFX_Renderer *renderer, OS_Window *window);
+void gfx_resize_window(GFX_Window *window, vec2i size);
+GFX_Texture *gfx_window_texture(GFX_Window *window);
+void gfx_present_window(GFX_Window *window);
 void gfx_begin_frame(Draw_Context *draw);
 void gfx_begin_pass(Draw_Context *draw, GFX_PassDesc desc);
 void gfx_end_pass(Draw_Context *draw);

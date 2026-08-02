@@ -151,6 +151,7 @@ void ui_begin_frame(UI_Context *ui)
 	ui->previous_frame_time = frame_time;
 	ui->frame_index++;
 	ui->mouse_wheel_consumed = false;
+	ui->feedback = UI_FEEDBACK_NONE;
 	if (ui->window->size.x != ui->previous_window_size.x || ui->window->size.y != ui->previous_window_size.y)
 	{
 		ui->previous_window_size = ui->window->size;
@@ -274,7 +275,7 @@ UI_Id ui_id_from_ptr(const void *pointer)
 	return (UI_Id) { value ? value : 1 };
 }
 
-UI_Key ui_key_string(String string)
+UI_Key ui_key_string(Str string)
 {
 	u64 value = 14695981039346656037ull;
 	value ^= 0x53;
@@ -312,6 +313,20 @@ b32 ui_is_hot(UI_Context *ui, UI_Id id)
 b32 ui_is_active(UI_Context *ui, UI_Id id)
 {
 	return ui_id_equal(ui->active, id);
+}
+
+void ui_feedback_emit(UI_Context *ui, UI_Feedback feedback)
+{
+	Assert(ui);
+	ui->feedback |= feedback;
+}
+
+UI_Feedback ui_feedback_take(UI_Context *ui)
+{
+	Assert(ui);
+	UI_Feedback feedback = (UI_Feedback)ui->feedback;
+	ui->feedback = UI_FEEDBACK_NONE;
+	return feedback;
 }
 
 UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
@@ -389,16 +404,16 @@ void ui_draw_image(UI_Context *ui, Draw_TextureParams params)
 	draw_list_image(ui->draw, params);
 }
 
-vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text)
+vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, Str text)
 {
 	vec2 result;
-	ARENA_SCOPE(&ui->frame_arena) {
+	SCRATCH_SCOPE(&ui->frame_arena) {
 		PROF_BLOCK("ui text measure") result = text_layout(&ui->frame_arena, ui->text, style.font, style.size, text).metrics.dim;
 	}
 	return result;
 }
 
-vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text)
+vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, Str text)
 {
 	ui_assert_paint_phase(ui);
 	vec2 size = {};
@@ -460,10 +475,10 @@ UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_
 	}
 
 	Draw_Command *cmd = ui_draw_rect(ui, track, ui->theme.slider_track);
-	cmd->rect.corner_radii = (Draw_CornerRadii) { track.w * 0.10f, track.w * 0.10f, track.w * 0.10f, track.w * 0.10f };
+	cmd->rect.corner_radii = draw_corner_radii_all(track.w * 0.10f);
 	cmd->rect.edge_softness = 0.5f;
 	cmd = ui_draw_rect(ui, thumb, ui->theme.slider_thumb);
-	cmd->rect.corner_radii = (Draw_CornerRadii) { thumb.w * 0.10f, thumb.w * 0.10f, thumb.w * 0.10f, thumb.w * 0.10f };
+	cmd->rect.corner_radii = draw_corner_radii_all(thumb.w * 0.10f);
 	cmd->rect.edge_softness = 0.5f;
 	return response;
 }

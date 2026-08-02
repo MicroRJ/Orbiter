@@ -13,7 +13,7 @@ typedef struct
 }
 PlaygroundDummyProfiler;
 
-static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, String sizing_text, String text, f32 align)
+static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, Str sizing_text, Str text, f32 align)
 {
 	ui_box_table_cell_begin(table);
 	UI_BoxDesc text_desc = ui_defaults();
@@ -25,7 +25,7 @@ static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, 
 
 static void playground_build_dummy_timing_row(UI_BoxTable *table, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
 {
-	static const String scope_names[] = {
+	static const Str scope_names[] = {
 		LIT("main frame incl wait"),
 		LIT("debug stepping"),
 		LIT("emulation"),
@@ -44,12 +44,12 @@ static void playground_build_dummy_timing_row(UI_BoxTable *table, PlaygroundDumm
 
 	UI_TextStyle label_style = header ? profiler->header_style : profiler->value_style;
 	UI_TextStyle numeric_style = header ? profiler->header_style : profiler->numeric_style;
-	String scope = header ? LIT("SCOPE") : scope_names[row % ArrayCount(scope_names)];
-	String milliseconds = header ? LIT("MS") : push_formatted(&table->ui->frame_arena, "%.3f", 0.025f + (f32)(row % 400) * 0.013f);
-	String frame_pct = header ? LIT("FRAME %") : push_formatted(&table->ui->frame_arena, "%.1f", 0.2f + (f32)(row % 97));
-	String calls = header ? LIT("CALLS") : push_formatted(&table->ui->frame_arena, "%u", 1 + row % 99999);
-	String per_call = header ? LIT("US/CALL") : push_formatted(&table->ui->frame_arena, "%.2f", 0.1f + (f32)(row % 1200) * 0.07f);
-	playground_dummy_table_cell(table, label_style, (String) {}, scope, 0.f);
+	Str scope = header ? LIT("SCOPE") : scope_names[row % ArrayCount(scope_names)];
+	Str milliseconds = header ? LIT("MS") : str_push_copy_f(&table->ui->frame_arena, "%.3f", 0.025f + (f32)(row % 400) * 0.013f);
+	Str frame_pct = header ? LIT("FRAME %") : str_push_copy_f(&table->ui->frame_arena, "%.1f", 0.2f + (f32)(row % 97));
+	Str calls = header ? LIT("CALLS") : str_push_copy_f(&table->ui->frame_arena, "%u", 1 + row % 99999);
+	Str per_call = header ? LIT("US/CALL") : str_push_copy_f(&table->ui->frame_arena, "%.2f", 0.1f + (f32)(row % 1200) * 0.07f);
+	playground_dummy_table_cell(table, label_style, (Str) {}, scope, 0.f);
 	playground_dummy_table_cell(table, numeric_style, LIT("999.999"), milliseconds, 1.f);
 	playground_dummy_table_cell(table, numeric_style, LIT("100.0 %"), frame_pct, 1.f);
 	playground_dummy_table_cell(table, numeric_style, LIT("999999"), calls, 1.f);
@@ -59,7 +59,7 @@ static void playground_build_dummy_timing_row(UI_BoxTable *table, PlaygroundDumm
 
 static void playground_build_dummy_metric_row(UI_BoxTable *table, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
 {
-	static const String metric_names[] = {
+	static const Str metric_names[] = {
 		LIT("TEXT LAYOUT CALLS"),
 		LIT("TEXT DRAW RUNS"),
 		LIT("BOXES BUILT"),
@@ -75,9 +75,9 @@ static void playground_build_dummy_metric_row(UI_BoxTable *table, PlaygroundDumm
 
 	UI_TextStyle label_style = header ? profiler->header_style : profiler->value_style;
 	UI_TextStyle numeric_style = header ? profiler->header_style : profiler->numeric_style;
-	String metric = header ? LIT("METRIC") : metric_names[row % ArrayCount(metric_names)];
-	String value = header ? LIT("VALUE") : push_formatted(&table->ui->frame_arena, "%llu", 1000ull + (u64)row * 7919ull);
-	playground_dummy_table_cell(table, label_style, (String) {}, metric, 0.f);
+	Str metric = header ? LIT("METRIC") : metric_names[row % ArrayCount(metric_names)];
+	Str value = header ? LIT("VALUE") : str_push_copy_f(&table->ui->frame_arena, "%llu", 1000ull + (u64)row * 7919ull);
+	playground_dummy_table_cell(table, label_style, (Str) {}, metric, 0.f);
 	playground_dummy_table_cell(table, numeric_style, LIT("9999999999"), value, 1.f);
 	ui_box_table_row_end(table);
 }
@@ -163,7 +163,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	ui_push(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
-	UI_Scroll *timing_scroll = ui_scroll_begin(ui, 1, AXIS_Y);
+	UI_ScrollBox *timing_scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
 	UI_BoxTableColumn timing_columns[] = {
 		ui_box_table_flex(1.f),
 		ui_box_table_content(),
@@ -174,7 +174,6 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
 	UI_BoxTable timing_table = ui_box_table_begin(ui, 2, LIT("timing table"), (UI_BoxTableDesc) {
 		.columns = timing_columns,
 		.column_count = ArrayCount(timing_columns),
@@ -188,7 +187,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 		playground_build_dummy_timing_row(&timing_table, profiler, row, false);
 	}
 	ui_box_table_end(&timing_table);
-	ui_scroll_end(timing_scroll);
+	ui_scroll_box_end(timing_scroll);
 	timing_scroll->track->paint.background = color_srgba_mix(violet, slate, 0.72f);
 	timing_scroll->thumb->paint.background = color_srgba(0xC99CFF);
 	ui_pop(ui);
@@ -204,7 +203,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	ui_push(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
-	UI_Scroll *metric_scroll = ui_scroll_begin(ui, 1, AXIS_Y);
+	UI_ScrollBox *metric_scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
 	UI_BoxTableColumn metric_columns[] = {
 		ui_box_table_flex(1.f),
 		ui_box_table_content(),
@@ -212,7 +211,6 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
 	UI_BoxTable metric_table = ui_box_table_begin(ui, 2, LIT("metric table"), (UI_BoxTableDesc) {
 		.columns = metric_columns,
 		.column_count = ArrayCount(metric_columns),
@@ -226,7 +224,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 		playground_build_dummy_metric_row(&metric_table, profiler, row, false);
 	}
 	ui_box_table_end(&metric_table);
-	ui_scroll_end(metric_scroll);
+	ui_scroll_box_end(metric_scroll);
 	metric_scroll->track->paint.background = color_srgba_mix(violet, slate, 0.72f);
 	metric_scroll->thumb->paint.background = color_srgba(0xC99CFF);
 	ui_pop(ui);
