@@ -122,7 +122,7 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	for (u32 bar = 0; bar < 5; ++bar)
 	{
 		ui_clean(ui);
-		ui_layout(ui, &ui_layout_frame);
+		ui_layout(ui, &UI_FlatLayoutHooks);
 		ui_size(ui, AXIS_X, ui_grow((f32)(bar + 1)));
 		ui_size(ui, AXIS_Y, ui_grow(1.f));
 		ui_box_begin(ui, 22 + bar, LIT("bar slot"));

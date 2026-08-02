@@ -134,6 +134,25 @@ typedef struct
 }
 Catalog_Entry;
 
+// Runtime game metadata extracted from one successfully inspected source.
+// Content identity will eventually allow multiple sources to collapse into one
+// game; until then, id is the source entry's path-based identifier.
+typedef struct
+{
+	u64 id;
+	u32 system;
+	Catalog_EntryStatus status;
+	Str title;
+	Hash256 content_hash;
+	u64 first_played_unix_ms;
+	u64 last_played_unix_ms;
+	u64 play_time_ms;
+	Orb_Thumbnail thumbnail;
+	b32 has_thumbnail;
+	const Catalog_Entry *source;
+}
+Catalog_Game;
+
 typedef struct
 {
 	Arena *arena;
@@ -142,6 +161,8 @@ typedef struct
 	u32 source_count;
 	Catalog_Entry *entries;
 	u32 entry_count;
+	Catalog_Game *games;
+	u32 game_count;
 	u32 scan_error_count;
 	u64 generation;
 	b32 dirty;
@@ -180,8 +201,9 @@ void catalog_init(Catalog *catalog, Arena *arena);
 void catalog_destroy(Catalog *catalog);
 b32 catalog_add_source(Catalog *catalog, Str path);
 b32 catalog_remove_source(Catalog *catalog, Str path);
-// Refresh rebuilds the entry snapshot and invalidates every previously returned
-// Catalog_Entry pointer. generation advances after the new snapshot is ready.
+// Refresh rebuilds the entry and game snapshots and invalidates every previously
+// returned Catalog_Entry and Catalog_Game pointer. generation advances after
+// both new snapshots are ready.
 void catalog_refresh(Catalog *catalog, Arena *scratch, const Str *additional_sources, u32 additional_source_count);
 const Catalog_Entry *catalog_find_path(const Catalog *catalog, Str path);
 Catalog_Result catalog_from_source(Catalog *catalog, Str source_name, Str source, Arena *error_arena);

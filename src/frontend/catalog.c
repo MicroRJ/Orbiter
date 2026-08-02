@@ -23,6 +23,7 @@ struct Catalog_EntryNode
 	Catalog_EntryNode *next;
 	Catalog_EntryNode *hash_next;
 	Catalog_Entry entry;
+	b32 has_game;
 };
 
 typedef struct
@@ -214,6 +215,7 @@ static void catalog_inspect_rom(Catalog_Builder *builder, Str path, Platform_Fil
 		node->entry.file_size = file_size;
 		node->entry.rom.cartridge = cartridge;
 		node->entry.status = nes_emulator_supports_cartridge(cartridge) ? CATALOG_ENTRY_AVAILABLE : CATALOG_ENTRY_UNSUPPORTED;
+		node->has_game = true;
 	}
 	else if (header_read && header[0] == 'N' && header[1] == 'E' && header[2] == 'S' && header[3] == 0x1A && (header[7] & 0x0C) == 0x08)
 	{
@@ -260,12 +262,34 @@ static void catalog_inspect_orb(Catalog_Builder *builder, Str path, Platform_Fil
 				};
 				if (metadata.title.size) node->entry.title = metadata.title;
 				node->entry.status = metadata.system == ORB_SYSTEM_NES ? CATALOG_ENTRY_AVAILABLE : CATALOG_ENTRY_UNSUPPORTED;
+				node->has_game = true;
 			}
 		}
 	}
 	if (result.status == ORB_STATUS_UNSUPPORTED_VERSION || result.status == ORB_STATUS_UNSUPPORTED_CHUNK) node->entry.status = CATALOG_ENTRY_UNSUPPORTED;
 	else if (result.status != ORB_STATUS_OK) builder->error_count ++;
 	platform_close_file(file);
+}
+
+static Catalog_Game catalog_game_from_entry(const Catalog_Entry *entry)
+{
+	Catalog_Game game = {
+		.id = entry->id,
+		.system = entry->system,
+		.status = entry->status,
+		.title = entry->title,
+		.source = entry,
+	};
+	if (entry->kind == CATALOG_ENTRY_ORB)
+	{
+		game.content_hash = entry->orb.metadata.content_hash;
+		game.first_played_unix_ms = entry->orb.metadata.first_played_unix_ms;
+		game.last_played_unix_ms = entry->orb.metadata.last_played_unix_ms;
+		game.play_time_ms = entry->orb.metadata.play_time_ms;
+		game.thumbnail = entry->orb.thumbnail;
+		game.has_thumbnail = entry->orb.has_thumbnail;
+	}
+	return game;
 }
 
 static void catalog_scan_path(Catalog_Builder *builder, Str path, const Platform_File_Info *known_info, u32 depth)
@@ -287,6 +311,7 @@ static void catalog_scan_path(Catalog_Builder *builder, Str path, const Platform
 	if (opened.error != PLATFORM_ERROR_NONE) { builder->error_count ++; return; }
 	for (;;)
 	{
+		// TODO(RJ) use path builder!
 		char name[CATALOG_DIRECTORY_NAME_CAPACITY];
 		Platform_Directory_Next_Result next = platform_next_directory(&opened.directory, name, sizeof(name));
 		if (next.error != PLATFORM_ERROR_NONE) { builder->error_count ++; break; }
@@ -325,13 +350,23 @@ void catalog_refresh(Catalog *catalog, Arena *scratch, const Str *additional_sou
 	for (u32 index = 0; index < catalog->source_count; index ++) catalog_scan_source(&builder, catalog->sources[index]);
 	for (u32 index = 0; index < additional_source_count; index ++) catalog_scan_source(&builder, additional_sources[index]);
 
-	catalog->entries = builder.entry_count ? arena_push(&catalog->entry_arena, sizeof(*catalog->entries) * builder.entry_count) : 0;
-catalog->entry_count = builder.entry_count;
-catalog->scan_error_count = builder.error_count;
-u32 index = 0;
-for (Catalog_EntryNode *node = builder.first; node; node = node->next) catalog->entries[index ++] = node->entry;
-Assert(index == catalog->entry_count);
-catalog->generation ++;
+	catalog->entry_count = builder.entry_count;
+	catalog->entries = catalog->entry_count ? arena_push(&catalog->entry_arena, sizeof(*catalog->entries) * catalog->entry_count) : 0;
+	catalog->game_count = 0;
+	for (Catalog_EntryNode *node = builder.first; node; node = node->next) catalog->game_count += node->has_game;
+	catalog->games = catalog->game_count ? arena_push(&catalog->entry_arena, sizeof(*catalog->games) * catalog->game_count) : 0;
+	catalog->scan_error_count = builder.error_count;
+	u32 entry_index = 0;
+	u32 game_index = 0;
+	for (Catalog_EntryNode *node = builder.first; node; node = node->next)
+	{
+		Catalog_Entry *entry = &catalog->entries[entry_index ++];
+		*entry = node->entry;
+		if (node->has_game) catalog->games[game_index ++] = catalog_game_from_entry(entry);
+	}
+	Assert(entry_index == catalog->entry_count);
+	Assert(game_index == catalog->game_count);
+	catalog->generation ++;
 }
 
 static Str catalog_string_from_tabula(Tabula_String string)

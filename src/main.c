@@ -13,7 +13,7 @@
 #include "gif_recorder.h"
 #include "nes_target.h"
 #include "catalog.h"
-#include "orb.h"
+#include "orb_runtime.h"
 #include "os.h"
 #include "actions.h"
 
@@ -76,10 +76,11 @@ typedef struct
 	Str last_rom_path;
 	Str current_game_title;
 	Orb_Id current_save_id;
-	Orb_Hash256 current_content_hash;
+	Hash256 current_content_hash;
 	u64 save_created_unix_ms;
 	u64 first_played_unix_ms;
 	f64 play_time_seconds;
+	Orb_Store orb_store;
 	Catalog catalog;
 	b32 catalog_write_protected;
 	b32 catalog_refresh_pending;
@@ -222,7 +223,7 @@ static void app_begin_game_history(Str title)
 	u64 now = app_unix_time_ms();
 	app.current_game_title = str_push_copy(&app.arena, title);
 	app.current_save_id = app_new_save_id(now);
-	app.current_content_hash = (Orb_Hash256) {};
+	app.current_content_hash = (Hash256) {};
 	app.save_created_unix_ms = now;
 	app.first_played_unix_ms = now;
 	app.play_time_seconds = 0.0;
@@ -1172,18 +1173,9 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
-	ui_layout(ui, &ui_layout_frame);
+	ui_layout(ui, &UI_FlatLayoutHooks);
 	ui_box_begin(ui, 2, LIT("belly"));
 	{
-		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
-		{
-			Assert(debugger_armed(app.debugger));
-
-			rect_f32 panel_rect = window_rect;
-			panel_rect.y += status_height;
-			panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
-			panels_build_ui(app.panels, app.os_window, frame, panel_rect);
-		}
 		if (app.library_overlay_on)
 		{
 			ui_push_box_z(ui, UI_Z_OVERLAY);
@@ -1194,12 +1186,20 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 			ui_background(ui, (Color_SRGBA){0,0,0,0.2});
 			ui_box_begin(ui, UI_KEY("overlay"), LIT(""));
 
-			ui_clean(ui);
 			library_build_ui(ui, window_rect);
 
 			ui_box_end(ui);
 
 			ui_pop_box_z(ui);
+		}
+		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
+		{
+			Assert(debugger_armed(app.debugger));
+
+			rect_f32 panel_rect = window_rect;
+			panel_rect.y += status_height;
+			panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
+			panels_build_ui(app.panels, app.os_window, frame, panel_rect);
 		}
 
 	}
@@ -1231,6 +1231,12 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	ui_build_end(app.ui);
 	PROF_BLOCK("ui measure") ui_box_measure(root, (UI_BoxConstraints) { .min = window_rect.size, .max = window_rect.size });
 	PROF_BLOCK("ui layout") ui_box_layout(root, window_rect);
+	PROF_BLOCK("ui hittest") {
+		UI_Box *hit = ui_box_find_deepest(root, ui->mouse);
+		if (hit) {
+			ui->hot = hit->id;
+		}
+	}
 	return root;
 }
 
@@ -1409,6 +1415,8 @@ static void app_draw(void)
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
 
 	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) {
+		// TODO(RJ) this needs to be configurable, and also, we should just be able
+		// to skip backwards arbitrarily
 		for(u32 i=0;i<4;++i) if(debugger_undo_snapshot(app.debugger)) {
 			app_discard_audio();
 		} else break;
@@ -1504,6 +1512,15 @@ static void app_init(void)
 	Assert(os_graphical_init());
 	app.arena = arena_create(0, "app arena");
 	app.frame_arena = arena_create(0, "app frame arena");
+	orb_store_init(&app.orb_store);
+	Orb_StoreResult orb_store_result = orb_store_load(&app.orb_store, str_from_cstr(orb_save_path));
+	if (orb_store_result.status == ORB_STORE_STATUS_NOT_FOUND)
+	{
+		orb_store_result = orb_store_load(&app.orb_store, str_from_cstr(legacy_state_path));
+	}
+	if (orb_store_result.status == ORB_STORE_STATUS_OK) orb_store_log_info(&app.orb_store);
+	else if (orb_store_result.status == ORB_STORE_STATUS_INVALID_ORB) LOG_WARN("orb store could not load '%.*s': %s at byte %llu", app.orb_store.path.size, app.orb_store.path.text, orb_status_string(orb_store_result.orb_result.status), orb_store_result.orb_result.offset);
+	else LOG_WARN("orb store could not load '%.*s': %s", app.orb_store.path.size, app.orb_store.path.text ? app.orb_store.path.text : "", orb_store_status_string(orb_store_result.status));
 	catalog_init(&app.catalog, &app.arena);
 	app_load_catalog();
 	app_refresh_catalog();
@@ -1603,6 +1620,7 @@ static void app_shutdown(void)
 	app_save_catalog();
 	app_save_config();
 	catalog_destroy(&app.catalog);
+	orb_store_destroy(&app.orb_store);
 	os_window_destroy(app.os_window);
 	os_audio_shutdown();
 	os_graphical_shutdown();

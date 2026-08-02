@@ -746,7 +746,7 @@ UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis)
 	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
 	ui_layout(ui, &ui_scroll_box__viewport_layout);
 	scroll->viewport = ui_box_begin(ui, UI_SCROLL_BOX_VIEWPORT_KEY, LIT("scroll viewport"));
-	scroll->viewport->paint = (UI_BoxPaintDesc) { .z = scroll->viewport->paint.z };
+	// scroll->viewport->paint = (UI_BoxPaintDesc) { .z = scroll->viewport->paint.z };
 	scroll->viewport->content = scroll;
 
 	// Keep caller content IDs stable even though the internal viewport is now
@@ -795,6 +795,10 @@ void ui_scroll_box_end(UI_ScrollBox *scroll)
 	ui_size(ui, perp, ui_fixed(12.f));
 	ui_padd(ui, axis, 3.f, 3.f);
 	ui_padd(ui, perp, 3.f, 3.f);
+	ui_background(ui, ui->theme.slider_track);
+	ui_roundness(ui, 0.5f);
+	ui_edge_softness(ui, 0.5f);
+	// ui_paint_z(ui, track_z);
 	scroll->track = ui_box_begin(ui, UI_SCROLL_BOX_TRACK_KEY, LIT(""));
 	Assert(!ui_id_equal(scroll->content->id, scroll->track->id));
 
@@ -807,6 +811,9 @@ void ui_scroll_box_end(UI_ScrollBox *scroll)
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_size(ui, axis, ui_grow(1.f));
+	ui_background(ui, ui->theme.slider_thumb);
+	ui_roundness(ui, 0.5f);
+	ui_edge_softness(ui, 0.5f);
 	scroll->thumb = ui_box_make(ui, UI_SCROLL_BOX_THUMB_KEY, LIT(""));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -814,25 +821,6 @@ void ui_scroll_box_end(UI_ScrollBox *scroll)
 	ui_size(ui, axis, ui_grow(0.f));
 	scroll->space_after = ui_box_make(ui, UI_SCROLL_BOX_SPACE_AFTER_KEY, LIT(""));
 	ui_box_end(ui);
-
-	i32 track_z = scroll->track->paint.z;
-	i32 thumb_z = scroll->thumb->paint.z;
-	scroll->track->paint = (UI_BoxPaintDesc) {
-		.flags = UI_BOX_DRAW_BACKGROUND,
-		.background = ui->theme.slider_track,
-		.roundness = 0.5f,
-		.edge_softness = 0.5f,
-		.z = track_z,
-	};
-	scroll->space_before->paint = (UI_BoxPaintDesc) {};
-	scroll->thumb->paint = (UI_BoxPaintDesc) {
-		.flags = UI_BOX_DRAW_BACKGROUND,
-		.background = ui->theme.slider_thumb,
-		.roundness = 0.5f,
-		.edge_softness = 0.5f,
-		.z = thumb_z,
-	};
-	scroll->space_after->paint = (UI_BoxPaintDesc) {};
 
 	UI_BoxState *root_state = scroll->root->state;
 	UI_BoxState *viewport_state = scroll->viewport->state;

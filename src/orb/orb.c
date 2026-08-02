@@ -56,7 +56,7 @@ typedef struct
 	u32 flags;
 	u32 reserved;
 	Orb_Id id;
-	Orb_Hash256 content_hash;
+	Hash256 content_hash;
 	u64 created_unix_ms;
 	u64 first_played_unix_ms;
 	u64 last_played_unix_ms;

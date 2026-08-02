@@ -46,7 +46,7 @@ UI_BoxDesc ui_defaults(void)
 		.size = { { .kind = UI_BOX_SIZE_CONTENT }, { .kind = UI_BOX_SIZE_CONTENT } },
 		.max_size = v2(UI_BOX_INFINITY, UI_BOX_INFINITY),
 		.axis = AXIS_Y,
-		.layout = &ui_layout_linear,
+		.layout = &UI_LinearLayoutHooks,
 	};
 }
 
@@ -389,11 +389,11 @@ UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDes
 	Assert(!ui->root);
 	Assert(!ui->content_root);
 	Assert(!ui->overlay_root);
-	Assert(root_desc.layout == &ui_layout_linear || root_desc.layout == &ui_layout_frame);
+	Assert(root_desc.layout == &UI_LinearLayoutHooks || root_desc.layout == &UI_FlatLayoutHooks);
 	UI_Builder *builder = arena_push_zero(&ui->frame_arena, sizeof(*builder));
 	ui->builder = builder;
 	UI_Box *root = ui_box_builder_begin(builder, &ui->frame_arena, ui, root_key, root_name, root_desc);
-	root->desc.layout = &ui_layout_frame;
+	root->desc.layout = &UI_FlatLayoutHooks;
 	ui->root = root;
 
 	UI_BoxDesc content_desc = ui_defaults();
@@ -413,7 +413,7 @@ UI_Box *ui_build_begin(UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDes
 	UI_BoxDesc overlay_desc = ui_defaults();
 	overlay_desc.size[AXIS_X] = ui_grow(1.f);
 	overlay_desc.size[AXIS_Y] = ui_grow(1.f);
-	overlay_desc.layout = &ui_layout_frame;
+	overlay_desc.layout = &UI_FlatLayoutHooks;
 	UI_Id overlay_id = ui_id_child(root->id, overlay_root_key);
 	ui->overlay_root = ui_box__allocate_box(builder, overlay_id, overlay_root_key, LIT("UI overlay root"), overlay_desc);
 	ui->overlay_root->paint = ui_default_paint();
@@ -628,25 +628,6 @@ static rect_f32 ui_box__intersect(rect_f32 a, rect_f32 b)
 	return rect_f32_intersect(a, b);
 }
 
-static void ui_box__commit_state(UI_Box *box)
-{
-	if (!box->state) return;
-	box->state->last_layout_frame = box->ui->frame_index;
-	box->state->layout_generation = box->ui->layout_generation;
-	box->state->rect = box->rect;
-	box->state->hit_rect = ui_box__intersect(box->rect, box->clip_rect);
-	box->state->viewport = box->viewport;
-	box->state->content_size = box->content_size;
-}
-
-static void ui_box__finish_layout(UI_Box *box)
-{
-	if (box->hooks && box->hooks->finish_layout) {
-		box->hooks->finish_layout(box);
-	}
-	ui_box__commit_state(box);
-}
-
 vec2 ui_linear_measure_children(UI_Box *box, UI_BoxConstraints constraints)
 {
 	ui_box__assert_linear_children(box);
@@ -668,7 +649,7 @@ vec2 ui_linear_measure_children(UI_Box *box, UI_BoxConstraints constraints)
 	return content;
 }
 
-static vec2 ui_frame_measure_children(UI_Box *box, UI_BoxConstraints constraints)
+static vec2 ui_measure_children_flat(UI_Box *box, UI_BoxConstraints constraints)
 {
 	vec2 content = {};
 	for (UI_Box *child = box->first; child; child = child->next)
@@ -851,7 +832,7 @@ static rect_f32 ui_frame__child_rect(UI_Box *box, UI_Box *child)
 	return result;
 }
 
-static void ui_frame_layout_children(UI_Box *box, rect_f32 clip)
+static void ui_layout_children_flat(UI_Box *box, rect_f32 clip)
 {
 	rect_f32 content_bounds = { .pos = box->viewport.pos };
 	b32 has_content = false;
@@ -914,14 +895,14 @@ static void ui_frame_layout_children(UI_Box *box, rect_f32 clip)
 	}
 }
 
-const UI_LayoutHooks ui_layout_linear = {
+const UI_LayoutHooks UI_LinearLayoutHooks = {
 	.measure_children = ui_linear_measure_children,
 	.layout_children = ui_linear_layout_children,
 };
 
-const UI_LayoutHooks ui_layout_frame = {
-	.measure_children = ui_frame_measure_children,
-	.layout_children = ui_frame_layout_children,
+const UI_LayoutHooks UI_FlatLayoutHooks = {
+	.measure_children = ui_measure_children_flat,
+	.layout_children = ui_layout_children_flat,
 };
 
 void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
@@ -944,7 +925,18 @@ void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 	Assert(box->desc.layout);
 	Assert(box->desc.layout->layout_children);
 	box->desc.layout->layout_children(box, clip);
-	ui_box__finish_layout(box);
+	if (box->hooks && box->hooks->finish_layout) {
+		box->hooks->finish_layout(box);
+	}
+
+	if (box->state) {
+		box->state->last_layout_frame = box->ui->frame_index;
+		box->state->layout_generation = box->ui->layout_generation;
+		box->state->rect = box->rect;
+		box->state->hit_rect = ui_box__intersect(box->rect, box->clip_rect);
+		box->state->viewport = box->viewport;
+		box->state->content_size = box->content_size;
+	}
 }
 
 void ui_box_layout(UI_Box *box, rect_f32 rect)
@@ -957,6 +949,9 @@ UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)
 {
 	if (!box || !rect_f32_contains(box->clip_rect, point)) {
 		return 0;
+	}
+	if (box->hit_intercept) {
+		return box;
 	}
 	for (UI_Box *child = box->last; child; child = child->prev)
 	{

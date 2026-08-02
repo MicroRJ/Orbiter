@@ -104,7 +104,7 @@ static UI_BoxDesc playground_fill_desc(void)
 static UI_Box *playground_frame_slot_begin(UI_Context *ui, UI_Key key, AXIS fill_axis)
 {
 	ui_clean(ui);
-	ui_layout(ui, &ui_layout_frame);
+	ui_layout(ui, &UI_FlatLayoutHooks);
 	ui_size(ui, fill_axis, ui_grow(1.f));
 	return ui_box_begin(ui, key, LIT("frame slot"));
 }
@@ -131,7 +131,7 @@ static void playground_build_profiler_row(UI_Context *ui, u32 row, void *user)
 	playground_begin_box(ui, 1, LIT(""), color_srgba_mix(rows->violet, rows->slate, 0.58f), false);
 
 	ui_clean(ui);
-	ui_layout(ui, &ui_layout_frame);
+	ui_layout(ui, &UI_FlatLayoutHooks);
 	ui_size(ui, AXIS_X, ui_fixed(44.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_box_begin(ui, 1, LIT("swatch slot"));
@@ -521,7 +521,7 @@ static int playground_run_tests(void)
 		ui_size(ui, AXIS_Y, ui_fixed(20.f));
 		ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 		ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
-		ui_layout(ui, &ui_layout_frame);
+		ui_layout(ui, &UI_FlatLayoutHooks);
 		UI_Box *frame = ui_box_begin(ui, 1, LIT("clipped frame"));
 		ui_clean(ui);
 		ui_rect(ui, (rect_f32) { -10.f, -5.f, 40.f, 30.f });
@@ -980,7 +980,7 @@ static int playground_run_tests(void)
 		ui_box_table_cell_end(&table);
 		UI_Box *r0c1 = ui_box_table_cell_begin(&table);
 		r0c1->intrinsic_size.x = 10.f;
-		r0c1->desc.layout = &ui_layout_frame;
+		r0c1->desc.layout = &UI_FlatLayoutHooks;
 		ui_clean(ui);
 		ui_size(ui, AXIS_X, ui_fixed(10.f));
 		ui_size(ui, AXIS_Y, ui_fixed(10.f));
@@ -1083,7 +1083,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		UI_BoxDesc root_desc = ui_defaults();
-		root_desc.layout = &ui_layout_frame;
+		root_desc.layout = &UI_FlatLayoutHooks;
 		UI_Builder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
 
@@ -1130,7 +1130,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		UI_BoxDesc root_desc = ui_defaults();
-		root_desc.layout = &ui_layout_frame;
+		root_desc.layout = &UI_FlatLayoutHooks;
 		UI_Builder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("alignment frame"), root_desc);
 

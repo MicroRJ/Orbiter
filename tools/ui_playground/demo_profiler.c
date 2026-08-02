@@ -16,7 +16,7 @@ PlaygroundDummyProfiler;
 static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, Str sizing_text, Str text, f32 align)
 {
 	UI_Box *cell = ui_box_table_cell_begin(table);
-	cell->desc.layout = &ui_layout_frame;
+	cell->desc.layout = &UI_FlatLayoutHooks;
 	ui_clean(table->ui);
 	ui_align(table->ui, AXIS_X, align);
 	if (sizing_text.size)

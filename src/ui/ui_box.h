@@ -82,9 +82,13 @@ typedef struct
 		};
 		f32 padd[2][2];
 	};
-	AXIS axis;
-	f32 gap;
+
+
 	UI_BoxOverflow overflow[2];
+
+	// NOTE(RJ) these are layout parameters ...
+	AXIS axis;
+	f32   gap;
 	const UI_LayoutHooks *layout;
 }
 UI_BoxDesc;
@@ -148,8 +152,8 @@ struct UI_LayoutHooks
 	UI_BoxLayoutChildren *layout_children;
 };
 
-extern const UI_LayoutHooks ui_layout_linear;
-extern const UI_LayoutHooks ui_layout_frame;
+extern const UI_LayoutHooks UI_LinearLayoutHooks;
+extern const UI_LayoutHooks UI_FlatLayoutHooks;
 
 // These are exposed so specialized layouts can reuse one half of the linear
 // strategy without coupling element behavior to child arrangement.
@@ -189,6 +193,7 @@ struct UI_Box
 	// The state contains geometry from the immediately preceding compatible layout.
 	b32      has_previous;
 	b32    hit_passthrough;
+	b32    hit_intercept;
 
 	UI_BoxDesc       desc;
 	UI_BoxPaintDesc paint;
@@ -259,8 +264,13 @@ void ui_box_pop_id(UI_Context *ui);
 void ui_push_box_z(UI_Context *ui, i32 z);
 void ui_pop_box_z(UI_Context *ui);
 
+
+// TODO(RJ) Make box construction consume and reset the active properties,
+// then remove the descriptor/paint push-pop stack entirely.
 void ui_push(UI_Context *ui);
 void ui_pop(UI_Context *ui);
+
+
 void ui_clean(UI_Context *ui);
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size);
 void ui_layout(UI_Context *ui, const UI_LayoutHooks *layout);
@@ -282,6 +292,27 @@ void ui_edge_softness(UI_Context *ui, f32 edge_softness);
 void ui_inset_shadow(UI_Context *ui, f32 strength);
 void ui_emission(UI_Context *ui, f32 emission);
 void ui_paint_z(UI_Context *ui, i32 z);
+
+
+static UI_Box *ui_begin_vert(UI_Context *ui, UI_Key key) {
+	ui_axis(ui, AXIS_Y);
+	ui_layout(ui, &UI_LinearLayoutHooks);
+	return ui_box_begin(ui, key, LIT("vertical container"));
+}
+
+static UI_Box *ui_begin_horz(UI_Context *ui, UI_Key key) {
+	ui_axis(ui, AXIS_X);
+	ui_layout(ui, &UI_LinearLayoutHooks);
+	return ui_box_begin(ui, key, LIT("horizontal container"));
+}
+
+static UI_Box *ui_begin_flat(UI_Context *ui, UI_Key key) {
+	ui_layout(ui, &UI_FlatLayoutHooks);
+	return ui_box_begin(ui, key, LIT("flat container"));
+}
+
+
+
 
 // Low-level builder API used by the box implementation and its focused tests.
 UI_Box *ui_box_builder_begin(UI_Builder *builder, Arena *arena, UI_Context *ui, UI_Key root_key, Str root_name, UI_BoxDesc root_desc);

@@ -107,6 +107,7 @@ objects := {
 	{ name = "nes_cartridge",    input = "src/nes/src/cartridge.c" },
 	{ name = "serialize",         input = "src/serialize/serialize.c" },
 	{ name = "orb",               input = "src/orb/orb.c" },
+	{ name = "orb_runtime",       input = "src/orb/orb_runtime.c" },
 	{ name = "tabula",            input = "tabula/src/tabula.c" },
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
@@ -128,6 +129,7 @@ objects := {
 tests := {
 	{ name = "tabula_test",         input = "tabula/tests/tabula_test.c" },
 	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
+	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
 	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
 	{ name = "catalog_test",         input = "src/tests/catalog_test.c" },
 	{ name = "orb_test",             input = "src/tests/orb_test.c" },
@@ -201,6 +203,10 @@ for object := objects[...] ? {
 		}
 	}
 	inputs := { "build.elf", object.input }
+	if object.name == "base" ? {
+		inputs:add("src/base/base_hash.h")
+		inputs:add("src/base/base_hash.c")
+	}
 	dependencies := { prepare_build }
 	if object.name == "renderer" ? {
 		for shader_task := shader_tasks[...] ? {

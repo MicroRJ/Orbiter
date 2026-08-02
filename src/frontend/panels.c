@@ -412,7 +412,7 @@ UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame,
 	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(frame->ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_overflow(frame->ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
-	ui_layout(frame->ui, &ui_layout_frame);
+	ui_layout(frame->ui, &UI_FlatLayoutHooks);
 	UI_Box *root = ui_box_begin(frame->ui, UI_KEY("panels"), LIT("panels"));
 	panel_build_ui(panels, panels->root, frame, rect, rect.pos);
 	ui_box_end(frame->ui);

@@ -330,6 +330,7 @@ UI_Feedback ui_feedback_take(UI_Context *ui)
 	return feedback;
 }
 
+// TODO
 UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
 {
 	Assert(ui);
@@ -360,7 +361,33 @@ UI_Response ui_signal_from_box(UI_Box *box)
 	Assert(box);
 	Assert(box->ui);
 	if (!box->state || !box->has_previous) return (UI_Response) {};
-	return ui_interact(box->ui, box->id, box->state->hit_rect);
+
+	UI_Context *ui = box->ui;
+
+	UI_Response response = {};
+
+	if (ui_id_equal(ui->hot, box->id))
+	{
+		response.hovered = true;
+
+		OS_KeyState left_mouse_button = ui->window->keys[OS_Key_MouseLeft];
+		if (!ui->active.value && (left_mouse_button & OS_KEY_PRESSED))
+		{
+			ui->active = box->id;
+			ui->active_press_mouse = ui->mouse;
+			response.pressed = true;
+		}
+		if (ui_id_equal(ui->active, box->id))
+		{
+			response.held = !!(left_mouse_button & OS_KEY_DOWN);
+			response.released = !!(left_mouse_button & OS_KEY_RELEASED);
+			response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
+		}
+	}
+
+	box->hit_intercept = true;
+	// return ui_interact(box->ui, box->id, box->state->hit_rect);
+	return response;
 }
 
 void ui_push_clip(UI_Context *ui, rect_f32 rect)

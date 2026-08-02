@@ -78,6 +78,8 @@ static void test_discovery(void)
 	CHECK(platform_create_directory(directory.text));
 	Str rom_path = str_push_copy_f(&scratch, "%.*s\\demo.nes", directory.size, directory.text);
 	Str orb_path = str_push_copy_f(&scratch, "%.*s\\demo.orb", directory.size, directory.text);
+	Str invalid_path = str_push_copy_f(&scratch, "%.*s\\invalid.nes", directory.size, directory.text);
+	Str truncated_nes2_path = str_push_copy_f(&scratch, "%.*s\\truncated-nes2.nes", directory.size, directory.text);
 
 	u64 rom_size = 16 + KiB(16) + KiB(8);
 	u8 *rom = arena_push_zero(&scratch, rom_size);
@@ -86,36 +88,55 @@ static void test_discovery(void)
 	CHECK(write_file(rom_path.text, rom, rom_size));
 
 	u8 state[] = { 1, 2, 3, 4 };
+	u8 thumbnail[] = { 0x11, 0x22, 0x33, 0xFF };
 	Orb_Contents contents = {
 		.metadata = {
 			.system = ORB_SYSTEM_NES,
 			.kind = ORB_SAVE_RESUME,
+			.content_hash = { .bytes = { 0xAA, 0xBB, 0xCC } },
+			.first_played_unix_ms = 1000,
 			.last_played_unix_ms = 1234,
+			.play_time_ms = 5678,
 			.title = LIT("Catalog Demo"),
 			.source_path = LIT("games/catalog-demo.nes"),
+		},
+		.thumbnail = {
+			.width = 1,
+			.height = 1,
+			.stride = 4,
+			.format = ORB_PIXEL_FORMAT_RGBA8,
+			.pixels = byte_span(thumbnail, sizeof(thumbnail)),
 		},
 		.state = byte_span(state, sizeof(state)),
 	};
 	ByteSpan encoded = {};
 	CHECK(orb_encode(&scratch, contents, &encoded).status == ORB_STATUS_OK);
 	CHECK(write_file(orb_path.text, encoded.data, encoded.size));
+	u8 invalid[16] = {};
+	CHECK(write_file(invalid_path.text, invalid, sizeof(invalid)));
+	u8 truncated_nes2[16] = { 'N', 'E', 'S', 0x1A, 1, 0, 0, 0x08 };
+	CHECK(write_file(truncated_nes2_path.text, truncated_nes2, sizeof(truncated_nes2)));
 
 	Catalog catalog;
 	catalog_init(&catalog, &arena);
 	CHECK(catalog_add_source(&catalog, directory));
 	catalog_refresh(&catalog, &scratch, 0, 0);
 	memory_fill(arena_push_aligned(&scratch, KiB(64), 1), 0xCD, KiB(64));
-	CHECK(catalog.entry_count == 2);
+	CHECK(catalog.entry_count == 4);
+	CHECK(catalog.game_count == 2);
+	CHECK(catalog.scan_error_count == 1);
 	u32 rom_count = 0;
 	u32 orb_count = 0;
+	u32 invalid_count = 0;
 	for (u32 index = 0; index < catalog.entry_count; index ++)
 	{
 		const Catalog_Entry *entry = &catalog.entries[index];
+		if (entry->status == CATALOG_ENTRY_INVALID) invalid_count ++;
 		if (entry->kind == CATALOG_ENTRY_ROM)
 		{
 			rom_count ++;
-			CHECK(entry->status == CATALOG_ENTRY_AVAILABLE);
-			CHECK(entry->rom.cartridge.prg_rom_size == KiB(16));
+			if (entry->status == CATALOG_ENTRY_AVAILABLE) CHECK(entry->rom.cartridge.prg_rom_size == KiB(16));
+			else CHECK(entry->status == CATALOG_ENTRY_INVALID || entry->status == CATALOG_ENTRY_UNSUPPORTED);
 		}
 		else if (entry->kind == CATALOG_ENTRY_ORB)
 		{
@@ -128,9 +149,40 @@ static void test_discovery(void)
 			CHECK(entry->orb.state_size == sizeof(state));
 		}
 	}
-	CHECK(rom_count == 1 && orb_count == 1);
+	CHECK(rom_count == 3 && orb_count == 1 && invalid_count == 1);
+	u32 rom_game_count = 0;
+	u32 orb_game_count = 0;
+	for (u32 index = 0; index < catalog.game_count; index ++)
+	{
+		const Catalog_Game *game = &catalog.games[index];
+		CHECK(game->source);
+		if (!game->source) continue;
+		CHECK(game->id == game->source->id);
+		CHECK(game->system == game->source->system);
+		CHECK(game->status == game->source->status);
+		CHECK(str_match(game->title, game->source->title));
+		if (game->source->kind == CATALOG_ENTRY_ROM)
+		{
+			rom_game_count ++;
+			CHECK(!game->has_thumbnail);
+			CHECK(game->last_played_unix_ms == 0);
+		}
+		else
+		{
+			orb_game_count ++;
+			CHECK(game->first_played_unix_ms == 1000);
+			CHECK(game->last_played_unix_ms == 1234);
+			CHECK(game->play_time_ms == 5678);
+			CHECK(game->has_thumbnail && game->thumbnail.pixels.size == sizeof(thumbnail));
+			CHECK(memory_match(game->thumbnail.pixels.data, thumbnail, sizeof(thumbnail)));
+			CHECK(memory_match(game->content_hash.bytes, contents.metadata.content_hash.bytes, sizeof(game->content_hash.bytes)));
+		}
+	}
+	CHECK(rom_game_count == 1 && orb_game_count == 1);
 	catalog_destroy(&catalog);
 
+	CHECK(platform_remove_file(truncated_nes2_path.text));
+	CHECK(platform_remove_file(invalid_path.text));
 	CHECK(platform_remove_file(orb_path.text));
 	CHECK(platform_remove_file(rom_path.text));
 	CHECK(platform_remove_directory(directory.text));

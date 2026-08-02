@@ -1,5 +1,6 @@
 #include "base.h"
 #include "base_stream.c"
+#include "base_hash.c"
 #include "base_temp.c"
 #include "base_arena.c"
 #include "base_string.c"

@@ -1,4 +1,4 @@
-#include "orb.h"
+#include "orb_runtime.h"
 
 static u16 orb_test_u16(const u8 *data)
 {
@@ -25,6 +25,16 @@ static u64 orb_test_u64(const u8 *data)
 	byte_transfer_u64(&reader, &value);
 	Assert(!reader.failed);
 	return value;
+}
+
+static b32 orb_test_write_file(const char *path, ByteSpan data)
+{
+	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
+	if (!platform_file_is_valid(file)) return false;
+	u64 written = 0;
+	b32 success = platform_write_file(file, data.data, data.size, &written) && written == data.size;
+	platform_close_file(file);
+	return success;
 }
 
 int main(void)
@@ -121,6 +131,20 @@ int main(void)
 
 	result = orb_parse(byte_span(encoded.data, encoded.size - 1), &descriptor);
 	Assert(result.status == ORB_STATUS_INVALID_FORMAT);
+
+	const char store_path[] = "orb_store_test.orb";
+	Assert(orb_test_write_file(store_path, encoded));
+	Orb_Store store = {};
+	orb_store_init(&store);
+	Orb_StoreResult store_result = orb_store_load(&store, str_from_cstr(store_path));
+	Assert(store_result.status == ORB_STORE_STATUS_OK);
+	Assert(store.source_kind == ORB_STORE_SOURCE_ORB && store.orb.save_count == 1);
+	Assert(store.orb.first_save == store.orb.last_save);
+	Assert(str_match(store.orb.title, expected.metadata.title));
+	Assert(store.orb.first_save->state.size == sizeof(state));
+	Assert(memory_match(store.orb.first_save->state.data, state, sizeof(state)));
+	orb_store_destroy(&store);
+	Assert(platform_remove_file(store_path));
 
 	arena_destroy(&arena);
 	return 0;

@@ -44,16 +44,10 @@ Orb_Id;
 
 typedef struct
 {
-	u8 bytes[32];
-}
-Orb_Hash256;
-
-typedef struct
-{
 	u32 system;
 	Orb_SaveKind kind;
 	Orb_Id id;
-	Orb_Hash256 content_hash;
+	Hash256 content_hash;
 	u64 created_unix_ms;
 	u64 first_played_unix_ms;
 	u64 last_played_unix_ms;
@@ -77,9 +71,9 @@ Orb_Thumbnail;
 
 typedef struct
 {
-	Orb_Metadata metadata;
+	Orb_Metadata   metadata;
 	Orb_Thumbnail thumbnail;
-	ByteSpan state;
+	ByteSpan          state;
 }
 Orb_Contents;
 
