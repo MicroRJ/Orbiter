@@ -1,4 +1,5 @@
 #include "catalog.h"
+#include "orb_runtime.h"
 #include "platform.h"
 
 static u32 failures;
@@ -89,17 +90,12 @@ static void test_discovery(void)
 
 	u8 state[] = { 1, 2, 3, 4 };
 	u8 thumbnail[] = { 0x11, 0x22, 0x33, 0xFF };
-	Orb_Contents contents = {
-		.metadata = {
-			.system = ORB_SYSTEM_NES,
-			.kind = ORB_SAVE_RESUME,
-			.content_hash = { .bytes = { 0xAA, 0xBB, 0xCC } },
-			.first_played_unix_ms = 1000,
-			.last_played_unix_ms = 1234,
-			.play_time_ms = 5678,
-			.title = LIT("Catalog Demo"),
-			.source_path = LIT("games/catalog-demo.nes"),
-		},
+	Orb_Save save = {
+		.id = { .bytes = { 1 } },
+		.kind = ORB_SAVE_RESUME,
+		.created_unix_ms = 1000,
+		.updated_unix_ms = 1234,
+		.play_time_ms = 5678,
 		.thumbnail = {
 			.width = 1,
 			.height = 1,
@@ -109,8 +105,21 @@ static void test_discovery(void)
 		},
 		.state = byte_span(state, sizeof(state)),
 	};
+	Orb orb = {
+		.system = ORB_SYSTEM_NES,
+		.content_hash = sha256(byte_span(rom, rom_size)),
+		.title = LIT("Catalog Demo"),
+		.source_path = LIT("games/catalog-demo.nes"),
+		.content = byte_span(rom, rom_size),
+		.first_played_unix_ms = 1000,
+		.last_played_unix_ms = 1234,
+		.play_time_ms = 5678,
+		.first_save = &save,
+		.last_save = &save,
+		.save_count = 1,
+	};
 	ByteSpan encoded = {};
-	CHECK(orb_encode(&scratch, contents, &encoded).status == ORB_STATUS_OK);
+	CHECK(orb_runtime_encode(&scratch, &orb, &encoded).status == ORB_STATUS_OK);
 	CHECK(write_file(orb_path.text, encoded.data, encoded.size));
 	u8 invalid[16] = {};
 	CHECK(write_file(invalid_path.text, invalid, sizeof(invalid)));
@@ -175,7 +184,7 @@ static void test_discovery(void)
 			CHECK(game->play_time_ms == 5678);
 			CHECK(game->has_thumbnail && game->thumbnail.pixels.size == sizeof(thumbnail));
 			CHECK(memory_match(game->thumbnail.pixels.data, thumbnail, sizeof(thumbnail)));
-			CHECK(memory_match(game->content_hash.bytes, contents.metadata.content_hash.bytes, sizeof(game->content_hash.bytes)));
+			CHECK(hash256_match(game->content_hash, orb.content_hash));
 		}
 	}
 	CHECK(rom_game_count == 1 && orb_game_count == 1);

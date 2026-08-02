@@ -88,7 +88,7 @@ NES_BusAccess mmc3_cpu(NES_Emulator *nes, NES_BusAccess access)
 			if (~index & 1) index ^= nes->core.values[R_MODE] >> 5 & 2;
 			u32 bank = nes->core.values[R6 + index];
 			access.address = (bank << 13) | (access.address & 0x1FFF);
-			access = prg_rom_mem(nes, access);
+			access = nes_prg_rom_access(nes, access);
 		}
 	}
 	return access;

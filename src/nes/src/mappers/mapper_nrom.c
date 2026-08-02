@@ -24,7 +24,7 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 	switch (access.address >> 12)
 	{
 		case 0: case 1: {
-			access = nes->core.chr_rom_size ? chr_rom_mem(nes, access) : chr_ram_mem(nes, access);
+			access = nes->core.chr_rom_size ? nes_chr_rom_access(nes, access) : nes_chr_ram_access(nes, access);
 		} break;
 		case 2: {
 			b32 v = nes->core.vmirror;
@@ -50,7 +50,7 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 			//
 			//
 			access.address = access.address & 0x3FF | (access.address >> !v & 0x400);
-			access = vram_mem(nes, access);
+			access = nes_vram_access(nes, access);
 		} break;
 	}
 	return access;
@@ -60,7 +60,7 @@ NES_BusAccess nrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
 	if ((access.address >> 15) == 1) {
 		if (nes->core.num_prg_banks == 1) access.address &= KiB(16) - 1;
 		else                              access.address &= KiB(32) - 1;
-		access = prg_rom_mem(nes, access);
+		access = nes_prg_rom_access(nes, access);
 	}
 	return access;
 }

@@ -20,10 +20,6 @@
 //
 // When displaying a game in the library, we can use save meta-data as well for enhancing the display.
 //
-// Orbs currently store one game and one save ...
-//
-// We can eventually add support for multiple saves within a single Orb container.
-//
 // So an orb file is the native file format for the library.
 //
 // It contains the game, plus all the saves.
@@ -109,7 +105,7 @@ Catalog_RomInfo;
 
 typedef struct
 {
-	Orb_Metadata metadata;
+	Orb_GameMetadata metadata;
 	Orb_Thumbnail thumbnail;
 	b32 has_thumbnail;
 	u64 state_size;

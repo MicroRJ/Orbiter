@@ -22,22 +22,19 @@ typedef struct
 	Hash256 content_hash;
 	Str title;
 	Str source_path;
+	ByteSpan content;
 	u64 first_played_unix_ms;
 	u64 last_played_unix_ms;
 	u64 play_time_ms;
+	// Decoding remains forward-compatible, but the current runtime cannot
+	// round-trip unknown optional chunks yet. Encoding refuses such an Orb
+	// instead of silently deleting extension data.
+	b32 has_unpreserved_chunks;
 	Orb_Save *first_save;
 	Orb_Save *last_save;
 	u32 save_count;
 }
 Orb;
-
-typedef enum
-{
-	ORB_STORE_SOURCE_NONE,
-	ORB_STORE_SOURCE_ORB,
-	ORB_STORE_SOURCE_LEGACY_STATE,
-}
-Orb_StoreSource;
 
 typedef enum
 {
@@ -63,10 +60,14 @@ typedef struct
 	Str path;
 	ByteSpan source;
 	Orb orb;
-	Orb_StoreSource source_kind;
 	b32 loaded;
 }
 Orb_Store;
+
+// Runtime objects borrow strings, content, state, and thumbnails from source.
+// Save nodes are allocated from runtime_arena.
+Orb_Result orb_runtime_decode(Arena *runtime_arena, ByteSpan source, Orb *orb);
+Orb_Result orb_runtime_encode(Arena *output_arena, const Orb *orb, ByteSpan *output);
 
 void orb_store_init(Orb_Store *store);
 void orb_store_destroy(Orb_Store *store);

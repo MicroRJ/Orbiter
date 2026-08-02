@@ -9,12 +9,12 @@ NES_MAPPER_RSET_FUNC(uxrom_reset) {
 NES_BusAccess uxrom_ppu(NES_Emulator *emulator, NES_BusAccess access) {
 	switch (access.address >> 12) {
 		case 0: case 1: {
-			access = chr_ram_mem(emulator, access);
+			access = nes_chr_ram_access(emulator, access);
 		} break;
 		case 2: {
 			b32 v = emulator->core.vmirror;
 			access.address = access.address & 0x3FF | (access.address >> !v & 0x400);
-			access = vram_mem(emulator, access);
+			access = nes_vram_access(emulator, access);
 		} break;
 	}
 	return access;
@@ -39,7 +39,7 @@ NES_BusAccess uxrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
 			{
 				access.address = (access.address & 0x3FFF) + (k << 14);
 			}
-			access = prg_rom_mem(nes, access);
+			access = nes_prg_rom_access(nes, access);
 		}
 	}
 	return access;

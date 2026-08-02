@@ -29,7 +29,7 @@ NES_BusAccess mmc2_ppu(NES_Emulator *nes, NES_BusAccess access) {
 			u32 register_index = CHR0_A + table * 2 + (latch == 0xFE);
 			u32 bank = nes->core.values[register_index];
 			access.address = (bank << 12) + (access.address & 0x0FFF);
-			access = chr_rom_mem(nes, access);
+			access = nes_chr_rom_access(nes, access);
 
 			if (access.kind == NES_BUS_ACCESS_READ)
 			{
@@ -52,7 +52,7 @@ NES_BusAccess mmc2_ppu(NES_Emulator *nes, NES_BusAccess access) {
 			Assert(v == 0 || v == 1);
 			access.address = access.address & 0x3FF |
 				(access.address >> !v & 0x400);
-			access = vram_mem(nes, access);
+			access = nes_vram_access(nes, access);
 		} break;
 	}
 	return access;
@@ -65,7 +65,7 @@ NES_BusAccess mmc2_cpu(NES_Emulator *nes, NES_BusAccess access) {
 		if (access.address < 0x8000) {
 			// [0x6000 - 0x8000 - 1] (8 KiB) ram
 			access.address &= 0x1FFF;
-			access = prg_ram_mem(nes, access);
+			access = nes_prg_ram_access(nes, access);
 		} else {
 			if (access.kind == NES_BUS_ACCESS_WRITE) {
 				/* otherwise, handle writting, you can only write to the bank switching registers  */
@@ -85,14 +85,14 @@ NES_BusAccess mmc2_cpu(NES_Emulator *nes, NES_BusAccess access) {
 					// [0x8000 - 0xA000 - 1] (8 KiB) switchable prg rom bank
 					access.address = (access.address & 0x1FFF) +
 						(nes->core.values[PRG_BANK] << 13);
-					access = prg_rom_mem(nes, access);
+					access = nes_prg_rom_access(nes, access);
 				}
 				else {
 					u32 fixed_window = (access.address - 0xA000) >> 13;
 					u32 prg_bank_count = nes->core.prg_rom_size / KiB(8);
 					u32 bank = prg_bank_count - 3 + fixed_window;
 					access.address = bank * KiB(8) + (access.address & 0x1FFF);
-					access = prg_rom_mem(nes, access);
+					access = nes_prg_rom_access(nes, access);
 				}
 			}
 		}

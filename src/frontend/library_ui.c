@@ -102,7 +102,7 @@ static void app_build_catalog_shelf(UI_Context *ui, UI_Key key, Str title, vec2 
 	if (selected)
 	{
 		if (selected->kind == CATALOG_ENTRY_ROM) app_open_rom_path(selected->path);
-		else if (selected->kind == CATALOG_ENTRY_ORB) app_restore_state_path(selected->path.text, true);
+		else if (selected->kind == CATALOG_ENTRY_ORB) app_restore_state_path(selected->path.text);
 	}
 }
 

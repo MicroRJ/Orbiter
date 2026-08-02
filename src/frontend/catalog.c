@@ -1,6 +1,7 @@
 #include "catalog.h"
 #include "nes/emulator.h"
 #include "platform.h"
+#include "orb_runtime.h"
 
 #define TABULA_USE_EXTERNAL_TYPES
 #include "tabula/tabula.h"
@@ -239,26 +240,46 @@ static void catalog_inspect_orb(Catalog_Builder *builder, Str path, Platform_Fil
 	b32 got_file_size = platform_get_file_size(file, &file_size);
 	if (got_file_size) node->entry.file_size = file_size;
 	Orb_Result result = { .status = ORB_STATUS_INVALID_FORMAT };
-	if (got_file_size && file_size <= builder->catalog->arena->reserved_size - builder->catalog->arena->position)
+	if (got_file_size && file_size <= builder->scratch->reserved_size - builder->scratch->position)
 	{
-		// SCRATCH_SCOPE(builder->scratch)
+		SCRATCH_SCOPE(builder->scratch)
 		{
-			u8 *data = arena_push_aligned(builder->catalog->arena, file_size, 1);
-			Orb_Descriptor descriptor = {};
+			u8 *data = arena_push_aligned(builder->scratch, file_size, 1);
+			Orb orb = {};
 			if (catalog_read_at(file, 0, data, file_size)) {
-				result = orb_parse(byte_span(data, file_size), &descriptor);
+				result = orb_runtime_decode(builder->scratch, byte_span(data, file_size), &orb);
 			}
 			if (result.status == ORB_STATUS_OK)
 			{
-				Orb_Metadata metadata = descriptor.metadata;
+				Orb_GameMetadata metadata = {
+					.system = orb.system,
+					.content_hash = orb.content_hash,
+					.first_played_unix_ms = orb.first_played_unix_ms,
+					.last_played_unix_ms = orb.last_played_unix_ms,
+					.play_time_ms = orb.play_time_ms,
+					.title = orb.title,
+					.source_path = orb.source_path,
+				};
 				metadata.title = str_push_copy(&builder->catalog->entry_arena, metadata.title);
 				metadata.source_path = str_push_copy(&builder->catalog->entry_arena, metadata.source_path);
+				const Orb_Save *latest = 0;
+				const Orb_Save *preview = 0;
+				for (const Orb_Save *save = orb.first_save; save; save = save->next)
+				{
+					if (!latest || save->updated_unix_ms > latest->updated_unix_ms) latest = save;
+					if (save->thumbnail.pixels.size && (!preview || save->updated_unix_ms > preview->updated_unix_ms)) preview = save;
+				}
+				Orb_Thumbnail thumbnail = preview ? preview->thumbnail : (Orb_Thumbnail) {};
+				if (thumbnail.pixels.size)
+				{
+					thumbnail.pixels.data = arena_push_copy(&builder->catalog->entry_arena, thumbnail.pixels.size, thumbnail.pixels.data);
+				}
 				node->entry.system = metadata.system;
 				node->entry.orb = (Catalog_OrbInfo) {
 					.metadata = metadata,
-					.state_size = descriptor.state_chunk.data.size,
-					.thumbnail = descriptor.thumbnail,
-					.has_thumbnail = descriptor.thumbnail.pixels.size != 0,
+					.state_size = latest ? latest->state.size : 0,
+					.thumbnail = thumbnail,
+					.has_thumbnail = thumbnail.pixels.size != 0,
 				};
 				if (metadata.title.size) node->entry.title = metadata.title;
 				node->entry.status = metadata.system == ORB_SYSTEM_NES ? CATALOG_ENTRY_AVAILABLE : CATALOG_ENTRY_UNSUPPORTED;

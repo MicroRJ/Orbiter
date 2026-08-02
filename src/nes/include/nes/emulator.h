@@ -102,14 +102,13 @@ NES_BusMetrics;
 
 
 typedef NES_BusAccess (*NES_BusFunc)(NES_Emulator *nes, NES_BusAccess access);
-
 #define NES_MAPPER_RSET_FUNC(NAME) b32 (NAME)(NES_Emulator *nes)
-typedef NES_MAPPER_RSET_FUNC(*RESETFUNC);
+typedef NES_MAPPER_RSET_FUNC(*NES_RstFunc);
 
 typedef struct
 {
-	const char  *name;
-	RESETFUNC    reset;
+	const char     *name;
+	NES_RstFunc    reset;
 	NES_BusFunc  cpu_bus;
 	NES_BusFunc  ppu_bus;
 }
@@ -192,14 +191,14 @@ typedef struct
 }
 NES_MappedRead;
 
-NES_BusAccess oam_mem(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess pram_mem(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess vram_mem(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess wram_mem(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess chr_rom_mem(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess prg_rom_mem(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess chr_ram_mem(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess prg_ram_mem(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_oam_mem_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_pram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_vram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_wram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_chr_rom_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_prg_rom_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_chr_ram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_prg_ram_access(NES_Emulator *nes, NES_BusAccess access);
 
 // The CPU address space exposes operations with explicit semantics. The
 // generic bus callback remains an implementation detail of devices and

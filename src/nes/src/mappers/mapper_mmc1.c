@@ -29,7 +29,7 @@ NES_BusAccess mmc1_ppu(NES_Emulator *nes, NES_BusAccess access) {
 				u32 bank = nes->core.values[MMC1_CHR_BANK0_R] & 0x1E;
 				access.address = bank * KiB(4) + (access.address & 0x1FFF);
 			}
-			access = nes->core.chr_rom_size ? chr_rom_mem(nes, access) : chr_ram_mem(nes, access);
+			access = nes->core.chr_rom_size ? nes_chr_rom_access(nes, access) : nes_chr_ram_access(nes, access);
 		} break;
 		case 2: {
 			switch (control & 3) {
@@ -40,7 +40,7 @@ NES_BusAccess mmc1_ppu(NES_Emulator *nes, NES_BusAccess access) {
 					access.address = access.address & 0x3FF | (access.address >> v & 0x400);
 				} break;
 			}
-			access = vram_mem(nes, access);
+			access = nes_vram_access(nes, access);
 		} break;
 	}
 	return access;
@@ -55,7 +55,7 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 	}
 	if (access.address < 0x8000) {
 		access.address &= 0x1FFF;
-		access = prg_ram_mem(nes, access);
+		access = nes_prg_ram_access(nes, access);
 		goto esc;
 	}
 	if (access.kind == NES_BUS_ACCESS_WRITE) {
@@ -109,7 +109,7 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 			} break;
 		}
 
-		access = prg_rom_mem(nes, access);
+		access = nes_prg_rom_access(nes, access);
 	}
 	esc:
 	return access;
