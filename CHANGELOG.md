@@ -1,3 +1,33 @@
+[TODO]
+
+We still have this proxy model:
+
+debugger -> emulator
+		   -> publisher -> emulator
+
+But it isn't really the right model.
+
+What we need is something more straightforward.
+
+We just need a process that runs the emulator and handles breakpoints in realtime.
+
+Real-time running works on a separate thread
+
+The emulation thread handles:
+	Running the emulator with breakpoints / unwind semantics / captures and send
+	updates back to the frontend.
+
+	Whenever the app actually needs to talk to the emulator.
+
+	We stop the thread and do whatever it is we want.
+
+
+
+
+
+
+
+
 
 - Debugger no longer tracks per cartridge data in snapshots, only live runtime state.
 - Audio is no longer cleared to zero when running muted, instead we run at regular CPU cycles per frame,

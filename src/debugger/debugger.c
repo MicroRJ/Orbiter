@@ -15,7 +15,7 @@ void debugger_capture_snapshot(Debugger *debugger)
 	Assert(debugger->snapshots_replay_marker >= debugger->snapshots_rewind_marker);
 	Assert(debugger->snapshots_replay_marker - debugger->snapshots_rewind_marker <= DEBUGGER_SNAPSHOT_CAPACITY);
 
-	NES_Emulator *emulator = &debugger->emulator;
+	NES_Emulator *emulator = debugger->emulator;
 	NES_State *state = &emulator->core;
 
 	memory_zero(snapshot, sizeof(*snapshot));
@@ -37,7 +37,7 @@ void debugger_capture_snapshot(Debugger *debugger)
 
 static void debugger_restore(Debugger *debugger, const DBG_LiveSnapshot *snapshot)
 {
-	NES_Emulator *emulator = &debugger->emulator;
+	NES_Emulator *emulator = debugger->emulator;
 	NES_State *state = &emulator->core;
 	memory_copy(state->values, snapshot->values, sizeof(snapshot->values));
 	emulator->sample_phase = snapshot->sample_phase;
@@ -57,7 +57,7 @@ static void debugger_restore(Debugger *debugger, const DBG_LiveSnapshot *snapsho
 
 static void debugger_discard_scheduler_trace(Debugger *debugger)
 {
-	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(&debugger->emulator);
+	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
 	debugger->personal_scheduler_trace_index = trace.index;
 	debugger->personal_scheduler_trace_clock = trace.scheduler_clock;
 	// Todo, we don't want to discard the execution path when we undo / redo snapshots ?
@@ -88,10 +88,12 @@ static void debugger_clear_snapshots(Debugger *debugger)
 	debugger->snapshots_cursor = 0;
 }
 
-Debugger *debugger_create(Arena *arena)
+Debugger *debugger_create(Arena *arena, NES_Emulator *emulator)
 {
+	Assert(arena && emulator);
 	Debugger *debugger = arena_push_zero(arena, sizeof(*debugger));
 	debugger->arena = arena;
+	debugger->emulator = emulator;
 	debugger->program_work_arena = arena_create(0, "debugger program work arena");
 	return debugger;
 }
@@ -111,7 +113,7 @@ static void debugger_process_scheduler_trace_(Debugger *debugger)
 {
 	debugger->breakpoint_hit = false;
 
-	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(&debugger->emulator);
+	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(debugger->emulator);
 
 	NES_SchedulerTraceSpans trace_spans = nes_scheduler_trace_spans_since(trace, debugger->personal_scheduler_trace_index);
 	if (trace_spans.dropped) LOG_WARN("instruction trace dropped %llu events", trace_spans.dropped);
@@ -156,7 +158,7 @@ static void debugger_process_scheduler_trace_(Debugger *debugger)
 				Assert(success);
 
 				while (debugger_scheduler_clock(debugger) < boundary.scheduler_clock) {
-					nes_emulator_step(&debugger->emulator);
+					nes_emulator_step(debugger->emulator);
 				}
 				debugger_discard_scheduler_trace(debugger);
 				debugger->breakpoint_hit_address = boundary.cpu_mapped;
@@ -184,26 +186,26 @@ void debugger_destroy(Debugger *debugger)
 
 b32 debugger_armed(const Debugger *debugger)
 {
-	return debugger && nes_emulator_has_cartridge(&debugger->emulator);
+	return debugger && nes_emulator_has_cartridge(debugger->emulator);
 }
 
 u32 debugger_cpu_peek(Debugger *debugger, u16 address, NES_MapAddr *mapped)
 {
-	NES_MapAddr result = nes_emulator_cpu_map(&debugger->emulator, address);
+	NES_MapAddr result = nes_emulator_cpu_map(debugger->emulator, address);
 	if (mapped) {
 		*mapped = result;
 	}
-	return nes_emulator_cpu_peek(&debugger->emulator, address);
+	return nes_emulator_cpu_peek(debugger->emulator, address);
 }
 
 u32 debugger_cpu_peek_word(Debugger *debugger, u16 address)
 {
-	return nes_emulator_cpu_peek_word(&debugger->emulator, address);
+	return nes_emulator_cpu_peek_word(debugger->emulator, address);
 }
 
 NES_MapAddr debugger_cpu_map(Debugger *debugger, u16 address)
 {
-	return nes_emulator_cpu_map(&debugger->emulator, address);
+	return nes_emulator_cpu_map(debugger->emulator, address);
 }
 
 NES_MapAddr debugger_cpu_mapping_chunk(const Debugger *debugger, u32 chunk)
@@ -242,7 +244,7 @@ b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 		return false;
 	}
 	// Todo, provide much better errors here!
-	b32 success = nes_emulator_load_cartridge(&debugger->emulator, cartridge);
+	b32 success = nes_emulator_load_cartridge(debugger->emulator, cartridge);
 	if (success)
 	{
 		debugger->warned_missing_cartridge = false;
@@ -262,13 +264,13 @@ b32 debugger_save_state(Debugger *debugger, Arena *arena)
 {
 	Assert(debugger_armed(debugger));
 
-	ByteSpan state = nes_emulator_save_state(&debugger->emulator, arena);
+	ByteSpan state = nes_emulator_save_state(debugger->emulator, arena);
 	return state.data && state.size;
 }
 
 b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 {
-	b32 success = nes_emulator_load_state(&debugger->emulator, state);
+	b32 success = nes_emulator_load_state(debugger->emulator, state);
 	if (success)
 	{
 		debugger->warned_missing_cartridge = false;
@@ -286,19 +288,19 @@ b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 
 void debugger_set_input(Debugger *debugger, NES_Input input, u32 player)
 {
-	nes_emulator_set_input(&debugger->emulator, player, input);
+	nes_emulator_set_input(debugger->emulator, player, input);
 }
 
 u64 debugger_scheduler_clock(const Debugger *debugger)
 {
-	return nes_emulator_scheduler_clock(&debugger->emulator);
+	return nes_emulator_scheduler_clock(debugger->emulator);
 }
 
 static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *debugger)
 {
 	Assert(debugger->snapshots_cursor >= 1);
 	DBG_LiveSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
-	Assert(nes_emulator_scheduler_clock(&debugger->emulator) <= previous_snapshot->scheduler_clock);
+	Assert(nes_emulator_scheduler_clock(debugger->emulator) <= previous_snapshot->scheduler_clock);
 }
 
 u32 debugger_step(Debugger *debugger)
@@ -306,7 +308,7 @@ u32 debugger_step(Debugger *debugger)
 	Assert(debugger_armed(debugger));
 	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
-	u32 cycles = nes_emulator_step(&debugger->emulator);
+	u32 cycles = nes_emulator_step(debugger->emulator);
 	debugger_process_scheduler_trace(debugger);
 	return cycles;
 }
@@ -316,7 +318,7 @@ NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer, u6
 	Assert(debugger_armed(debugger));
 	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
-	NES_RunFrameResult result = nes_emulator_run_frame(&debugger->emulator, sample_buffer, sample_capacity);
+	NES_RunFrameResult result = nes_emulator_run_frame(debugger->emulator, sample_buffer, sample_capacity);
 	debugger_process_scheduler_trace(debugger);
 	if (debugger->breakpoint_hit) return (NES_RunFrameResult) {};
 	return result;
@@ -361,7 +363,7 @@ void debugger_run_program_crawler(Debugger *debugger, u32 instruction_budget)
 void debugger_publish_target(Debugger *debugger, NES_TargetPublication *publication)
 {
 	Assert(debugger);
-	nes_target_publish(publication, &debugger->emulator);
+	nes_target_publish(publication, debugger->emulator);
 }
 
 const Program *debugger_program(const Debugger *debugger)

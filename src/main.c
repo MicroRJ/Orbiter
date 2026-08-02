@@ -55,6 +55,7 @@ typedef struct
 	Arena arena;
 	Arena frame_arena;
 	Arena game_arena;
+	NES_Emulator emulator;
 	Debugger *debugger;
 	ExecutionActivity execution_activity;
 	NES_TargetPublication published;
@@ -83,6 +84,7 @@ typedef struct
 	f64 play_time_seconds;
 	Orb_Store orb_store;
 	Orb *active_orb;
+	Orb_Save *active_save;
 	Catalog catalog;
 	b32 catalog_write_protected;
 	b32 catalog_refresh_pending;
@@ -257,109 +259,60 @@ static b32 app_save_state(void)
 		LOG_WARN("cannot save emulator state without a loaded cartridge");
 		return false;
 	}
+	if (!app.active_orb || !app.active_save)
+	{
+		LOG_WARN("cannot save emulator state without an active ORB save");
+		return false;
+	}
+
+	Arena *arena = &app.orb_store.arena;
+	u64 arena_position = arena->position;
+	u8 *state_data = arena_top(arena);
+	if (!debugger_save_state(app.debugger, arena))
+	{
+		arena->position = arena_position;
+		LOG_WARN("failed to capture emulator state");
+		return false;
+	}
+
+	app.active_save->state = byte_span(state_data, arena->position - arena_position);
+	app.active_orb->dirty = true;
+	LOG_INFO("updated active ORB save");
+	return true;
+}
+
+static b32 app_write_active_orb(void)
+{
+	if (!app.active_orb || !app.active_orb->dirty) return true;
+	if (!app.orb_store.path.size)
+	{
+		LOG_WARN("cannot write active ORB without a path");
+		return false;
+	}
 
 	b32 success = false;
 	SCRATCH_SCOPE(&app.frame_arena)
 	{
-		Orb previous_orb = {};
-		Orb_Result previous_result = { .status = ORB_STATUS_INVALID_FORMAT };
-		Str previous_source = app_read_file(&app.frame_arena, orb_save_path);
-		if (previous_source.size) previous_result = orb_runtime_decode(&app.frame_arena, byte_span(previous_source.data, previous_source.size), &previous_orb);
-		u8 *state_data = arena_top(&app.frame_arena);
-		u64 offset = arena_used(&app.frame_arena);
-		if (debugger_save_state(app.debugger, &app.frame_arena))
-		{
-			ByteSpan state = byte_span(state_data, arena_used(&app.frame_arena) - offset);
-			u64 now = app_unix_time_ms();
-			if (!app.save_created_unix_ms) app.save_created_unix_ms = now;
-			if (!app.first_played_unix_ms) app.first_played_unix_ms = app.save_created_unix_ms;
-			f64 play_time_ms_f64 = Max(app.play_time_seconds, 0.0) * 1000.0;
-			u64 play_time_ms = play_time_ms_f64 >= (f64)~(u64)0 ? ~(u64)0 : (u64)(play_time_ms_f64 + 0.5);
-			ByteSpan content = app.current_game_content;
-			Orb_Save captured_save = {
-				.id = app.current_save_id,
-				.kind = ORB_SAVE_RESUME,
-				.created_unix_ms = app.save_created_unix_ms,
-				.updated_unix_ms = now,
-				.play_time_ms = play_time_ms,
-				.state = state,
-			};
-			if (app.published.valid)
-			{
-				captured_save.thumbnail = (Orb_Thumbnail) {
-					.width = NES_VIDEO_WIDTH,
-					.height = NES_VIDEO_HEIGHT,
-					.stride = NES_VIDEO_WIDTH * sizeof(*app.published.video),
-					.format = ORB_PIXEL_FORMAT_RGBA8,
-					.pixels = byte_span(app.published.video, sizeof(app.published.video)),
-				};
-			}
-			if (!content.size) LOG_WARN("failed to encode ORB: original game content is unavailable");
-			else
-			{
-				app.current_content_hash = sha256(content);
-				b32 matching_previous = false;
-				if (previous_result.status == ORB_STATUS_OK)
-				{
-					matching_previous = hash256_match(previous_orb.content_hash, app.current_content_hash);
-				}
-				Orb orb = matching_previous ? previous_orb : (Orb) {};
-				orb.system = ORB_SYSTEM_NES;
-				orb.content_hash = app.current_content_hash;
-				orb.title = app.current_game_title;
-				orb.source_path = app.last_rom_path;
-				orb.content = content;
-				orb.first_played_unix_ms = app.first_played_unix_ms;
-				orb.last_played_unix_ms = now;
-				orb.play_time_ms = play_time_ms;
-				if (matching_previous)
-				{
-					if (previous_orb.first_played_unix_ms && (!orb.first_played_unix_ms || previous_orb.first_played_unix_ms < orb.first_played_unix_ms)) orb.first_played_unix_ms = previous_orb.first_played_unix_ms;
-					orb.play_time_ms = Max(orb.play_time_ms, previous_orb.play_time_ms);
-				}
-				Orb_Save *save = 0;
-				for (Orb_Save *it = orb.first_save; it; it = it->next) if (it->kind == ORB_SAVE_RESUME && (!save || it->updated_unix_ms > save->updated_unix_ms)) save = it;
-				if (save)
-				{
-					captured_save.id = save->id;
-					captured_save.created_unix_ms = save->created_unix_ms;
-					captured_save.next = save->next;
-					*save = captured_save;
-					app.current_save_id = save->id;
-					app.save_created_unix_ms = save->created_unix_ms;
-				}
-				else
-				{
-					save = &captured_save;
-					if (orb.last_save) orb.last_save->next = save;
-					else               orb.first_save = save;
-					orb.last_save = save;
-					orb.save_count ++;
-				}
-				ByteSpan encoded = {};
-				Orb_Result result = orb_runtime_encode(&app.frame_arena, &orb, &encoded);
-				if (result.status != ORB_STATUS_OK) {
-					LOG_WARN("failed to encode ORB: %s", orb_status_string(result.status));
-				} else if (encoded.size > MAX_VALUE_U32) {
-					LOG_WARN("failed to save ORB: encoded file is too large");
-				} else {
-					success = app_write_file_atomic(orb_save_path, encoded.data, (u32)encoded.size);
-				}
-			}
-		}
+		ByteSpan encoded = {};
+		Orb_Result result = orb_runtime_encode(&app.frame_arena, app.active_orb, &encoded);
+		if (result.status != ORB_STATUS_OK) LOG_WARN("failed to encode active ORB: %s", orb_status_string(result.status));
+		else if (encoded.size > MAX_VALUE_U32) LOG_WARN("failed to write active ORB: encoded file is too large");
+		else success = app_write_file_atomic(app.orb_store.path.text, encoded.data, (u32)encoded.size);
 	}
+
 	if (success)
 	{
-		LOG_INFO("saved emulator state to '%s'", orb_save_path);
-		app.catalog_refresh_pending = true;
+		app.active_orb->dirty = false;
+		LOG_INFO("saved active ORB to '%s'", app.orb_store.path.text);
 	}
-	else LOG_WARN("failed to save emulator state to '%s'", orb_save_path);
+	else LOG_WARN("failed to save active ORB to '%s'", app.orb_store.path.text);
 	return success;
 }
 
 static b32 app_restore_state_path(const char *path)
 {
 	app.active_orb = 0;
+	app.active_save = 0;
 	b32 success = false;
 	Orb_StoreResult store_result = orb_store_load(&app.orb_store, str_from_cstr(path));
 	if (store_result.status != ORB_STORE_STATUS_OK)
@@ -373,23 +326,19 @@ static b32 app_restore_state_path(const char *path)
 	if (orb->system != ORB_SYSTEM_NES) LOG_WARN("cannot restore '%s': it does not contain an NES save", path);
 	else
 	{
-		const Orb_Save *latest = 0;
-		const Orb_Save *latest_resume = 0;
-		for (const Orb_Save *save = orb->first_save; save; save = save->next)
+		Orb_Save *latest = 0;
+		for (Orb_Save *save = orb->first_save; save; save = save->next)
 		{
 			if (!latest || save->updated_unix_ms > latest->updated_unix_ms) latest = save;
-			if (save->kind == ORB_SAVE_RESUME && (!latest_resume || save->updated_unix_ms > latest_resume->updated_unix_ms)) latest_resume = save;
 		}
-		if (latest_resume) latest = latest_resume;
 		// STAT still contains a complete emulator snapshot. Once it becomes
 		// mutable-only, load CONT first and apply STAT on top of it.
 		success = latest ? debugger_restore_state(app.debugger, latest->state) : orb->content.size && debugger_open_rom(app.debugger, orb->content);
 		if (success)
 		{
 			u64 now = app_unix_time_ms();
-			b32 resuming = latest && latest->kind == ORB_SAVE_RESUME;
-			app.current_save_id = resuming ? latest->id : app_new_save_id(now);
-			app.save_created_unix_ms = resuming ? latest->created_unix_ms : now;
+			app.current_save_id = latest ? latest->id : app_new_save_id(now);
+			app.save_created_unix_ms = latest ? latest->created_unix_ms : now;
 			app.first_played_unix_ms = orb->first_played_unix_ms;
 			app.play_time_seconds = (latest ? latest->play_time_ms : orb->play_time_ms) / 1000.0;
 			app.last_rom_path = orb->source_path.size ? str_push_copy(&app.arena, orb->source_path) : (Str) {};
@@ -397,6 +346,7 @@ static b32 app_restore_state_path(const char *path)
 			app.current_game_title = str_push_copy(&app.arena, title);
 			app_set_game_content(orb->content);
 			app.active_orb = orb;
+			app.active_save = latest;
 		}
 	}
 
@@ -430,6 +380,7 @@ static b32 app_open_rom_path(Str path)
 			success = debugger_open_rom(app.debugger, byte_span((void *)rom.data, rom.size));
 			if (success) {
 				app.active_orb = 0;
+				app.active_save = 0;
 				Hash256 content_hash = sha256(byte_span(rom.data, rom.size));
 				b32 same_game = !hash256_is_zero(app.current_content_hash) && hash256_match(app.current_content_hash, content_hash);
 				app.mode = APP_MODE_EMULATOR;
@@ -1652,7 +1603,7 @@ static void app_init(void)
 		.label = "NES CHR map",
 	});
 
-	app.debugger = debugger_create(&app.arena);
+	app.debugger = debugger_create(&app.arena, &app.emulator);
 
 	app_load_config();
 	app_restore_state();
@@ -1670,9 +1621,8 @@ static void app_init(void)
 
 static void app_shutdown(void)
 {
-	if (debugger_armed(app.debugger)) {
-		app_save_state();
-	}
+	if (app.active_orb && app.active_save) app_save_state();
+	app_write_active_orb();
 	app_save_catalog();
 	app_save_config();
 	catalog_destroy(&app.catalog);

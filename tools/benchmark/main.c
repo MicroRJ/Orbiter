@@ -405,7 +405,8 @@ int main(int argc, char **argv)
 	printf("%-24s %u events from one frame\n", "scheduler trace", trace_count);
 	benchmark_print_control_flow(range);
 
-	Debugger *analysis_debugger = debugger_create(&arena);
+	NES_Emulator *analysis_emulator = arena_push_zero(&arena, sizeof(*analysis_emulator));
+	Debugger *analysis_debugger = debugger_create(&arena, analysis_emulator);
 	Assert(debugger_open_rom(analysis_debugger, byte_span((void *)file.text, file.size)));
 	u64 *execution_hash_keys = arena_push_zero(&arena, sizeof(*execution_hash_keys) * EXECUTION_GRAPH_HASH_CAPACITY);
 	BenchmarkHashStats cold_hash_stats = benchmark_measure_execution_hash(range, debugger_program(analysis_debugger), execution_hash_keys);

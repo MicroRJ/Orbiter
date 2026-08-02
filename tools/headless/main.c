@@ -145,7 +145,8 @@ int main(int argc, char **argv)
 
 	int exit_code = 1;
 	Arena arena = arena_create(0, "headless debugger arena");
-	Debugger *debugger = debugger_create(&arena);
+	NES_Emulator *emulator = arena_push_zero(&arena, sizeof(*emulator));
+	Debugger *debugger = debugger_create(&arena, emulator);
 	NES_TargetPublication *publication = arena_push_zero(&arena, sizeof(*publication));
 	Str rom = headless_read_file(&arena, argv[1]);
 	if (!rom.text || !rom.size)

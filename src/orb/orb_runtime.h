@@ -26,6 +26,7 @@ typedef struct
 	u64 first_played_unix_ms;
 	u64 last_played_unix_ms;
 	u64 play_time_ms;
+	b32 dirty;
 	// Decoding remains forward-compatible, but the current runtime cannot
 	// round-trip unknown optional chunks yet. Encoding refuses such an Orb
 	// instead of silently deleting extension data.

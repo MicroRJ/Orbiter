@@ -47,7 +47,7 @@ struct Debugger
 {
 	Arena *arena;
 	Arena program_work_arena;
-	NES_Emulator emulator;
+	NES_Emulator *emulator;
 	Program program;
 	ExecutionGraph     execution_graph;
 	ExecutionPathState execution_path;

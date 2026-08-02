@@ -15,7 +15,7 @@ enum
 	CPU_MAPPING_CHUNK_COUNT = NES_CPU_ADDRESS_SPACE / CPU_MAPPING_CHUNK_SIZE,
 };
 
-Debugger *debugger_create(Arena *arena);
+Debugger *debugger_create(Arena *arena, NES_Emulator *emulator);
 void debugger_destroy(Debugger *debugger);
 b32 debugger_armed(const Debugger *debugger);
 b32 debugger_open_rom(Debugger *debugger, ByteSpan data);
