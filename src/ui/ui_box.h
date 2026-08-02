@@ -253,9 +253,6 @@ UI_Box *ui_box_make(UI_Context *ui, UI_Key key, Str name);
 void ui_box_end(UI_Context *ui);
 UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, Str name);
 
-UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc);
-UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc);
-
 void ui_box_push_id(UI_Context *ui, UI_Key key);
 void ui_box_pop_id(UI_Context *ui);
 
@@ -302,6 +299,7 @@ void ui_builder_push_box_z(UI_Builder *builder, i32 z);
 void ui_builder_pop_box_z(UI_Builder *builder);
 void ui_builder_push(UI_Builder *builder);
 void ui_builder_pop(UI_Builder *builder);
+void ui_builder_clean(UI_Builder *builder);
 void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size);
 void ui_builder_layout(UI_Builder *builder, const UI_LayoutHooks *layout);
 void ui_builder_position(UI_Builder *builder, AXIS axis, f32 position);

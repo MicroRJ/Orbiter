@@ -959,20 +959,18 @@ static void app_update_fps(void)
 
 static UI_Box *app_status_text(UI_Context *ui, u64 key, Str text, UI_TextStyle style, f32 emission)
 {
-	ui_push(ui);
 	ui_emission(ui, emission);
 	UI_Box *box = ui_text_box_string(ui, key, style, text);
-	ui_pop(ui);
 	return box;
 }
 
 static UI_Box *app_status_bar_begin(UI_Context *ui, UI_Key key, Str name, f32 height)
 {
-	UI_BoxDesc desc = ui_defaults();
-	desc.axis = AXIS_Y;
-	desc.size[AXIS_X] = ui_grow(1.f);
-	desc.size[AXIS_Y] = ui_fixed(height);
-	UI_Box *box = ui_box_begin_desc(ui, key, name, desc);
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(height));
+	UI_Box *box = ui_box_begin(ui, key, name);
 	box->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND,
 		.background = ui->theme.slider_track,
@@ -982,22 +980,22 @@ static UI_Box *app_status_bar_begin(UI_Context *ui, UI_Key key, Str name, f32 he
 
 static UI_Box *app_status_row_begin(UI_Context *ui, UI_Key key, Str name)
 {
-	UI_BoxDesc desc = ui_defaults();
-	desc.axis = AXIS_X;
-	desc.size[AXIS_X] = ui_grow(1.f);
-	desc.size[AXIS_Y] = ui_grow(1.f);
-	desc.horz_padd[0] = desc.horz_padd[1] = 6.f;
-	return ui_box_begin_desc(ui, key, name, desc);
+	ui_clean(ui);
+	ui_axis(ui, AXIS_X);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_padd(ui, AXIS_X, 6.f, 6.f);
+	return ui_box_begin(ui, key, name);
 }
 
 static UI_Box *app_status_divider(UI_Context *ui, UI_Key key, b32 at_top)
 {
-	UI_BoxDesc desc = ui_defaults();
-	desc.size[AXIS_X] = ui_grow(1.f);
-	desc.size[AXIS_Y] = ui_fixed(1.f);
-	if (at_top) desc.vert_margin[1] = -1.f;
-	else        desc.vert_margin[0] = -1.f;
-	UI_Box *box = ui_box_make_desc(ui, key, LIT("status divider"), desc);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(1.f));
+	if (at_top) ui_margin(ui, AXIS_Y, 0.f, -1.f);
+	else        ui_margin(ui, AXIS_Y, -1.f, 0.f);
+	UI_Box *box = ui_box_make(ui, key, LIT("status divider"));
 	box->paint = (UI_BoxPaintDesc) {
 		.flags = UI_BOX_DRAW_BACKGROUND,
 		.background = ui->theme.panel_outline,
@@ -1031,16 +1029,17 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 
 	app_status_bar_begin(ui, 1, LIT("top status"), status_height);
 	app_status_row_begin(ui, 1, LIT("top status row"));
-	ui_push(ui);
-	ui_size(ui, AXIS_Y, ui_grow(1.f));
 
 	style.color = app.ui->theme.palette.cyan;
+	ui_clean(app.ui);
 	ui_size(app.ui, AXIS_X, ui_wrap());
 	ui_size(app.ui, AXIS_Y, ui_wrap());
 	app_status_text(app.ui, 1, LIT("ORBITER"), style, app.ui->theme.palette.emission_medium);
 
 	style.color = app.ui->theme.text_subtle;
+	ui_clean(app.ui);
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_Y, ui_wrap());
 	app_status_text(app.ui, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
 
 	f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
@@ -1048,21 +1047,33 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	if (app.mode == APP_MODE_UNARMED)
 	{
 		style.color = app.ui->theme.palette.amber;
+		ui_clean(app.ui);
+		ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(app.ui, AXIS_Y, ui_wrap());
 		app_status_text(app.ui, 3, LIT("* INSERT CARTRIDGE *"), style, app.ui->theme.palette.emission_high * pulse);
 	}
 	else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1)
 	{
 		style.color = app.ui->theme.palette.error;
+		ui_clean(app.ui);
+		ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(app.ui, AXIS_Y, ui_wrap());
 		app_status_text(app.ui, 3, LIT("<< REWINDING"), style, app.ui->theme.palette.emission_high * pulse);
 	}
 	else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1)
 	{
 		style.color = app.ui->theme.palette.amber;
+		ui_clean(app.ui);
+		ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(app.ui, AXIS_Y, ui_wrap());
 		app_status_text(app.ui, 3, LIT("REPLAYING >>"), style, app.ui->theme.palette.emission_high * pulse);
 	}
 	else if (app.mode == APP_MODE_REWINDING)
 	{
 		style.color = app.ui->theme.palette.error;
+		ui_clean(app.ui);
+		ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(app.ui, AXIS_Y, ui_wrap());
 		app_status_text(app.ui, 3, LIT("<< REWINDING >>"), style, app.ui->theme.palette.emission_high);
 	}
 	else if (app.mode == APP_MODE_EMULATOR)
@@ -1070,23 +1081,45 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 		if (app.emulator_running)
 		{
 			style.color = app.ui->theme.palette.amber;
+			ui_clean(app.ui);
+			ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+			ui_size(app.ui, AXIS_Y, ui_wrap());
 			app_status_text(app.ui, 3, LIT("RUNNING"), style, app.ui->theme.palette.emission_medium);
 		}
 		else
 		{
 			style.color = app.ui->theme.palette.error;
+			ui_clean(app.ui);
+			ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+			ui_size(app.ui, AXIS_Y, ui_wrap());
 			app_status_text(app.ui, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
 		}
 	}
 
 	style.color = app.ui->theme.text_subtle;
-	if (app.app_gif.recording) app_status_text(app.ui, 4, LIT("   REC APP"), style, 0.f);
-	if (app.ppu_gif.recording) app_status_text(app.ui, 4, LIT("   REC PPU"), style, 0.f);
+	if (app.app_gif.recording)
+	{
+		ui_clean(app.ui);
+		ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(app.ui, AXIS_Y, ui_wrap());
+		app_status_text(app.ui, 4, LIT("   REC APP"), style, 0.f);
+	}
+	if (app.ppu_gif.recording)
+	{
+		ui_clean(app.ui);
+		ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(app.ui, AXIS_Y, ui_wrap());
+		app_status_text(app.ui, 4, LIT("   REC PPU"), style, 0.f);
+	}
 
+	ui_clean(app.ui);
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
+	ui_size(app.ui, AXIS_Y, ui_wrap());
 	ui_box_make(app.ui, 6, LIT("top spacer"));
 
+	ui_clean(app.ui);
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_Y, ui_wrap());
 	style.align.x = 0.f;
 
 	Color_SRGBA ppu_volume_base_color = app.ui->theme.text_subtle;
@@ -1094,12 +1127,11 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 		ppu_volume_base_color = app.ui->theme.palette.error;
 	}
 	style.color = color_srgba_mix(ppu_volume_base_color, app.ui->theme.palette.amber, app.ppu_animation);
-	ui_push(ui);
 	ui_emission(ui, app.ui->theme.palette.emission_high * app.ppu_animation);
 	UI_Box *volume_box = ui_text_box_sized(app.ui, UI_KEY("volume"), style, LIT("VOL 100%"), "VOL %i%%", (i32) roundf(app.ppu_volume * 100.f));
 	if (ui_signal_from_box(volume_box).hovered && ui_tooltip_begin(ui, UI_KEY("volume_tooltip"), ui->mouse))
 	{
-		ui_push(ui);
+		ui_clean(ui);
 		ui_axis(ui, AXIS_Y);
 		ui_size(ui, AXIS_X, ui_wrap());
 		ui_size(ui, AXIS_Y, ui_wrap());
@@ -1110,33 +1142,38 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 		ui_box_begin(ui, 0, LIT(""));
 		UI_TextStyle style = ui->theme.code;
 		style.color = ui->theme.text_neutral;
+		ui_clean(ui);
 		ui_text_box_string(ui, UI_KEY("1"), style, str_push_copy_f(&ui->frame_arena, "Ctrl+Up Raise Volume"));
+		ui_clean(ui);
 		ui_text_box_string(ui, UI_KEY("2"), style, str_push_copy_f(&ui->frame_arena, "Ctrl+Down Lower Volume"));
 		ui_box_end(ui);
-		ui_pop(ui);
 
 		ui_tooltip_end(ui);
 	}
-	ui_pop(ui);
 	app.ppu_animation *= 0.95f;
 	app.ppu_volume += (app.ppu_volume_target - app.ppu_volume) * 0.35f;
 
 	style.color = app.ui->theme.text_subtle;
+	ui_clean(app.ui);
+	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_Y, ui_wrap());
 	ui_text_box_sized(app.ui, UI_KEY("fps"), style, LIT("FPS 999.9"), "FPS %02.2f", app.frames_per_second);
 
 	style.color = app.ui->theme.text_subtle;
+	ui_clean(app.ui);
+	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_Y, ui_wrap());
 	ui_text_box_sized(app.ui, UI_KEY("frame"), style, LIT("FRAME 999999999"), " FRAME %llu", app.published.generation);
 
-	ui_pop(ui);
 	ui_box_end(ui);
 	app_status_divider(ui, 2, false);
 	ui_box_end(ui);
 
-	UI_BoxDesc panel_host_desc = ui_defaults();
-	panel_host_desc.size[AXIS_X] = ui_grow(1.f);
-	panel_host_desc.size[AXIS_Y] = ui_grow(1.f);
-	panel_host_desc.layout = &ui_layout_frame;
-	ui_box_begin_desc(ui, 2, LIT("belly"), panel_host_desc);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_layout(ui, &ui_layout_frame);
+	ui_box_begin(ui, 2, LIT("belly"));
 	{
 		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
 		{
@@ -1171,21 +1208,23 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 	app_status_bar_begin(ui, 3, LIT("bottom status"), status_height);
 	app_status_divider(ui, 1, true);
 	app_status_row_begin(ui, 2, LIT("bottom status row"));
-	ui_push(ui);
-	ui_size(ui, AXIS_Y, ui_grow(1.f));
 
-	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	Str rom_name = app_rom_name(app.last_rom_path);
 	Str bottom_left = rom_name.size ? str_push_copy_f(&app.ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
+	ui_clean(app.ui);
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	style.align.x = 0.f;
 	app_status_text(app.ui, 1, bottom_left, style, 0.f);
+	ui_clean(app.ui);
 	ui_size(app.ui, AXIS_X, ui_grow(1.f));
+	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	ui_box_make(app.ui, 2, LIT("bottom spacer"));
+	ui_clean(app.ui);
 	ui_size(app.ui, AXIS_X, ui_flex(0.f, 3.f));
+	ui_size(app.ui, AXIS_Y, ui_grow(1.f));
 	style.align.x = 1.f;
 	app_status_text(app.ui, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU GIF   F9 APP GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
-	ui_pop(ui);
 	ui_box_end(ui);
 	ui_box_end(ui);
 

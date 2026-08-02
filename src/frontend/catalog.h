@@ -1,6 +1,82 @@
 #ifndef FRONTEND_CATALOG_H
 #define FRONTEND_CATALOG_H
 
+//
+// The user has a set of games and game_saves.
+//
+// A game is the executable itself along with meta-data.
+// For instance, when it was last played, how long you've played it for, whether you're so addicted to it that you neglect
+// the people around you ... A thumbnail or preview video too ...
+//
+// This is what Steam does, the only difference is that we're adding saves on top.
+//
+// A save points to the game but it also has meta-data. When was the save was created, when did it
+// end, what was the playtime, some captures or highlights from that save ...
+//
+// Each save represents overlapping forks or branches in time.
+//
+// A game can come from an Orb, or a ROM. Either way, the games are cataloged uniformly, added to
+// the games list, where you can see and manage its saves.
+//
+// When displaying a game in the library, we can use save meta-data as well for enhancing the display.
+//
+// Orbs currently store one game and one save ...
+//
+// We can eventually add support for multiple saves within a single Orb container.
+//
+// So an orb file is the native file format for the library.
+//
+// It contains the game, plus all the saves.
+//
+// When we click on a game, that doesn't have any saves, we create a new save point for it.
+//
+// The model am thinking of is something like this:
+//
+// typedef struct
+// {
+// 	b32     in_orb;
+// 	Str     name;
+// 	Str     path;
+// 	Hash256 hash;
+// 	u64     creation_time_ms;
+// 	u64     last_opened_time_ms;
+// 	u64     total_play_time_ms;
+// 	// ...
+// 	Image   preview_thumbnail;
+// 	// ...
+// 	// This would be empty if it comes a ROM.
+// 	GameSave   **saves;
+// 	u32              num_saves;
+// }
+// Game;
+//
+// typedef struct
+// {
+// 	Game *game;
+// 	// optional name, later feature, given by the user
+// 	Str           name;
+// 	Image         highlight_thumbnail;
+// 	u64           creation_time_ms;
+// 	u64           last_opened_time_ms;
+// 	u64           total_play_time_ms;
+// 	// Additional data
+// }
+// GameSave;
+//
+// The question is whether we the orb name-space refers to the file format only, or whether we extend to mean the overall library
+// ecosystem.
+//
+// We could instead have Orb_Catalog, Orb_Game, Orb_GameSave.
+//
+// Imported roms are added to the runtime orb model, and automatically stored as orb files when the program
+// shuts-down.
+//
+// So orb would be a complete module that does importing & runtime-model management & cataloging & exporting.
+//
+//
+//
+
+
 #include "base.h"
 #include "nes/cartridge.h"
 #include "orb.h"
@@ -34,12 +110,9 @@ Catalog_RomInfo;
 typedef struct
 {
 	Orb_Metadata metadata;
-	u64 state_size;
-	u32 thumbnail_width;
-	u32 thumbnail_height;
-	u32 thumbnail_stride;
-	Orb_PixelFormat thumbnail_format;
+	Orb_Thumbnail thumbnail;
 	b32 has_thumbnail;
+	u64 state_size;
 }
 Catalog_OrbInfo;
 

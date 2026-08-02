@@ -17,10 +17,16 @@ static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, 
 {
 	UI_Box *cell = ui_box_table_cell_begin(table);
 	cell->desc.layout = &ui_layout_frame;
-	UI_BoxDesc text_desc = ui_defaults();
-	text_desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = align };
-	if (sizing_text.size) ui_text_box_sized_string_desc(table->ui, 1, text_desc, style, sizing_text, text);
-	else ui_text_box_string_desc(table->ui, 1, text_desc, style, text);
+	ui_clean(table->ui);
+	ui_align(table->ui, AXIS_X, align);
+	if (sizing_text.size)
+	{
+		ui_text_box_sized_string(table->ui, 1, style, sizing_text, text);
+	}
+	else
+	{
+		ui_text_box_string(table->ui, 1, style, text);
+	}
 	ui_box_table_cell_end(table);
 }
 
@@ -107,71 +113,87 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	root_desc.gap = density.gap;
 	UI_Box *root = ui_build_begin(ui, UI_KEY("dummy profiler"), LIT("dummy profiler"), root_desc);
 
-	UI_BoxDesc header = playground_fill_desc();
-	header.axis = AXIS_X;
-	header.size[AXIS_Y] = ui_fixed(48.f);
-	header.horz_padd[0] = header.horz_padd[1] = 16.f;
-	header.vert_padd[0] = header.vert_padd[1] = 8.f;
-	header.gap = 8.f;
-	playground_begin_box(ui, 6000, LIT(""), header, slate, false);
-	UI_BoxDesc header_text = ui_defaults();
-	header_text.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(48.f));
+	ui_axis(ui, AXIS_X);
+	ui_padd(ui, AXIS_X, 16.f, 16.f);
+	ui_padd(ui, AXIS_Y, 8.f, 8.f);
+	ui_gap(ui, 8.f);
+	playground_begin_box(ui, 6000, LIT(""), slate, false);
 	UI_TextStyle title = { .font = font, .size = 16, .color = teal };
 	UI_TextStyle subtle = { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
 	playground_frame_slot_begin(ui, 1, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, header_text, title, LIT("ORBITER PROFILER"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, title, LIT("ORBITER PROFILER"));
 	ui_box_end(ui);
 	playground_frame_slot_begin(ui, 2, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, header_text, subtle, LIT("|  BOX TABLE PROTOTYPE"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, subtle, LIT("|  BOX TABLE PROTOTYPE"));
 	ui_box_end(ui);
-	UI_BoxDesc header_spacer = playground_fill_desc();
-	ui_box_make_desc(ui, 3, LIT(""), header_spacer);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_make(ui, 3, LIT(""));
 	subtle.align.x = 1.f;
 	playground_frame_slot_begin(ui, 4, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, header_text, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
 	ui_box_end(ui);
 	ui_box_end(ui);
 
-	UI_BoxDesc graph = playground_fill_desc();
-	graph.size[AXIS_Y] = ui_flex(1.f, 1.f);
-	graph.min_size.y = 128.f;
-	graph.max_size.y = 240.f;
-	UI_Box *graph_box = playground_make_box(ui, 6001, LIT("DUMMY FRAME PHASE GRAPH  |  custom rendering stays inside this rectangle"), graph, color_srgba_mix(teal, slate, 0.58f), false);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_flex(1.f, 1.f));
+	ui_min_size(ui, AXIS_Y, 128.f);
+	ui_max_size(ui, AXIS_Y, 240.f);
+	UI_Box *graph_box = playground_make_box(ui, 6001, LIT("DUMMY FRAME PHASE GRAPH  |  custom rendering stays inside this rectangle"), color_srgba_mix(teal, slate, 0.58f), false);
 	graph_box->intrinsic_size.y = 184.f;
 
-	UI_BoxDesc selection = playground_fill_desc();
-	selection.axis = AXIS_X;
-	selection.size[AXIS_Y] = ui_fixed(34.f);
-	selection.horz_padd[0] = selection.horz_padd[1] = 10.f;
-	playground_begin_box(ui, 6002, LIT(""), selection, color_srgba_mix(amber, slate, 0.72f), false);
-	UI_BoxDesc selection_text = ui_defaults();
-	selection_text.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(34.f));
+	ui_axis(ui, AXIS_X);
+	ui_padd(ui, AXIS_X, 10.f, 10.f);
+	playground_begin_box(ui, 6002, LIT(""), color_srgba_mix(amber, slate, 0.72f), false);
 	playground_frame_slot_begin(ui, 1, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, selection_text, profiler->value_style, LIT("SELECTED FRAME 123456  /  16.667 MS"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, profiler->value_style, LIT("SELECTED FRAME 123456  /  16.667 MS"));
 	ui_box_end(ui);
-	UI_BoxDesc selection_spacer = playground_fill_desc();
-	ui_box_make_desc(ui, 2, LIT(""), selection_spacer);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_make(ui, 2, LIT(""));
 	UI_TextStyle live = profiler->header_style;
 	live.color = amber;
 	live.align.x = 1.f;
 	playground_frame_slot_begin(ui, 3, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, selection_text, live, LIT("LIVE"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, live, LIT("LIVE"));
 	ui_box_end(ui);
 	ui_box_end(ui);
 
-	UI_BoxDesc tables = playground_fill_desc();
-	tables.axis = AXIS_X;
-	tables.gap = density.gap;
-	ui_box_begin_desc(ui, 6003, LIT(""), tables);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_X);
+	ui_gap(ui, density.gap);
+	ui_box_begin(ui, 6003, LIT(""));
 
-	UI_BoxDesc timing_panel = playground_fill_desc();
-	timing_panel.axis = AXIS_Y;
-	timing_panel.size[AXIS_X] = ui_grow(1.6f);
-	timing_panel.horz_padd[0] = timing_panel.horz_padd[1] = density.card_padding;
-	timing_panel.vert_padd[0] = timing_panel.vert_padd[1] = density.card_padding;
-	timing_panel.gap = 4.f;
-	playground_begin_box(ui, 6100, LIT(""), timing_panel, slate, false);
-	ui_push(ui);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.6f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_Y);
+	ui_padd(ui, AXIS_X, density.card_padding, density.card_padding);
+	ui_padd(ui, AXIS_Y, density.card_padding, density.card_padding);
+	ui_gap(ui, 4.f);
+	playground_begin_box(ui, 6100, LIT(""), slate, false);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	UI_ScrollBox *timing_scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
@@ -182,6 +204,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 		ui_box_table_content(),
 		ui_box_table_content(),
 	};
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
@@ -201,17 +224,18 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	ui_scroll_box_end(timing_scroll);
 	timing_scroll->track->paint.background = color_srgba_mix(violet, slate, 0.72f);
 	timing_scroll->thumb->paint.background = color_srgba(0xC99CFF);
-	ui_pop(ui);
+	ui_clean(ui);
 	ui_box_end(ui);
 
-	UI_BoxDesc metric_panel = playground_fill_desc();
-	metric_panel.axis = AXIS_Y;
-	metric_panel.size[AXIS_X] = ui_grow(1.f);
-	metric_panel.horz_padd[0] = metric_panel.horz_padd[1] = density.card_padding;
-	metric_panel.vert_padd[0] = metric_panel.vert_padd[1] = density.card_padding;
-	metric_panel.gap = 4.f;
-	playground_begin_box(ui, 6200, LIT(""), metric_panel, slate, false);
-	ui_push(ui);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_Y);
+	ui_padd(ui, AXIS_X, density.card_padding, density.card_padding);
+	ui_padd(ui, AXIS_Y, density.card_padding, density.card_padding);
+	ui_gap(ui, 4.f);
+	playground_begin_box(ui, 6200, LIT(""), slate, false);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	UI_ScrollBox *metric_scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
@@ -219,6 +243,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 		ui_box_table_flex(1.f),
 		ui_box_table_content(),
 	};
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
@@ -238,7 +263,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	ui_scroll_box_end(metric_scroll);
 	metric_scroll->track->paint.background = color_srgba_mix(violet, slate, 0.72f);
 	metric_scroll->thumb->paint.background = color_srgba(0xC99CFF);
-	ui_pop(ui);
+	ui_clean(ui);
 	ui_box_end(ui);
 
 	ui_box_end(ui);

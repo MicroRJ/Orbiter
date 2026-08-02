@@ -131,6 +131,7 @@ static void chr_map_build_tooltip(ViewFrameData *frame, CHRMapSelection selectio
 	if (selection.kind == CHR_MAP_SELECTION_NONE) return;
 	UI_Context *ui = frame->ui;
 	UI_Key key = ui_key_child(UI_KEY("chr map tooltip"), selection.kind);
+	ui_clean(ui);
 	UI_Box *tooltip = ui_tooltip_begin(ui, key, ui->mouse);
 	if (!tooltip) return;
 
@@ -141,15 +142,20 @@ static void chr_map_build_tooltip(ViewFrameData *frame, CHRMapSelection selectio
 		Assert(selection.index < ArrayCount(frame->publication->chr_map.mappings));
 		u32 table = selection.index / NES_PATTERN_TABLE_TILE_COUNT;
 		NES_MapAddr mapped = frame->publication->chr_map.mappings[selection.index];
+		ui_clean(ui);
 		ui_text_box_sized(ui, 1, style, LIT("TABLE 1  TILE $FF  PPU $1FF0"), "TABLE %u  TILE $%02X  PPU $%04X", table, selection.index & 0xFF, selection.index << 4);
+		ui_clean(ui);
 		ui_text_box_sized(ui, 2, style, LIT("CHR ROM $FFFFFFFF"), "%s $%05X", chr_map_device_name(mapped.device), mapped.address);
 	}
 	else
 	{
 		Assert(selection.index < ArrayCount(frame->publication->sprites));
 		const NES_TargetSprite *sprite = &frame->publication->sprites[selection.index];
+		ui_clean(ui);
 		ui_text_box_sized(ui, 1, style, LIT("OAM $FF  X 255  Y 255  TILE $FF"), "OAM $%02X  X %u  Y %u  TILE $%02X", (u32)sprite->oam_index, (u32)sprite->x, (u32)sprite->y, (u32)sprite->tile);
+		ui_clean(ui);
 		ui_text_box_sized(ui, 2, style, LIT("PAL 3  BEHIND BG  FLIP HV"), "PAL %u  %s  FLIP %c%c", (u32)sprite->palette, sprite->behind_background ? "BEHIND BG" : "IN FRONT", sprite->flip_horizontal ? 'H' : '-', sprite->flip_vertical ? 'V' : '-');
+		ui_clean(ui);
 		ui_text_box_sized(ui, 3, style, LIT("PPU $FFFF -> CHR ROM $FFFFFFFF"), "PPU $%04X -> %s $%05X", (u32)sprite->ppu_address, chr_map_device_name(sprite->pattern_mapping.device), sprite->pattern_mapping.address);
 	}
 

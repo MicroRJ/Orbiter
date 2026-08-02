@@ -5,25 +5,24 @@
 static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI_TextStyle value_style, Str sizing_text, const char *label, const char *format, ...)
 {
 	ui_box_push_id(ui, key);
-	ui_push(ui);
+	ui_clean(ui);
 	ui_axis(ui, AXIS_X);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_gap(ui, 8.f);
 	ui_padd(ui, AXIS_Y, 4.f, 4.f);
 	ui_box_begin(ui, 1, LIT("CPU field"));
-	ui_pop(ui);
 
+	ui_clean(ui);
 	ui_text_box(ui, 1, label_style, "%s", label);
 
 	va_list arguments;
 	va_start(arguments, format);
 	Str value = str_push_copy_v(&ui->frame_arena, format, arguments);
 	va_end(arguments);
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	if (sizing_text.size) ui_text_box_sized_string(ui, 2, value_style, sizing_text, value);
 	else ui_text_box_string(ui, 2, value_style, value);
-	ui_pop(ui);
 
 	ui_box_end(ui);
 	ui_box_pop_id(ui);
@@ -31,16 +30,15 @@ static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI
 
 static void cpu_view_register_row_begin(UI_Context *ui, u64 key)
 {
-	ui_push(ui);
+	ui_clean(ui);
 	ui_axis(ui, AXIS_X);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_box_begin(ui, key, LIT("CPU register row"));
-	ui_pop(ui);
 }
 
 static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style, UI_TextStyle value_style, char name, b32 set)
 {
-	ui_push(ui);
+	ui_clean(ui);
 	ui_axis(ui, AXIS_Y);
 	ui_size(ui, AXIS_X, ui_flex(1.f, 1.f));
 	ui_min_size(ui, AXIS_X, 12.f);
@@ -49,15 +47,16 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 	ui_padd(ui, AXIS_Y, 4.f, 4.f);
 	ui_gap(ui, 3.f);
 	UI_Box *cell = ui_box_begin(ui, key, LIT("CPU status flag"));
-	ui_pop(ui);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	label_style.align.x = 0.5f;
 	ui_text_box(ui, 1, label_style, "%c", name);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
 	value_style.align.x = 0.5f;
 	ui_text_box(ui, 2, value_style, "%u", set);
-	ui_pop(ui);
 
 	ui_box_end(ui);
 	cell->paint.flags |= UI_BOX_DRAW_BACKGROUND | UI_BOX_DRAW_BORDER;
@@ -74,11 +73,10 @@ static void cpu_view_content(ViewFrameData *frame)
 	{
 		UI_TextStyle style = frame->ui->theme.code;
 		style.color = frame->ui->theme.text_subtle;
-		ui_push(frame->ui);
+		ui_clean(frame->ui);
 		ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 		ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
 		ui_text_box_string(frame->ui, 1, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
-		ui_pop(frame->ui);
 		return;
 	}
 
@@ -92,17 +90,17 @@ static void cpu_view_content(ViewFrameData *frame)
 	UI_TextStyle section_style = frame->ui->theme.code;
 	section_style.color = frame->ui->theme.text_neutral;
 
-	UI_BoxDesc root_desc = ui_defaults();
-	root_desc.size[AXIS_X] = ui_grow(1.f);
-	root_desc.size[AXIS_Y] = ui_grow(1.f);
-	ui_box_begin_desc(frame->ui, ui_key_child(UI_KEY("CPU view"), frame->view->id), LIT("CPU view"), root_desc);
+	ui_clean(frame->ui);
+	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
+	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
+	ui_box_begin(frame->ui, ui_key_child(UI_KEY("CPU view"), frame->view->id), LIT("CPU view"));
 
-	ui_push(frame->ui);
+	ui_clean(frame->ui);
 	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
 	UI_ScrollBox *scroll = ui_scroll_box_begin(frame->ui, 1, AXIS_Y);
 
-	ui_push(frame->ui);
+	ui_clean(frame->ui);
 	ui_axis(frame->ui, AXIS_Y);
 	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
@@ -110,7 +108,6 @@ static void cpu_view_content(ViewFrameData *frame)
 	ui_padd(frame->ui, AXIS_Y, 12.f, 12.f);
 	ui_overflow(frame->ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_box_begin(frame->ui, 1, LIT("CPU viewport"));
-	ui_pop(frame->ui);
 
 	cpu_view_register_row_begin(frame->ui, 1);
 	cpu_view_field(frame->ui, 1, label_style, value_style, LIT("$FF"), "A", "$%02X", cpu->A);
@@ -128,17 +125,15 @@ static void cpu_view_content(ViewFrameData *frame)
 	cpu_view_field(frame->ui, 1, label_style, value_style, LIT("$FFFF"), "STACK", "$%04X", 0x0100 | cpu->S);
 	ui_box_end(frame->ui);
 
-	ui_push(frame->ui);
+	ui_clean(frame->ui);
 	ui_padd(frame->ui, AXIS_Y, 4.f, 4.f);
 	ui_text_box_string(frame->ui, 4, section_style, LIT("STATUS FLAGS"));
-	ui_pop(frame->ui);
 
-	ui_push(frame->ui);
+	ui_clean(frame->ui);
 	ui_axis(frame->ui, AXIS_X);
 	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 	ui_gap(frame->ui, 4.f);
 	ui_box_begin(frame->ui, 5, LIT("CPU status flags"));
-	ui_pop(frame->ui);
 
 	static const char names[] = "NV1BDIZC";
 	static const u8 masks[] = { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 };
@@ -149,7 +144,6 @@ static void cpu_view_content(ViewFrameData *frame)
 
 	ui_box_end(frame->ui);
 	ui_scroll_box_end(scroll);
-	ui_pop(frame->ui);
 	ui_box_end(frame->ui);
 }
 

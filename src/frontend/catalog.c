@@ -144,9 +144,9 @@ b32 catalog_remove_source(Catalog *catalog, Str path)
 	u32 index = (u32)found;
 	for (; index + 1 < catalog->source_count; index ++) catalog->sources[index] = catalog->sources[index + 1];
 	catalog->source_count --;
-	catalog->sources[catalog->source_count] = (Str) {};
-	catalog->dirty = true;
-	return true;
+catalog->sources[catalog->source_count] = (Str) {};
+catalog->dirty = true;
+return true;
 }
 
 const Catalog_Entry *catalog_find_path(const Catalog *catalog, Str path)
@@ -189,7 +189,7 @@ static Catalog_EntryNode *catalog_builder_add(Catalog_Builder *builder, Str path
 static Platform_File catalog_open_for_inspection(const char *path)
 {
 	return platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING,
-		PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
+	PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
 }
 
 static b32 catalog_read_at(Platform_File file, u64 offset, void *data, u64 size)
@@ -229,44 +229,43 @@ static void catalog_inspect_orb(Catalog_Builder *builder, Str path, Platform_Fil
 	Catalog_EntryNode *node = catalog_builder_add(builder, path, CATALOG_ENTRY_ORB, file_info);
 	if (!node) return;
 	Platform_File file = catalog_open_for_inspection(path.text);
-	if (platform_file_is_valid(file))
+	if (!platform_file_is_valid(file)) {
+		builder->error_count ++;
+		return;
+	}
+	u64 file_size = 0;
+	b32 got_file_size = platform_get_file_size(file, &file_size);
+	if (got_file_size) node->entry.file_size = file_size;
+	Orb_Result result = { .status = ORB_STATUS_INVALID_FORMAT };
+	if (got_file_size && file_size <= builder->catalog->arena->reserved_size - builder->catalog->arena->position)
 	{
-		u64 file_size = 0;
-		b32 got_file_size = platform_get_file_size(file, &file_size);
-		if (got_file_size) node->entry.file_size = file_size;
-		Orb_Result result = { .status = ORB_STATUS_INVALID_FORMAT };
-		if (got_file_size && file_size <= builder->scratch->reserved_size - builder->scratch->position)
+		// SCRATCH_SCOPE(builder->scratch)
 		{
-			SCRATCH_SCOPE(builder->scratch)
+			u8 *data = arena_push_aligned(builder->catalog->arena, file_size, 1);
+			Orb_Descriptor descriptor = {};
+			if (catalog_read_at(file, 0, data, file_size)) {
+				result = orb_parse(byte_span(data, file_size), &descriptor);
+			}
+			if (result.status == ORB_STATUS_OK)
 			{
-				u8 *data = arena_push_aligned(builder->scratch, file_size, 1);
-				Orb_Descriptor descriptor = {};
-				if (catalog_read_at(file, 0, data, file_size)) result = orb_parse(byte_span(data, file_size), &descriptor);
-				if (result.status == ORB_STATUS_OK)
-				{
-					Orb_Metadata metadata = descriptor.metadata;
-					metadata.title = str_push_copy(&builder->catalog->entry_arena, metadata.title);
-					metadata.source_path = str_push_copy(&builder->catalog->entry_arena, metadata.source_path);
-					node->entry.system = metadata.system;
-					node->entry.orb = (Catalog_OrbInfo) {
-						.metadata = metadata,
-						.state_size = descriptor.state_chunk.data.size,
-						.thumbnail_width = descriptor.thumbnail.width,
-						.thumbnail_height = descriptor.thumbnail.height,
-						.thumbnail_stride = descriptor.thumbnail.stride,
-						.thumbnail_format = descriptor.thumbnail.format,
-						.has_thumbnail = descriptor.thumbnail.pixels.size != 0,
-					};
-					if (metadata.title.size) node->entry.title = metadata.title;
-					node->entry.status = metadata.system == ORB_SYSTEM_NES ? CATALOG_ENTRY_AVAILABLE : CATALOG_ENTRY_UNSUPPORTED;
-				}
+				Orb_Metadata metadata = descriptor.metadata;
+				metadata.title = str_push_copy(&builder->catalog->entry_arena, metadata.title);
+				metadata.source_path = str_push_copy(&builder->catalog->entry_arena, metadata.source_path);
+				node->entry.system = metadata.system;
+				node->entry.orb = (Catalog_OrbInfo) {
+					.metadata = metadata,
+					.state_size = descriptor.state_chunk.data.size,
+					.thumbnail = descriptor.thumbnail,
+					.has_thumbnail = descriptor.thumbnail.pixels.size != 0,
+				};
+				if (metadata.title.size) node->entry.title = metadata.title;
+				node->entry.status = metadata.system == ORB_SYSTEM_NES ? CATALOG_ENTRY_AVAILABLE : CATALOG_ENTRY_UNSUPPORTED;
 			}
 		}
-		if (result.status == ORB_STATUS_UNSUPPORTED_VERSION || result.status == ORB_STATUS_UNSUPPORTED_CHUNK) node->entry.status = CATALOG_ENTRY_UNSUPPORTED;
-		else if (result.status != ORB_STATUS_OK) builder->error_count ++;
-		platform_close_file(file);
 	}
-	else builder->error_count ++;
+	if (result.status == ORB_STATUS_UNSUPPORTED_VERSION || result.status == ORB_STATUS_UNSUPPORTED_CHUNK) node->entry.status = CATALOG_ENTRY_UNSUPPORTED;
+	else if (result.status != ORB_STATUS_OK) builder->error_count ++;
+	platform_close_file(file);
 }
 
 static void catalog_scan_path(Catalog_Builder *builder, Str path, const Platform_File_Info *known_info, u32 depth)
@@ -327,12 +326,12 @@ void catalog_refresh(Catalog *catalog, Arena *scratch, const Str *additional_sou
 	for (u32 index = 0; index < additional_source_count; index ++) catalog_scan_source(&builder, additional_sources[index]);
 
 	catalog->entries = builder.entry_count ? arena_push(&catalog->entry_arena, sizeof(*catalog->entries) * builder.entry_count) : 0;
-	catalog->entry_count = builder.entry_count;
-	catalog->scan_error_count = builder.error_count;
-	u32 index = 0;
-	for (Catalog_EntryNode *node = builder.first; node; node = node->next) catalog->entries[index ++] = node->entry;
-	Assert(index == catalog->entry_count);
-	catalog->generation ++;
+catalog->entry_count = builder.entry_count;
+catalog->scan_error_count = builder.error_count;
+u32 index = 0;
+for (Catalog_EntryNode *node = builder.first; node; node = node->next) catalog->entries[index ++] = node->entry;
+Assert(index == catalog->entry_count);
+catalog->generation ++;
 }
 
 static Str catalog_string_from_tabula(Tabula_String string)
@@ -446,9 +445,9 @@ Catalog_Result catalog_from_source(Catalog *catalog, Str source_name, Str source
 		for (u32 index = 0; index < source_count; index ++) catalog->sources[catalog->source_count ++] = str_push_copy(catalog->arena, source_paths[index]);
 		for (u32 index = source_count; index < CATALOG_MAX_SOURCES; index ++) catalog->sources[index] = (Str) {};
 		catalog->dirty = migrated;
-	}
-	tabula_context_destroy(context);
-	return result;
+}
+tabula_context_destroy(context);
+return result;
 }
 
 static b32 catalog_write_path_table(Tabula_Context *context, Tabula_Table *table, const Str *paths, u32 count)

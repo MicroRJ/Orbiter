@@ -39,14 +39,13 @@ static const UI_BoxHooks profiler_graph_box_hooks = {
 
 static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_State *state)
 {
-	ui_push(ui);
+	ui_clean(ui);
 	// NOTE(RJ) shrink easily, profiler graph tends to take up lots of space
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_flex(0.5f, 2.f));
 	ui_min_size(ui, AXIS_Y, 128.f);
 	ui_max_size(ui, AXIS_Y, 128.f * 2.f);
 	UI_Box *box = ui_box_make(ui, 1, LIT("profiler graph"));
-	ui_pop(ui);
 	box->hooks = &profiler_graph_box_hooks;
 	box->content = state;
 
@@ -128,10 +127,11 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 		selected_frame = Min(position, selected_frame);
 		frame = prof_timeline_frame(selected_frame);
 
+		ui_clean(ui);
 		UI_Box *tooltip = ui_tooltip_begin(ui, UI_KEY("profiler_tooltip"), ui->mouse);
 		if (tooltip)
 		{
-			ui_push(ui);
+			ui_clean(ui);
 			ui_axis(ui, AXIS_Y);
 			ui_size(ui, AXIS_X, ui_wrap());
 			ui_size(ui, AXIS_Y, ui_wrap());
@@ -139,11 +139,12 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 			ui_padd(ui, AXIS_Y, 8.f, 8.f);
 			ui_gap(ui, 4.f);
 			ui_box_begin(ui, 0, LIT(""));
-			ui_pop(ui);
 
 			UI_TextStyle style = ui->theme.code;
 			style.color = ui->theme.text_neutral;
+			ui_clean(ui);
 			ui_text_box_string(ui, UI_KEY("1"), style, str_push_copy_f(&ui->frame_arena, "Frame %llu", selected_frame));
+			ui_clean(ui);
 			ui_text_box_string(ui, UI_KEY("2"), style, str_push_copy_f(&ui->frame_arena, "%.2f MS", frame->time.seconds * 1000));
 
 			ui_box_end(ui);
@@ -166,10 +167,10 @@ static void profiler_table_cell(UI_BoxTable *table, UI_TextStyle style, Str sizi
 {
 	UI_Box *cell = ui_box_table_cell_begin(table);
 	cell->desc.layout = &ui_layout_frame;
-	UI_BoxDesc desc = ui_defaults();
-	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = align };
-	if (sizing_text.size) ui_text_box_sized_string_desc(table->ui, 1, desc, style, sizing_text, text);
-	else ui_text_box_string_desc(table->ui, 1, desc, style, text);
+	ui_clean(table->ui);
+	ui_align(table->ui, AXIS_X, align);
+	if (sizing_text.size) ui_text_box_sized_string(table->ui, 1, style, sizing_text, text);
+	else ui_text_box_string(table->ui, 1, style, text);
 	ui_box_table_cell_end(table);
 }
 
@@ -187,7 +188,7 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 		ui_box_table_content(),
 		ui_box_table_content(),
 	};
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
@@ -198,7 +199,6 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 		.column_gap = 8.f,
 		.cell_padd = v2(2.f, 2.f),
 	});
-	ui_pop(ui);
 
 	ui_box_table_row_begin(&table, 1);
 	profiler_table_cell(&table, header_style, (Str) {}, LIT("SCOPE"), 0.f);
@@ -243,7 +243,7 @@ static UI_Box *profiler_build_metric_table(UI_Context *ui, const Prof_Frame *sna
 		ui_box_table_flex(1.f),
 		ui_box_table_content(),
 	};
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_flex(0.5f, 2.0f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
@@ -254,7 +254,6 @@ static UI_Box *profiler_build_metric_table(UI_Context *ui, const Prof_Frame *sna
 		.column_gap = 8.f,
 		.cell_padd = v2(2.f, 2.f),
 	});
-	ui_pop(ui);
 
 	ui_box_table_row_begin(&table, 1);
 	profiler_table_cell(&table, header_style, (Str) {}, LIT("METRIC"), 0.f);
@@ -276,26 +275,26 @@ static void profiler_view_content(ViewFrameData *frame)
 	UI_Context *ui = frame->ui;
 	Profiler_View_State *state = &frame->view->profiler;
 	f32 row_height = ui->theme.code.size + 4.f;
-	UI_BoxDesc root_desc = ui_defaults();
-	root_desc.axis = AXIS_Y;
-	root_desc.size[AXIS_X] = ui_grow(1.f);
-	root_desc.size[AXIS_Y] = ui_grow(1.f);
-	root_desc.horz_padd[0] = root_desc.horz_padd[1] = 12.f;
-	root_desc.vert_padd[0] = root_desc.vert_padd[1] = 12.f;
-	root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
-	ui_box_begin_desc(ui, ui_key_child(UI_KEY("profiler"), frame->view->id), LIT("profiler"), root_desc);
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_padd(ui, AXIS_X, 12.f, 12.f);
+	ui_padd(ui, AXIS_Y, 12.f, 12.f);
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+	ui_box_begin(ui, ui_key_child(UI_KEY("profiler"), frame->view->id), LIT("profiler"));
 
 	const Prof_Frame *snapshot = profiler_build_graph(ui, state);
 
 	UI_TextStyle selection_style = ui->theme.code;
 	selection_style.color = ui->theme.text_neutral;
-	UI_BoxDesc selection_desc = ui_defaults();
-	selection_desc.size[AXIS_X] = ui_grow(1.f);
-	selection_desc.size[AXIS_Y] = ui_fixed(row_height);
-	ui_text_box_string_desc(ui, 2, selection_desc, selection_style, str_push_copy_f(&ui->frame_arena, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(row_height));
+	ui_text_box_string(ui, 2, selection_style, str_push_copy_f(&ui->frame_arena, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_min_size(ui, AXIS_Y, row_height * 5.f);
@@ -304,23 +303,20 @@ static void profiler_view_content(ViewFrameData *frame)
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
 	ui_box_begin(ui, 3, LIT("profiler tables"));
-	ui_pop(ui);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	UI_ScrollBox *timing_scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
 	profiler_build_time_table(ui, snapshot, row_height);
 	ui_scroll_box_end(timing_scroll);
-	ui_pop(ui);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	UI_ScrollBox *metric_scroll = ui_scroll_box_begin(ui, 2, AXIS_Y);
 	profiler_build_metric_table(ui, snapshot, row_height);
 	ui_scroll_box_end(metric_scroll);
-	ui_pop(ui);
 
 	ui_box_end(ui);
 	ui_box_end(ui);

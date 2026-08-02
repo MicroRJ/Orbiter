@@ -332,26 +332,21 @@ static void panel_update_interaction(Panels *panels, OS_Window *window, UI_Conte
 	panel_update_interaction(panels, window, ui, panel->right, second);
 }
 
-static UI_BoxDesc panel_frame_desc(rect_f32 rect, vec2 root_position)
+static void panel_frame_props(UI_Context *ui, rect_f32 rect, vec2 root_position)
 {
 	rect.x -= root_position.x;
 	rect.y -= root_position.y;
-	UI_BoxDesc desc = ui_defaults();
-	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_PARENT, .value = rect.x };
-	desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_PARENT, .value = rect.y };
-	desc.size[AXIS_X] = ui_fixed(rect.w);
-	desc.size[AXIS_Y] = ui_fixed(rect.h);
-	return desc;
+	ui_clean(ui);
+	ui_rect(ui, rect);
 }
 
-static UI_BoxDesc panel_leaf_desc(rect_f32 rect, vec2 root_position)
+static void panel_leaf_props(UI_Context *ui, rect_f32 rect, vec2 root_position)
 {
-	UI_BoxDesc desc = panel_frame_desc(rect, root_position);
-	desc.horz_padd[0] = desc.horz_padd[1] = 3.f;
-	desc.vert_padd[0] = desc.vert_padd[1] = 3.f;
-	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
-	return desc;
+	panel_frame_props(ui, rect, root_position);
+	ui_padd(ui, AXIS_X, 3.f, 3.f);
+	ui_padd(ui, AXIS_Y, 3.f, 3.f);
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
 }
 
 static void panel_build_ui(Panels *panels, Panel *panel, ViewFrameData *source, rect_f32 rect, vec2 root_position)
@@ -361,20 +356,18 @@ static void panel_build_ui(Panels *panels, Panel *panel, ViewFrameData *source, 
 	{
 		case PANEL_EMPTY:
 		{
-			ui_push(ui);
+			panel_leaf_props(ui, rect, root_position);
 			ui_background(ui, ui->theme.panel_background);
 			ui_inset_shadow(ui, 0.035f);
-			ui_box_make_desc(ui, ui_key_child(UI_KEY("empty panel"), panel->id), LIT("empty panel"), panel_leaf_desc(rect, root_position));
-			ui_pop(ui);
+			ui_box_make(ui, ui_key_child(UI_KEY("empty panel"), panel->id), LIT("empty panel"));
 		}
 		break;
 		case PANEL_VIEW:
 		{
-			ui_push(ui);
+			panel_leaf_props(ui, rect, root_position);
 			ui_background(ui, ui->theme.panel_background);
 			ui_inset_shadow(ui, 0.035f);
-			ui_box_begin_desc(ui, ui_key_child(UI_KEY("view panel"), panel->view->id), LIT("view panel"), panel_leaf_desc(rect, root_position));
-			ui_pop(ui);
+			ui_box_begin(ui, ui_key_child(UI_KEY("view panel"), panel->view->id), LIT("view panel"));
 
 			rect_f32 content = rect_f32_inset(rect, 3.f);
 			ViewFrameData frame = *source;
@@ -396,7 +389,8 @@ static void panel_build_ui(Panels *panels, Panel *panel, ViewFrameData *source, 
 
 			rect_f32 line = rect_f32_from_slice(second, panel->axis, 2.f);
 			line = rect_f32_translate_axis(line, panel->axis, -1.f);
-			UI_Box *splitter = ui_box_make_desc(ui, ui_key_child(UI_KEY("panel splitter"), panel->id), LIT("panel splitter"), panel_frame_desc(line, root_position));
+			panel_frame_props(ui, line, root_position);
+			UI_Box *splitter = ui_box_make(ui, ui_key_child(UI_KEY("panel splitter"), panel->id), LIT("panel splitter"));
 			splitter->paint = ui_default_paint();
 			splitter->paint.flags = UI_BOX_DRAW_BACKGROUND;
 			splitter->paint.background = ui->theme.slider_track;
@@ -413,13 +407,13 @@ UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame,
 	Assert(frame);
 	panel_update_interaction(panels, window, frame->ui, panels->root, rect);
 
-	UI_BoxDesc desc = ui_defaults();
-	desc.size[AXIS_X] = ui_grow(1.f);
-	desc.size[AXIS_Y] = ui_grow(1.f);
-	desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
-	desc.layout = &ui_layout_frame;
-	UI_Box *root = ui_box_begin_desc(frame->ui, UI_KEY("panels"), LIT("panels"), desc);
+	ui_clean(frame->ui);
+	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
+	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
+	ui_overflow(frame->ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(frame->ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+	ui_layout(frame->ui, &ui_layout_frame);
+	UI_Box *root = ui_box_begin(frame->ui, UI_KEY("panels"), LIT("panels"));
 	panel_build_ui(panels, panels->root, frame, rect, rect.pos);
 	ui_box_end(frame->ui);
 	return root;

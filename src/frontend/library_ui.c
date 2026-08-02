@@ -1,3 +1,5 @@
+
+
 static b32 library_entry_before(const Catalog_Entry *left, const Catalog_Entry *right, Catalog_EntryKind kind)
 {
 	if (kind == CATALOG_ENTRY_ORB && left->orb.metadata.last_played_unix_ms != right->orb.metadata.last_played_unix_ms) return left->orb.metadata.last_played_unix_ms > right->orb.metadata.last_played_unix_ms;
@@ -46,6 +48,9 @@ static UI_Box *app_build_catalog_card(UI_Context *ui, vec2 size, const Catalog_E
 		ui_text_box_string(ui, 0, style, entry->title);
 		style.size = 18;
 		style.color = app.ui->theme.text_subtle;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_wrap());
+		ui_size(ui, AXIS_Y, ui_wrap());
 		if (entry->status == CATALOG_ENTRY_INVALID) ui_text_box_string(ui, 1, style, LIT("INVALID FILE"));
 		else if (entry->status == CATALOG_ENTRY_UNSUPPORTED && entry->kind == CATALOG_ENTRY_ROM) ui_text_box_string(ui, 1, style, LIT("UNSUPPORTED CARTRIDGE"));
 		else if (entry->status == CATALOG_ENTRY_UNSUPPORTED) ui_text_box_string(ui, 1, style, LIT("UNSUPPORTED ORB"));
@@ -61,18 +66,19 @@ static void app_build_catalog_shelf(UI_Context *ui, UI_Key key, Str title, vec2 
 {
 	ui_box_push_id(ui, key);
 	UI_TextStyle title_style = app.ui->theme.code;
-	title_style.color = app.ui->theme.text_subtle;
+	title_style.color = app.ui->theme.palette.amber;
 	title_style.size = 64;
 	title_style.align.y = 0.5f;
 	title_style.align.x = 0.5f;
+	ui_clean(ui);
 	ui_text_box_string(ui, 1, title_style, title);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_wrap());
 	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 2, AXIS_X);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_axis(ui, AXIS_X);
 	ui_size(ui, AXIS_X, ui_fill());
 	ui_size(ui, AXIS_Y, ui_wrap());
@@ -90,10 +96,8 @@ static void app_build_catalog_shelf(UI_Context *ui, UI_Key key, Str title, vec2 
 		}
 	}
 	ui_box_end(ui);
-	ui_pop(ui);
 
 	ui_scroll_box_end(scroll);
-	ui_pop(ui);
 	ui_box_pop_id(ui);
 	if (selected)
 	{
@@ -105,12 +109,12 @@ static void app_build_catalog_shelf(UI_Context *ui, UI_Key key, Str title, vec2 
 static void library_build_ui(UI_Context *ui, rect_f32 window_rect)
 {
 	if (app.catalog_refresh_pending) app_refresh_catalog();
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_fill());
 	ui_size(ui, AXIS_Y, ui_fill());
 	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, UI_KEY("library vertical scroll"), AXIS_Y);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_axis(ui, AXIS_Y);
 	ui_size(ui, AXIS_X, ui_fill());
 	ui_size(ui, AXIS_Y, ui_fill());
@@ -119,7 +123,6 @@ static void library_build_ui(UI_Context *ui, rect_f32 window_rect)
 	ui_gap(ui, 16.f);
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_box_begin(ui, UI_KEY("library shelves"), LIT("library shelves"));
-	ui_pop(ui);
 
 	const Catalog_Entry **entries = app.catalog.entry_count ? arena_push(&app.frame_arena, sizeof(*entries) * app.catalog.entry_count) : 0;
 	f32 card_width = window_rect.w * 0.13f;
@@ -131,5 +134,4 @@ static void library_build_ui(UI_Context *ui, rect_f32 window_rect)
 
 	ui_box_end(ui);
 	ui_scroll_box_end(scroll);
-	ui_pop(ui);
 }

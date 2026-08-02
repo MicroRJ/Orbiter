@@ -452,16 +452,6 @@ UI_Box *ui_box_begin(UI_Context *ui, UI_Key key, Str name)
 	return ui_builder_box_begin(ui_box__builder(ui), key, name);
 }
 
-UI_Box *ui_box_make_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc)
-{
-	return ui_builder_box_make_desc(ui_box__builder(ui), key, name, desc);
-}
-
-UI_Box *ui_box_begin_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc)
-{
-	return ui_builder_box_begin_desc(ui_box__builder(ui), key, name, desc);
-}
-
 void ui_box_end(UI_Context *ui)
 {
 	ui_builder_box_end(ui_box__builder(ui));

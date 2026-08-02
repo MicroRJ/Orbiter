@@ -17,59 +17,70 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 
 	UI_Box *root = ui_build_begin(ui, UI_KEY("basics"), LIT("root"), root_desc);
 
-	UI_BoxDesc header = playground_fill_desc();
-	header.axis = AXIS_X;
-	header.size[AXIS_Y] = ui_fixed(48.f);
-	header.horz_padd[0] = header.horz_padd[1] = 18.f;
-	header.vert_padd[0] = header.vert_padd[1] = 8.f;
-	header.gap = 8.f;
-	playground_begin_box(ui, 1, LIT(""), header, slate, false);
-	UI_BoxDesc status_text = ui_defaults();
-	status_text.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(48.f));
+	ui_axis(ui, AXIS_X);
+	ui_padd(ui, AXIS_X, 18.f, 18.f);
+	ui_padd(ui, AXIS_Y, 8.f, 8.f);
+	ui_gap(ui, 8.f);
+	playground_begin_box(ui, 1, LIT(""), slate, false);
 	UI_TextStyle vibrant = { .font = font, .size = 16, .color = color_srgba(0x18B8A4) };
 	UI_TextStyle subtle = { .font = font, .size = 16, .color = color_srgba(0x8EAAA5) };
 	UI_TextStyle running = { .font = font, .size = 16, .color = amber };
 	playground_frame_slot_begin(ui, 1, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, status_text, vibrant, LIT("ORBITER"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, vibrant, LIT("ORBITER"));
 	ui_box_end(ui);
 	playground_frame_slot_begin(ui, 2, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, status_text, subtle, LIT("|  UI BOX PLAYGROUND  |"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, subtle, LIT("|  UI BOX PLAYGROUND  |"));
 	ui_box_end(ui);
 	playground_frame_slot_begin(ui, 3, AXIS_Y);
-	ui_text_box_string_desc(ui, 1, status_text, running, LIT("RUNNING"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_string(ui, 1, running, LIT("RUNNING"));
 	ui_box_end(ui);
-	UI_BoxDesc status_spacer = playground_fill_desc();
-	ui_box_make_desc(ui, 4, LIT(""), status_spacer);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_make(ui, 4, LIT(""));
 	subtle.align.x = 1.f;
 	playground_frame_slot_begin(ui, 5, AXIS_Y);
-	ui_text_box_sized_string_desc(ui, 1, status_text, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
+	ui_clean(ui);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_text_box_sized_string(ui, 1, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
 	ui_box_end(ui);
 	ui_box_end(ui);
 
-	UI_BoxDesc laboratory = playground_fill_desc();
-	laboratory.axis = AXIS_X;
-	laboratory.gap = density.gap;
-	laboratory.vert_padd[0] = 32.f;
-	playground_begin_box(ui, 2, LIT("layout laboratory"), laboratory, slate, false);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_X);
+	ui_gap(ui, density.gap);
+	ui_padd(ui, AXIS_Y, 32.f, 0.f);
+	playground_begin_box(ui, 2, LIT("layout laboratory"), slate, false);
 
-	UI_BoxDesc navigation = playground_fill_desc();
-	navigation.size[AXIS_X] = ui_flex(0.f, 3.f);
-	navigation.min_size.x = 120.f;
-	navigation.max_size.x = 310.f;
-	navigation.horz_padd[0] = navigation.horz_padd[1] = density.card_padding;
-	navigation.vert_padd[0] = 48.f;
-	navigation.vert_padd[1] = density.card_padding;
-	navigation.gap = 8.f;
-
-	UI_Box *navigation_box = playground_begin_box(ui, 10, LIT("CONTENT BASIS 270  |  SHRINK 3"), navigation, teal, true);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_flex(0.f, 3.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_min_size(ui, AXIS_X, 120.f);
+	ui_max_size(ui, AXIS_X, 310.f);
+	ui_padd(ui, AXIS_X, density.card_padding, density.card_padding);
+	ui_padd(ui, AXIS_Y, 48.f, density.card_padding);
+	ui_gap(ui, 8.f);
+	UI_Box *navigation_box = playground_begin_box(ui, 10, LIT("CONTENT BASIS 270  |  SHRINK 3"), teal, true);
 	navigation_box->intrinsic_size.x = 270.f;
 
 	UI_Response overview_response = {};
 	for (u32 row = 0; row < 4; ++row)
 	{
-		UI_BoxDesc item = playground_fill_desc();
-		item.size[AXIS_Y] = ui_fixed(38.f);
-		UI_Box *item_box = playground_make_box(ui, 11 + row, row == 0 ? LIT("Overview") : row == 1 ? LIT("Call tree") : row == 2 ? LIT("Flame graph") : LIT("Memory"), item, color_srgba_mix(teal, slate, 0.45f), false);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_grow(1.f));
+		ui_size(ui, AXIS_Y, ui_fixed(38.f));
+		UI_Box *item_box = playground_make_box(ui, 11 + row, row == 0 ? LIT("Overview") : row == 1 ? LIT("Call tree") : row == 2 ? LIT("Flame graph") : LIT("Memory"), color_srgba_mix(teal, slate, 0.45f), false);
 		if (row == 0) overview_response = ui_signal_from_box(item_box);
 	}
 	if (overview_response.hovered)
@@ -81,65 +92,75 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 			tooltip_title.align = v2(0.f, 0.f);
 			UI_TextStyle tooltip_body = subtle;
 			tooltip_body.align = v2(0.f, 0.f);
+			ui_push_box_z(ui, UI_Z_OVERLAY);
+			ui_clean(ui);
 			ui_text_box_string(ui, 1, tooltip_title, LIT("OVERVIEW"));
+			ui_clean(ui);
 			ui_text_box_string(ui, 2, tooltip_body, LIT("This tooltip is an ordinary box subtree."));
+			ui_clean(ui);
+			ui_pop_box_z(ui);
 			ui_tooltip_end(ui);
 		}
 	}
 	ui_box_end(ui);
 
-	UI_BoxDesc timeline = playground_fill_desc();
-	timeline.size[AXIS_X] = ui_grow(2.f);
-	timeline.min_size.x = 160.f;
-	timeline.horz_padd[0] = timeline.horz_padd[1] = density.card_padding;
-	timeline.vert_padd[0] = 48.f;
-	timeline.vert_padd[1] = density.card_padding;
-	timeline.gap = 10.f;
-	playground_begin_box(ui, 20, LIT("ZERO BASIS  |  GROW 2"), timeline, blue, true);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(2.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_min_size(ui, AXIS_X, 160.f);
+	ui_padd(ui, AXIS_X, density.card_padding, density.card_padding);
+	ui_padd(ui, AXIS_Y, 48.f, density.card_padding);
+	ui_gap(ui, 10.f);
+	playground_begin_box(ui, 20, LIT("ZERO BASIS  |  GROW 2"), blue, true);
 
-	UI_BoxDesc chart = playground_fill_desc();
-	chart.axis = AXIS_X;
-	chart.gap = 7.f;
-	playground_begin_box(ui, 21, LIT("weighted children"), chart, color_srgba_mix(blue, slate, 0.55f), false);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_X);
+	ui_gap(ui, 7.f);
+	playground_begin_box(ui, 21, LIT("weighted children"), color_srgba_mix(blue, slate, 0.55f), false);
 	for (u32 bar = 0; bar < 5; ++bar)
 	{
-		UI_BoxDesc bar_slot = playground_fill_desc();
-		bar_slot.layout = &ui_layout_frame;
-		bar_slot.size[AXIS_X] = ui_grow((f32)(bar + 1));
-		ui_box_begin_desc(ui, 22 + bar, LIT("bar slot"), bar_slot);
-		UI_BoxDesc bar_desc = ui_defaults();
-		bar_desc.size[AXIS_X] = ui_grow(1.f);
-		bar_desc.size[AXIS_Y] = ui_fixed(54.f + 22.f * bar);
-		bar_desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 1.f };
-		playground_make_box(ui, 1, LIT(""), bar_desc, color_srgba_mix(blue, violet, (f32)bar / 5.f), false);
+		ui_clean(ui);
+		ui_layout(ui, &ui_layout_frame);
+		ui_size(ui, AXIS_X, ui_grow((f32)(bar + 1)));
+		ui_size(ui, AXIS_Y, ui_grow(1.f));
+		ui_box_begin(ui, 22 + bar, LIT("bar slot"));
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_grow(1.f));
+		ui_size(ui, AXIS_Y, ui_fixed(54.f + 22.f * bar));
+		ui_align(ui, AXIS_Y, 1.f);
+		playground_make_box(ui, 1, LIT(""), color_srgba_mix(blue, violet, (f32)bar / 5.f), false);
 		ui_box_end(ui);
 	}
 	ui_box_end(ui);
 
-	UI_BoxDesc timeline_status = playground_fill_desc();
-	timeline_status.size[AXIS_Y] = ui_fixed(36.f);
-	playground_make_box(ui, 28, LIT("1x  2x  3x  4x  5x grow weights"), timeline_status, color_srgba_mix(blue, slate, 0.35f), false);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(36.f));
+	playground_make_box(ui, 28, LIT("1x  2x  3x  4x  5x grow weights"), color_srgba_mix(blue, slate, 0.35f), false);
 	ui_box_end(ui);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_flex(1.f, 1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_min_size(ui, AXIS_X, 180.f);
 	ui_max_size(ui, AXIS_X, 420.f);
 	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 30, AXIS_Y);
 
-	UI_BoxDesc inspector = playground_fill_desc();
-	inspector.horz_padd[0] = inspector.horz_padd[1] = density.card_padding;
-	inspector.vert_padd[0] = 48.f;
-	inspector.vert_padd[1] = density.card_padding;
-	inspector.gap = 8.f;
-	inspector.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
 	PlaygroundProfilerRows *profiler_rows = arena_push_zero(arena, sizeof(*profiler_rows));
 	profiler_rows->violet = violet;
 	profiler_rows->slate = slate;
 	profiler_rows->title_style = (UI_TextStyle) { .font = font, .size = 16, .color = color_srgba(0xD6E7E4) };
 	profiler_rows->subtitle_style = (UI_TextStyle) { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	UI_Box *inspector_box = ui_virtual_list_desc(ui, 1, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_VirtualListDesc) {
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_padd(ui, AXIS_X, density.card_padding, density.card_padding);
+	ui_padd(ui, AXIS_Y, 48.f, density.card_padding);
+	ui_gap(ui, 8.f);
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	UI_Box *inspector_box = ui_virtual_list(ui, 1, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), (UI_VirtualListDesc) {
 		.item_count = 10000,
 		.user = profiler_rows,
 		.build_item = playground_build_profiler_row,
@@ -149,15 +170,16 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	scroll->root->intrinsic_size.x = 300.f;
 	scroll->track->user = playground_visual(arena, color_srgba_mix(violet, slate, 0.72f), false);
 	scroll->thumb->user = playground_visual(arena, color_srgba(0xC99CFF), false);
-	ui_pop(ui);
+	ui_clean(ui);
 
 	ui_box_end(ui);
 
-	UI_BoxDesc footer = playground_fill_desc();
-	footer.size[AXIS_Y] = ui_fixed(42.f);
-	footer.horz_padd[0] = footer.horz_padd[1] = 14.f;
-	footer.vert_padd[0] = footer.vert_padd[1] = 8.f;
-	playground_make_box(ui, 40, LIT("Hover OVERVIEW for the box-built overlay. Mouse-wheel the purple card or drag its scrollbar."), footer, color_srgba_mix(amber, slate, 0.55f), false);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(42.f));
+	ui_padd(ui, AXIS_X, 14.f, 14.f);
+	ui_padd(ui, AXIS_Y, 8.f, 8.f);
+	playground_make_box(ui, 40, LIT("Hover OVERVIEW for the box-built overlay. Mouse-wheel the purple card or drag its scrollbar."), color_srgba_mix(amber, slate, 0.55f), false);
 
 	scene.root = ui_build_end(ui);
 	return scene;

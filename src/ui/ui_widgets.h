@@ -9,11 +9,6 @@ UI_Box *ui_text_box_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str si
 UI_Box *ui_text_box_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str text);
 UI_Box *ui_text_box_sized_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, Str text);
 
-UI_Box *ui_text_box_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, const char *format, ...) __attribute__((format(printf, 5, 6)));
-UI_Box *ui_text_box_sized_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, Str sizing_text, const char *format, ...) __attribute__((format(printf, 6, 7)));
-UI_Box *ui_text_box_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, Str text);
-UI_Box *ui_text_box_sized_string_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_TextStyle style, Str sizing_text, Str text);
-
 typedef enum
 {
 	UI_IMAGE_FIT_CONTAIN,
@@ -36,7 +31,6 @@ UI_ImageStyle;
 // The image box borrows the texture through the current frame.
 UI_ImageStyle ui_default_image_style(void);
 UI_Box *ui_image_box(UI_Context *ui, UI_Key key, UI_ImageStyle style, GFX_Texture *texture);
-UI_Box *ui_image_box_desc(UI_Context *ui, UI_Key key, UI_BoxDesc desc, UI_ImageStyle style, GFX_Texture *texture);
 
 UI_Response ui_button(UI_Context *ui, UI_Key key, Str text);
 
@@ -63,7 +57,6 @@ UI_VirtualListDesc;
 // The first item supplies the fixed extent along the list axis. The callback
 // must append exactly one item box, which may contain any box subtree.
 UI_Box *ui_virtual_list(UI_Context *ui, UI_Key key, Str name, UI_VirtualListDesc list);
-UI_Box *ui_virtual_list_desc(UI_Context *ui, UI_Key key, Str name, UI_BoxDesc desc, UI_VirtualListDesc list);
 
 typedef struct
 {
@@ -82,13 +75,13 @@ typedef struct
 	f32 offset;
 	f32 target;
 	u32 parent_count;
-	u32 desc_count;
 }
 UI_ScrollBox;
 
-// The active descriptor sizes the scroll box. The scope must build exactly one
-// content box; its descriptor is preserved. The widget places that box in a
-// clipped viewport and translates its complete subtree while scrolling.
+// The active box properties configure only the scroll-box root. The scope
+// begins with default properties and must build exactly one content box. The
+// widget places that box in a clipped viewport and translates its complete
+// subtree while scrolling.
 UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis);
 void ui_scroll_box_reset(UI_ScrollBox *scroll);
 void ui_scroll_box_end(UI_ScrollBox *scroll);
