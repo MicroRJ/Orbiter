@@ -15,9 +15,10 @@ PlaygroundDummyProfiler;
 
 static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, Str sizing_text, Str text, f32 align)
 {
-	ui_box_table_cell_begin(table);
+	UI_Box *cell = ui_box_table_cell_begin(table);
+	cell->desc.layout = &ui_layout_frame;
 	UI_BoxDesc text_desc = ui_defaults();
-	text_desc.perp_align = align;
+	text_desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = align };
 	if (sizing_text.size) ui_text_box_sized_string_desc(table->ui, 1, text_desc, style, sizing_text, text);
 	else ui_text_box_string_desc(table->ui, 1, text_desc, style, text);
 	ui_box_table_cell_end(table);
@@ -114,15 +115,21 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	header.gap = 8.f;
 	playground_begin_box(ui, 6000, LIT(""), header, slate, false);
 	UI_BoxDesc header_text = ui_defaults();
-	header_text.perp_align = 0.5f;
+	header_text.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
 	UI_TextStyle title = { .font = font, .size = 16, .color = teal };
 	UI_TextStyle subtle = { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
+	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_text_box_string_desc(ui, 1, header_text, title, LIT("ORBITER PROFILER"));
-	ui_text_box_string_desc(ui, 2, header_text, subtle, LIT("|  BOX TABLE PROTOTYPE"));
+	ui_box_end(ui);
+	playground_frame_slot_begin(ui, 2, AXIS_Y);
+	ui_text_box_string_desc(ui, 1, header_text, subtle, LIT("|  BOX TABLE PROTOTYPE"));
+	ui_box_end(ui);
 	UI_BoxDesc header_spacer = playground_fill_desc();
 	ui_box_make_desc(ui, 3, LIT(""), header_spacer);
 	subtle.align.x = 1.f;
-	ui_text_box_string_desc(ui, 4, header_text, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
+	playground_frame_slot_begin(ui, 4, AXIS_Y);
+	ui_text_box_string_desc(ui, 1, header_text, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
+	ui_box_end(ui);
 	ui_box_end(ui);
 
 	UI_BoxDesc graph = playground_fill_desc();
@@ -138,14 +145,18 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	selection.horz_padd[0] = selection.horz_padd[1] = 10.f;
 	playground_begin_box(ui, 6002, LIT(""), selection, color_srgba_mix(amber, slate, 0.72f), false);
 	UI_BoxDesc selection_text = ui_defaults();
-	selection_text.perp_align = 0.5f;
+	selection_text.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
+	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_text_box_string_desc(ui, 1, selection_text, profiler->value_style, LIT("SELECTED FRAME 123456  /  16.667 MS"));
+	ui_box_end(ui);
 	UI_BoxDesc selection_spacer = playground_fill_desc();
 	ui_box_make_desc(ui, 2, LIT(""), selection_spacer);
 	UI_TextStyle live = profiler->header_style;
 	live.color = amber;
 	live.align.x = 1.f;
-	ui_text_box_string_desc(ui, 3, selection_text, live, LIT("LIVE"));
+	playground_frame_slot_begin(ui, 3, AXIS_Y);
+	ui_text_box_string_desc(ui, 1, selection_text, live, LIT("LIVE"));
+	ui_box_end(ui);
 	ui_box_end(ui);
 
 	UI_BoxDesc tables = playground_fill_desc();

@@ -19,24 +19,23 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, Str title)
 	f32 height = ui->theme.code.size + 10.f;
 	result.header_height = height;
 
-	UI_BoxDesc frame_desc = ui_defaults();
-	frame_desc.size[AXIS_X] = ui_grow(1.f);
-	frame_desc.size[AXIS_Y] = ui_grow(1.f);
-	frame_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	frame_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
-	ui_push(ui);
+
+	ui_clean(ui);
 	ui_inset_shadow(ui, 0.25f);
-	result.frame_box = ui_box_begin_desc(ui, UI_KEY("view frame"), LIT("view frame"), frame_desc);
-	ui_pop(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+	result.frame_box = ui_box_begin(ui, UI_KEY("view frame"), LIT("view frame"));
 
-	UI_BoxDesc header_slot_desc = ui_defaults();
-	header_slot_desc.size[AXIS_X] = ui_grow(1.f);
-	header_slot_desc.size[AXIS_Y] = ui_fixed(height + 24.f);
-	header_slot_desc.horz_padd[0] = header_slot_desc.horz_padd[1] = 12.f;
-	header_slot_desc.vert_padd[0] = header_slot_desc.vert_padd[1] = 12.f;
-	ui_box_begin_desc(ui, 1, LIT("view header slot"), header_slot_desc);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(height + 24.f));
+	ui_padd(ui, AXIS_X, 12.f, 12.f);
+	ui_padd(ui, AXIS_Y, 12.f, 12.f);
+	ui_box_begin(ui, 1, LIT("view header slot"));
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_axis(ui, AXIS_X);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
@@ -45,27 +44,24 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, Str title)
 	ui_backdrop(ui, 5.f);
 	ui_paint_z(ui, UI_Z_HEADER);
 	ui_box_begin(ui, 1, LIT("view header"));
-	ui_pop(ui);
 
 	UI_TextStyle style = ui->theme.code;
 	style.color = ui->theme.text_vibrant;
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_emission(ui, 0.15f);
 	ui_paint_z(ui, UI_Z_HEADER);
 	ui_text_box_string(ui, 1, style, title);
-	ui_pop(ui);
 	ui_box_end(ui);
 	ui_box_end(ui);
 
-	ui_push(ui);
+	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
 	result.content_box = ui_box_begin(ui, 2, LIT("view content"));
-	ui_pop(ui);
 	return result;
 }
 

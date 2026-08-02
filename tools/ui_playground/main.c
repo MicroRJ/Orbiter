@@ -101,6 +101,14 @@ static UI_BoxDesc playground_fill_desc(void)
 	return desc;
 }
 
+static UI_Box *playground_frame_slot_begin(UI_Context *ui, UI_Key key, AXIS fill_axis)
+{
+	UI_BoxDesc desc = ui_defaults();
+	desc.layout = &ui_layout_frame;
+	desc.size[fill_axis] = ui_grow(1.f);
+	return ui_box_begin_desc(ui, key, LIT("frame slot"), desc);
+}
+
 typedef struct
 {
 	Color_SRGBA violet;
@@ -121,12 +129,18 @@ static void playground_build_profiler_row(UI_Context *ui, u32 row, void *user)
 	metric.gap = 10.f;
 	playground_begin_box(ui, 1, LIT(""), metric, color_srgba_mix(rows->violet, rows->slate, 0.58f), false);
 
+	UI_BoxDesc swatch_slot = ui_defaults();
+	swatch_slot.layout = &ui_layout_frame;
+	swatch_slot.size[AXIS_X] = ui_fixed(44.f);
+	swatch_slot.size[AXIS_Y] = ui_grow(1.f);
+	ui_box_begin_desc(ui, 1, LIT("swatch slot"), swatch_slot);
 	UI_BoxDesc swatch = ui_defaults();
 	swatch.size[AXIS_X] = ui_fixed(44.f);
 	swatch.size[AXIS_Y] = ui_fixed(44.f);
-	swatch.perp_align = 0.5f;
+	swatch.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
 	f32 swatch_mix = (f32)(row % 7) / 6.f;
 	playground_make_box(ui, 1, LIT(""), swatch, color_srgba_mix(rows->violet, color_srgba(0x18B8A4), swatch_mix), false);
+	ui_box_end(ui);
 
 	UI_BoxDesc text_stack = playground_fill_desc();
 	text_stack.axis = AXIS_Y;
@@ -909,6 +923,12 @@ static int playground_run_tests(void)
 		ui_box_table_cell_end(&table);
 		UI_Box *r0c1 = ui_box_table_cell_begin(&table);
 		r0c1->intrinsic_size.x = 10.f;
+		r0c1->desc.layout = &ui_layout_frame;
+		UI_BoxDesc aligned_desc = ui_defaults();
+		aligned_desc.size[AXIS_X] = ui_fixed(10.f);
+		aligned_desc.size[AXIS_Y] = ui_fixed(10.f);
+		aligned_desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 1.f };
+		UI_Box *right_aligned = ui_box_make_desc(ui, 1, LIT("right aligned"), aligned_desc);
 		ui_box_table_cell_end(&table);
 		UI_Box *r0c2 = ui_box_table_cell_begin(&table);
 		r0c2->intrinsic_size.x = 20.f;
@@ -937,6 +957,7 @@ static int playground_run_tests(void)
 		CHECK(playground_near(r0c1->rect.w, 50.f) && playground_near(r1c1->rect.w, 50.f), "fixed table tracks remain aligned across rows");
 		CHECK(playground_near(r0c2->rect.w, 170.f) && playground_near(r1c2->rect.w, 170.f), "flex table tracks receive the remaining width");
 		CHECK(playground_near(r0c1->rect.x, r1c1->rect.x) && playground_near(r0c2->rect.x, r1c2->rect.x), "cell boundaries align across every table row");
+		CHECK(playground_near(right_aligned->rect.x + right_aligned->rect.w, r0c1->viewport.x + r0c1->viewport.w), "a table cell can use frame alignment without involving linear layout");
 		CHECK(nested_measure_count == 1, "table cells are measured once before shared tracks are resolved");
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
@@ -1039,6 +1060,40 @@ static int playground_run_tests(void)
 		CHECK(playground_near(positioned->rect.x, 45.f) && playground_near(positioned->rect.y, 25.f) && playground_near(positioned->rect.w, 80.f) && playground_near(positioned->rect.h, 40.f), "ui_builder_rect assigns an explicit frame-relative rectangle");
 		CHECK(playground_near(nested->rect.x, 45.f) && playground_near(nested->rect.y, 25.f) && playground_near(nested->rect.w, 80.f) && playground_near(nested->rect.h, 40.f), "a positioned frame child may lay out its own descendants linearly");
 		CHECK(playground_near(filled->rect.x, 15.f) && playground_near(filled->rect.y, 10.f) && playground_near(filled->rect.w, 290.f) && playground_near(filled->rect.h, 90.f), "a frame child fills the independently available area inside its margins");
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.layout = &ui_layout_frame;
+		UI_Builder builder;
+		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("alignment frame"), root_desc);
+
+		ui_builder_push(&builder);
+		ui_builder_size(&builder, AXIS_X, ui_fixed(20.f));
+		ui_builder_size(&builder, AXIS_Y, ui_fixed(10.f));
+		ui_builder_margin(&builder, AXIS_X, 5.f, 15.f);
+		ui_builder_margin(&builder, AXIS_Y, 7.f, 3.f);
+		ui_builder_align(&builder, AXIS_X, 1.f);
+		ui_builder_align(&builder, AXIS_Y, 0.5f);
+		UI_Box *aligned = ui_builder_box_make(&builder, 1, LIT("aligned"));
+		ui_builder_pop(&builder);
+
+		UI_BoxDesc mixed_desc = ui_defaults();
+		mixed_desc.size[AXIS_X] = ui_fixed(30.f);
+		mixed_desc.size[AXIS_Y] = ui_fixed(15.f);
+		mixed_desc.vert_margin[0] = 2.f;
+		mixed_desc.vert_margin[1] = 8.f;
+		mixed_desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_PARENT, .value = -10.f };
+		mixed_desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 1.f };
+		UI_Box *mixed = ui_builder_box_make_desc(&builder, 2, LIT("mixed position"), mixed_desc);
+
+		ui_box_builder_end(&builder);
+		vec2 measured = ui_box_measure(root, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, UI_BOX_INFINITY) });
+		CHECK(playground_near(measured.x, 40.f) && playground_near(measured.y, 25.f), "aligned frame children contribute their natural size and margins during measurement");
+		ui_box_layout(root, (rect_f32) { 100.f, 50.f, 100.f, 80.f });
+		CHECK(playground_near(aligned->rect.x, 165.f) && playground_near(aligned->rect.y, 87.f), "frame alignment uses rect_f32_align inside the child's margins");
+		CHECK(playground_near(mixed->rect.x, 90.f) && playground_near(mixed->rect.y, 107.f), "frame positioning kinds compose independently on each axis");
 	}
 
 	SCRATCH_SCOPE(&arena)

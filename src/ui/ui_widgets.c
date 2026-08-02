@@ -455,7 +455,7 @@ static void ui_virtual_list__layout(UI_Box *box, rect_f32 clip)
 		rect_f32 item_rect = {};
 		item_rect.xy[axis] = box->viewport.xy[axis] + item_index * stride + main_before;
 		item_rect.wh[axis] = Max(0.f, list->item_extent - main_before - main_after);
-		item_rect.xy[perp] = box->viewport.xy[perp] + perp_before + (perp_available - perp_size) * CLAMP(item->desc.perp_align, 0.f, 1.f);
+		item_rect.xy[perp] = box->viewport.xy[perp] + perp_before;
 		item_rect.wh[perp] = perp_size;
 		ui_box_layout_clipped(item, item_rect, child_clip);
 	}
@@ -710,10 +710,7 @@ static void ui_scroll_box__layout(UI_Box *box, rect_f32 clip)
 
 	rect_f32 content_rect = { .size = content_size };
 	content_rect.xy[axis] = box->viewport.xy[axis] + content->desc.margin[axis][0] - scroll->offset;
-	f32 perp_before = content->desc.margin[perp][0];
-	f32 perp_after = content->desc.margin[perp][1];
-	f32 perp_available = Max(0.f, box->viewport.wh[perp] - perp_before - perp_after);
-	content_rect.xy[perp] = box->viewport.xy[perp] + perp_before + (perp_available - content_size.xy[perp]) * CLAMP(content->desc.perp_align, 0.f, 1.f);
+	content_rect.xy[perp] = box->viewport.xy[perp] + content->desc.margin[perp][0];
 	ui_box_layout_clipped(content, content_rect, rect_f32_intersect(clip, box->viewport));
 }
 

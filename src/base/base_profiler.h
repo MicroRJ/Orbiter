@@ -47,6 +47,8 @@ _(METRIC_AUDIO_SAMPLES_GENERATED ,      "audio_samples_generated" ) \
 _(METRIC_CPU_CYCLES              ,                   "cpu_cycles" ) \
 _(METRIC_PPU_SCANLINES           ,                   "ppu_cycles" ) \
 _(METRIC_PPU_VBLANKS             ,                  "ppu_vblanks" ) \
+_(METRIC_LAYOUT_CALLS            ,                  "ui_layout_calls"  ) \
+_(METRIC_MEASURE_CALLS           ,                  "ui_measure_calls" ) \
 /* end */
 
 typedef enum

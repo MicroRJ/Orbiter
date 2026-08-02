@@ -25,17 +25,25 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	header.gap = 8.f;
 	playground_begin_box(ui, 1, LIT(""), header, slate, false);
 	UI_BoxDesc status_text = ui_defaults();
-	status_text.perp_align = 0.5f;
+	status_text.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
 	UI_TextStyle vibrant = { .font = font, .size = 16, .color = color_srgba(0x18B8A4) };
 	UI_TextStyle subtle = { .font = font, .size = 16, .color = color_srgba(0x8EAAA5) };
 	UI_TextStyle running = { .font = font, .size = 16, .color = amber };
+	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_text_box_string_desc(ui, 1, status_text, vibrant, LIT("ORBITER"));
-	ui_text_box_string_desc(ui, 2, status_text, subtle, LIT("|  UI BOX PLAYGROUND  |"));
-	ui_text_box_string_desc(ui, 3, status_text, running, LIT("RUNNING"));
+	ui_box_end(ui);
+	playground_frame_slot_begin(ui, 2, AXIS_Y);
+	ui_text_box_string_desc(ui, 1, status_text, subtle, LIT("|  UI BOX PLAYGROUND  |"));
+	ui_box_end(ui);
+	playground_frame_slot_begin(ui, 3, AXIS_Y);
+	ui_text_box_string_desc(ui, 1, status_text, running, LIT("RUNNING"));
+	ui_box_end(ui);
 	UI_BoxDesc status_spacer = playground_fill_desc();
 	ui_box_make_desc(ui, 4, LIT(""), status_spacer);
 	subtle.align.x = 1.f;
-	ui_text_box_sized_string_desc(ui, 5, status_text, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
+	playground_frame_slot_begin(ui, 5, AXIS_Y);
+	ui_text_box_sized_string_desc(ui, 1, status_text, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
+	ui_box_end(ui);
 	ui_box_end(ui);
 
 	UI_BoxDesc laboratory = playground_fill_desc();
@@ -95,11 +103,16 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	playground_begin_box(ui, 21, LIT("weighted children"), chart, color_srgba_mix(blue, slate, 0.55f), false);
 	for (u32 bar = 0; bar < 5; ++bar)
 	{
-		UI_BoxDesc bar_desc = playground_fill_desc();
-		bar_desc.size[AXIS_X] = ui_grow((f32)(bar + 1));
+		UI_BoxDesc bar_slot = playground_fill_desc();
+		bar_slot.layout = &ui_layout_frame;
+		bar_slot.size[AXIS_X] = ui_grow((f32)(bar + 1));
+		ui_box_begin_desc(ui, 22 + bar, LIT("bar slot"), bar_slot);
+		UI_BoxDesc bar_desc = ui_defaults();
+		bar_desc.size[AXIS_X] = ui_grow(1.f);
 		bar_desc.size[AXIS_Y] = ui_fixed(54.f + 22.f * bar);
-		bar_desc.perp_align = 1.f;
-		playground_make_box(ui, 22 + bar, LIT(""), bar_desc, color_srgba_mix(blue, violet, (f32)bar / 5.f), false);
+		bar_desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 1.f };
+		playground_make_box(ui, 1, LIT(""), bar_desc, color_srgba_mix(blue, violet, (f32)bar / 5.f), false);
+		ui_box_end(ui);
 	}
 	ui_box_end(ui);
 

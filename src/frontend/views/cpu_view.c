@@ -106,7 +106,7 @@ static void cpu_view_content(ViewFrameData *frame)
 	ui_axis(frame->ui, AXIS_Y);
 	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
-	ui_padd(frame->ui, AXIS_X, 12.f, 0.f);
+	ui_padd(frame->ui, AXIS_X, 12.f, 12.f);
 	ui_padd(frame->ui, AXIS_Y, 12.f, 12.f);
 	ui_overflow(frame->ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_box_begin(frame->ui, 1, LIT("CPU viewport"));

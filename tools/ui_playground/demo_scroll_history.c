@@ -30,14 +30,20 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	header.gap = 8.f;
 	playground_begin_box(ui, 7000, LIT(""), header, slate, false);
 	UI_BoxDesc header_text = ui_defaults();
-	header_text.perp_align = 0.5f;
+	header_text.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 0.5f };
+	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_text_box_string_desc(ui, 1, header_text, title, LIT("SCROLL HISTORY LAB"));
-	ui_text_box_string_desc(ui, 2, header_text, subtle, LIT("|  ONE VIRTUAL LIST + ONE BOX SCROLLBAR"));
+	ui_box_end(ui);
+	playground_frame_slot_begin(ui, 2, AXIS_Y);
+	ui_text_box_string_desc(ui, 1, header_text, subtle, LIT("|  ONE VIRTUAL LIST + ONE BOX SCROLLBAR"));
+	ui_box_end(ui);
 	UI_BoxDesc spacer = playground_fill_desc();
 	ui_box_make_desc(ui, 3, LIT(""), spacer);
 	UI_TextStyle status = title;
 	status.align.x = 1.f;
-	ui_text_box_string_desc(ui, 4, header_text, status, LIT("CONTEXT-OWNED STATE"));
+	playground_frame_slot_begin(ui, 4, AXIS_Y);
+	ui_text_box_string_desc(ui, 1, header_text, status, LIT("CONTEXT-OWNED STATE"));
+	ui_box_end(ui);
 	UI_Response reset_button = ui_button(ui, UI_KEY("reset scroll"), LIT("RESET"));
 	ui_box_end(ui);
 

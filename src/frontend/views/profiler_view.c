@@ -164,9 +164,10 @@ static Color_SRGBA profiler_color_for_frame_pct(const UI_Theme *theme, Color_SRG
 
 static void profiler_table_cell(UI_BoxTable *table, UI_TextStyle style, Str sizing_text, Str text, f32 align)
 {
-	ui_box_table_cell_begin(table);
+	UI_Box *cell = ui_box_table_cell_begin(table);
+	cell->desc.layout = &ui_layout_frame;
 	UI_BoxDesc desc = ui_defaults();
-	desc.perp_align = align;
+	desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = align };
 	if (sizing_text.size) ui_text_box_sized_string_desc(table->ui, 1, desc, style, sizing_text, text);
 	else ui_text_box_string_desc(table->ui, 1, desc, style, text);
 	ui_box_table_cell_end(table);

@@ -26,6 +26,9 @@ typedef enum
 	// Exact parent-viewport-relative border position, interpreted by frame
 	// layouts. Margins do not alter a positioned axis.
 	UI_BOX_POSITION_PARENT,
+	// Normalized alignment within the parent's viewport, interpreted by frame
+	// layouts.
+	UI_BOX_POSITION_ALIGN,
 }
 UI_BoxPositionKind;
 
@@ -81,7 +84,6 @@ typedef struct
 	};
 	AXIS axis;
 	f32 gap;
-	f32 perp_align;
 	UI_BoxOverflow overflow[2];
 	const UI_LayoutHooks *layout;
 }
@@ -266,6 +268,7 @@ void ui_clean(UI_Context *ui);
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size);
 void ui_layout(UI_Context *ui, const UI_LayoutHooks *layout);
 void ui_position(UI_Context *ui, AXIS axis, f32 position);
+void ui_align(UI_Context *ui, AXIS axis, f32 alignment);
 void ui_rect(UI_Context *ui, rect_f32 rect);
 void ui_min_size(UI_Context *ui, AXIS axis, f32 size);
 void ui_max_size(UI_Context *ui, AXIS axis, f32 size);
@@ -273,7 +276,6 @@ void ui_margin(UI_Context *ui, AXIS axis, f32 before, f32 after);
 void ui_padd(UI_Context *ui, AXIS axis, f32 before, f32 after);
 void ui_axis(UI_Context *ui, AXIS axis);
 void ui_gap(UI_Context *ui, f32 gap);
-void ui_perp_align(UI_Context *ui, f32 align);
 void ui_overflow(UI_Context *ui, AXIS axis, UI_BoxOverflow overflow);
 void ui_background(UI_Context *ui, Color_SRGBA color);
 void ui_border(UI_Context *ui, Color_SRGBA color, f32 width);
@@ -303,6 +305,7 @@ void ui_builder_pop(UI_Builder *builder);
 void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size);
 void ui_builder_layout(UI_Builder *builder, const UI_LayoutHooks *layout);
 void ui_builder_position(UI_Builder *builder, AXIS axis, f32 position);
+void ui_builder_align(UI_Builder *builder, AXIS axis, f32 alignment);
 void ui_builder_rect(UI_Builder *builder, rect_f32 rect);
 void ui_builder_min_size(UI_Builder *builder, AXIS axis, f32 size);
 void ui_builder_max_size(UI_Builder *builder, AXIS axis, f32 size);
@@ -310,7 +313,6 @@ void ui_builder_margin(UI_Builder *builder, AXIS axis, f32 before, f32 after);
 void ui_builder_padd(UI_Builder *builder, AXIS axis, f32 before, f32 after);
 void ui_builder_axis(UI_Builder *builder, AXIS axis);
 void ui_builder_gap(UI_Builder *builder, f32 gap);
-void ui_builder_perp_align(UI_Builder *builder, f32 align);
 void ui_builder_overflow(UI_Builder *builder, AXIS axis, UI_BoxOverflow overflow);
 void ui_builder_background(UI_Builder *builder, Color_SRGBA color);
 void ui_builder_border(UI_Builder *builder, Color_SRGBA color, f32 width);
@@ -323,7 +325,6 @@ void ui_builder_paint_z(UI_Builder *builder, i32 z);
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints);
 void ui_box_layout(UI_Box *box, rect_f32 rect);
-void ui_box_relayout(UI_Box *box);
 UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point);
 
 #endif

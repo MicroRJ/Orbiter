@@ -257,6 +257,15 @@ void ui_builder_position(UI_Builder *builder, AXIS axis, f32 position)
 	};
 }
 
+void ui_builder_align(UI_Builder *builder, AXIS axis, f32 alignment)
+{
+	Assert(builder);
+	builder->desc.position[axis] = (UI_BoxPosition) {
+		.kind = UI_BOX_POSITION_ALIGN,
+		.value = ui_box__clamp(alignment, 0.f, 1.f),
+	};
+}
+
 void ui_builder_rect(UI_Builder *builder, rect_f32 rect)
 {
 	Assert(builder);
@@ -302,12 +311,6 @@ void ui_builder_gap(UI_Builder *builder, f32 gap)
 {
 	Assert(builder);
 	builder->desc.gap = gap;
-}
-
-void ui_builder_perp_align(UI_Builder *builder, f32 align)
-{
-	Assert(builder);
-	builder->desc.perp_align = align;
 }
 
 void ui_builder_overflow(UI_Builder *builder, AXIS axis, UI_BoxOverflow overflow)
@@ -514,6 +517,11 @@ void ui_position(UI_Context *ui, AXIS axis, f32 position)
 	ui_builder_position(ui_box__builder(ui), axis, position);
 }
 
+void ui_align(UI_Context *ui, AXIS axis, f32 alignment)
+{
+	ui_builder_align(ui_box__builder(ui), axis, alignment);
+}
+
 void ui_rect(UI_Context *ui, rect_f32 rect)
 {
 	ui_builder_rect(ui_box__builder(ui), rect);
@@ -547,11 +555,6 @@ void ui_axis(UI_Context *ui, AXIS axis)
 void ui_gap(UI_Context *ui, f32 gap)
 {
 	ui_builder_gap(ui_box__builder(ui), gap);
-}
-
-void ui_perp_align(UI_Context *ui, f32 align)
-{
-	ui_builder_perp_align(ui_box__builder(ui), align);
 }
 
 void ui_overflow(UI_Context *ui, AXIS axis, UI_BoxOverflow overflow)
@@ -697,6 +700,7 @@ static vec2 ui_frame_measure_children(UI_Box *box, UI_BoxConstraints constraints
 
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints)
 {
+	prof_add_metric(PROF_METRIC_MEASURE_CALLS, 1);
 	Assert(box);
 	for (AXIS axis = AXIS_X; axis <= AXIS_Y; ++axis)
 	{
@@ -823,17 +827,38 @@ void ui_linear_layout_children(UI_Box *box, rect_f32 clip)
 		f32 main_before = child->desc.margin[main_axis][0];
 		f32 main_after = child->desc.margin[main_axis][1];
 		f32 perp_before = child->desc.margin[perp_axis][0];
-		f32 perp_after = child->desc.margin[perp_axis][1];
-		f32 perp_available = Max(0.f, box->viewport.wh[perp_axis] - perp_before - perp_after);
-		f32 perp_size = child->arranged_size.xy[perp_axis];
 		rect_f32 child_rect = {};
 		child_rect.xy[main_axis] = cursor + main_before;
 		child_rect.wh[main_axis] = child->arranged_size.xy[main_axis];
-		child_rect.xy[perp_axis] = box->viewport.xy[perp_axis] + perp_before + (perp_available - perp_size) * ui_box__clamp(child->desc.perp_align, 0.f, 1.f);
-		child_rect.wh[perp_axis] = perp_size;
+		child_rect.xy[perp_axis] = box->viewport.xy[perp_axis] + perp_before;
+		child_rect.wh[perp_axis] = child->arranged_size.xy[perp_axis];
 		ui_box_layout_clipped(child, child_rect, child_clip);
 		cursor += main_before + child_rect.wh[main_axis] + main_after + box->desc.gap;
 	}
+}
+
+static rect_f32 ui_frame__child_rect(UI_Box *box, UI_Box *child)
+{
+	rect_f32 container = box->viewport;
+	vec2 alignment = {};
+	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+	{
+		UI_BoxPosition position = child->desc.position[axis];
+		if (position.kind == UI_BOX_POSITION_PARENT) continue;
+		f32 before = child->desc.margin[axis][0];
+		f32 after = child->desc.margin[axis][1];
+		container.xy[axis] += before;
+		container.wh[axis] = Max(0.f, container.wh[axis] - before - after);
+		if (position.kind == UI_BOX_POSITION_ALIGN) alignment.xy[axis] = ui_box__clamp(position.value, 0.f, 1.f);
+	}
+
+	rect_f32 result = rect_f32_align(container, child->arranged_size, alignment);
+	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
+	{
+		UI_BoxPosition position = child->desc.position[axis];
+		if (position.kind == UI_BOX_POSITION_PARENT) result.xy[axis] = box->viewport.xy[axis] + position.value;
+	}
+	return result;
 }
 
 static void ui_frame_layout_children(UI_Box *box, rect_f32 clip)
@@ -843,7 +868,6 @@ static void ui_frame_layout_children(UI_Box *box, rect_f32 clip)
 
 	for (UI_Box *child = box->first; child; child = child->next)
 	{
-		rect_f32 child_rect = {};
 		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
 		{
 			b32 positioned = child->desc.position[axis].kind == UI_BOX_POSITION_PARENT;
@@ -854,14 +878,13 @@ static void ui_frame_layout_children(UI_Box *box, rect_f32 clip)
 			if (child->desc.size[axis].kind == UI_BOX_SIZE_FILL || child->desc.size[axis].grow > 0.f) size = available;
 			size = ui_box__clamp(size, ui_box__local_min(child, axis), ui_box__local_max(child, axis));
 			child->arranged_size.xy[axis] = size;
-			child_rect.xy[axis] = positioned ? box->viewport.xy[axis] + child->desc.position[axis].value : box->viewport.xy[axis] + before;
-			child_rect.wh[axis] = size;
 		}
 
+		rect_f32 child_rect = ui_frame__child_rect(box, child);
 		rect_f32 outer = child_rect;
 		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
 		{
-			if (child->desc.position[axis].kind == UI_BOX_POSITION_AUTO)
+			if (child->desc.position[axis].kind != UI_BOX_POSITION_PARENT)
 			{
 				outer.xy[axis] -= child->desc.margin[axis][0];
 				outer.wh[axis] += child->desc.margin[axis][0] + child->desc.margin[axis][1];
@@ -897,9 +920,7 @@ static void ui_frame_layout_children(UI_Box *box, rect_f32 clip)
 	rect_f32 child_clip = ui_box__child_clip(box, clip);
 	for (UI_Box *child = box->first; child; child = child->next)
 	{
-		rect_f32 child_rect = { .size = child->arranged_size };
-		for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++) child_rect.xy[axis] = child->desc.position[axis].kind == UI_BOX_POSITION_PARENT ? box->viewport.xy[axis] + child->desc.position[axis].value : box->viewport.xy[axis] + child->desc.margin[axis][0];
-		ui_box_layout_clipped(child, child_rect, child_clip);
+		ui_box_layout_clipped(child, ui_frame__child_rect(box, child), child_clip);
 	}
 }
 
@@ -915,6 +936,8 @@ const UI_LayoutHooks ui_layout_frame = {
 
 void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 {
+	prof_add_metric(PROF_METRIC_LAYOUT_CALLS, 1);
+
 	box->rect = rect;
 	box->arranged_size = rect.size;
 	box->clip_rect = clip;
@@ -938,12 +961,6 @@ void ui_box_layout(UI_Box *box, rect_f32 rect)
 {
 	Assert(box);
 	ui_box_layout_clipped(box, rect, rect);
-}
-
-void ui_box_relayout(UI_Box *box)
-{
-	Assert(box);
-	ui_box_layout_clipped(box, box->rect, box->clip_rect);
 }
 
 UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)
