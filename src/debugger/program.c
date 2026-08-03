@@ -863,7 +863,7 @@ void program_reset(Debugger *debugger)
 	memory_zero(&debugger->program, sizeof(debugger->program));
 	debugger->program.revision = revision;
 	arena_reset(&debugger->program_work_arena);
-	debugger->program.prg_rom_byte_count = nes_emulator_prg_rom_size(debugger->emulator);
+	debugger->program.prg_rom_byte_count = debugger->emulator->prg_rom_size;
 	debugger->program.prg_ram_byte_count = PROGRAM_PRG_RAM_SIZE;
 	debugger->program.byte_count = debugger->program.prg_rom_byte_count + debugger->program.prg_ram_byte_count;
 	Assert(debugger->program.prg_rom_byte_count <= PROGRAM_MAX_PRG_SIZE);

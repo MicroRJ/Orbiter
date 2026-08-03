@@ -1,7 +1,6 @@
 #include "base.h"
 #include "apu/apu.h"
 #include "emulator_internal.h"
-#include "nes/state_meta.h"
 #include <stdio.h>
 
 static u32 apu_test_failures;
@@ -131,19 +130,6 @@ static void apu_test_triangle_counters_and_timer(void)
 	triangle->linear_counter = 0;
 	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(1, triangle->wave_phase);
-}
-
-static void apu_test_triangle_metadata(void)
-{
-	apu_test_name = "triangle state metadata";
-	const NES_StateRecord *apu_record = nes_state_record(NES_RECORD_APU);
-	const NES_StateRecord *triangle_record = nes_state_record(NES_RECORD_APU_TRIANGLE);
-	APU_EXPECT_EQUAL(sizeof(NES_APUState), apu_record->size);
-	APU_EXPECT_EQUAL(sizeof(NES_APU_Triangle), triangle_record->size);
-	APU_EXPECT_EQUAL(9, triangle_record->field_count);
-	const NES_StateField *field = nes_state_field_from_id(NES_STATE_FIELD_ID_APU_TRIANGLE);
-	APU_EXPECT_EQUAL(offsetof(NES_APUState, triangle), field->offset);
-	APU_EXPECT_EQUAL(NES_RECORD_APU_TRIANGLE, field->record_id);
 }
 
 static void apu_test_reset_and_registers(void)
@@ -374,7 +360,6 @@ int main(void)
 	apu_test_status_register();
 	apu_test_triangle_registers();
 	apu_test_triangle_counters_and_timer();
-	apu_test_triangle_metadata();
 	apu_test_frame_clock();
 	apu_test_pulse_output_and_sweep();
 

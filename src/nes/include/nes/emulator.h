@@ -118,47 +118,80 @@ NES_MapperClass;
 
 #include "nes_trace.h"
 
+typedef struct
+{
+	u32       mapper;
+	// TODO(RJ) pretty sure these two are just nametable arrangement, which should
+	// be, vertical, horizontal, four_screen, or mapper_based
+	b32      vmirror;
+	b32  four_screen;
+	b32  has_trainer;
+	ByteSpan prg_rom;
+	ByteSpan chr_rom;
+}
+NES_SetupParams;
+
+typedef struct NES_Emulator NES_Emulator;
 struct NES_Emulator
 {
-	// TODO(RJ) not sure that keeping all the memory in one block is paying off
-	u32                     mapper_number;
-	u32                     num_chr_banks, num_prg_banks;
-	u32                     prg_rom_size,  chr_rom_size;
-	u32                     prg_bank_size, chr_bank_size;
-	b32                     vmirror;
-	u8                      values[32];
-	NES_InputState          input_state;
-	u32                     cpu_stall_cycles;
-	NES_CPUState            cpu;
-	NES_PPUState            ppu;
-	NES_APUState            apu;
-	u8                      controllers[2];
-	u8                      _wram[NES_WRAM_SIZE];
-	u8                      _vram[NES_VRAM_SIZE];
-	u8                      chr_ram[NES_MAX_CHR_RAM_SIZE];
-	u8                      prg_ram[NES_MAX_PRG_RAM_SIZE];
-	u8                      chr_rom[NES_MAX_CHR_ROM_SIZE];
-	u8                      prg_rom[NES_MAX_PRG_ROM_SIZE];
-	NES_MapperClass         mapper;
 	// TODO(RJ) a better name would be emulation step
 	u64                     scheduler_clock;
 	NES_BusMetrics          cpu_bus_metrics;
 	NES_BusMetrics          ppu_bus_metrics;
 	u64                     scheduler_trace_index;
 	u64                     sample_phase;
-	u8                      video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
-	// TODO(RJ) do we store this here or do we feed it in on run?
-	NES_PackedTraceEntry scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
-};
-NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core);
+	NES_MapperClass         mapper;
 
-u32 nes_emulator_prg_rom_size(const NES_Emulator *core);
+	// TODO(RJ) not sure that keeping all the memory in one block is paying off
+	u32                     mapper_number;
+	u32                     prg_rom_size,  chr_rom_size;
+	// TODO(RJ) remove these two, they are duplicates
+	u32                     num_chr_banks, num_prg_banks;
+
+	b32                     vmirror;
+	u32                     cpu_stall_cycles;
+	NES_CPUState            cpu;
+	NES_PPUState            ppu;
+	NES_APUState            apu;
+
+	NES_InputState          input_state;
+	u8                      controllers[2];
+	u8                      values[32];
+	u8                      _wram[NES_WRAM_SIZE];
+	u8                      _vram[NES_VRAM_SIZE];
+	u8                      chr_ram[NES_MAX_CHR_RAM_SIZE];
+	u8                      prg_ram[NES_MAX_PRG_RAM_SIZE];
+	u8                      chr_rom[NES_MAX_CHR_ROM_SIZE];
+	u8                      prg_rom[NES_MAX_PRG_ROM_SIZE];
+	u8                      video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+
+	// TODO(RJ) Just feed this in
+	NES_PackedTraceEntry    scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
+};
+
+
+b32 nes_emulator_valid(const NES_Emulator *emulator);
+b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams data);
+b32 nes_bootup_emulator(NES_Emulator *emulator);
 
 b32 nes_emulator_has_cartridge(const NES_Emulator *core);
-b32 nes_emulator_supports_cartridge(NES_CartridgeInfo cartridge);
 u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
-
 u32 nes_emulator_step(NES_Emulator *core);
+
+typedef struct
+{
+	u64 samples;
+	u64 steps;
+}
+NES_RunFrameResult;
+
+// TODO(RJ) Just feed this in
+NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core);
+
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer, u64 sample_capacity);
+void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
+
+
 
 static inline u64 nes_sample_rate(const NES_Emulator *emulator) {
 	(void)emulator;
@@ -172,19 +205,7 @@ static inline u64 nes_required_sample_capacity(void) {
 	return 1024 * 2;
 }
 
-typedef struct
-{
-	u64 samples;
-	u64 steps;
-}
-NES_RunFrameResult;
 
-NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer, u64 sample_capacity);
-
-void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
-u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
-u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
-NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
 
 static inline NES_BusAccess nes_bus_access_mapped(NES_BusAccess access, NES_DeviceId device)
 {
@@ -200,39 +221,24 @@ typedef struct
 }
 NES_MappedRead;
 
-NES_BusAccess nes_oam_mem_access(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess nes_pram_access(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess nes_vram_access(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess nes_wram_access(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess nes_chr_rom_access(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess nes_prg_rom_access(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess nes_chr_ram_access(NES_Emulator *nes, NES_BusAccess access);
-NES_BusAccess nes_prg_ram_access(NES_Emulator *nes, NES_BusAccess access);
-
-// The CPU address space exposes operations with explicit semantics. The
-// generic bus callback remains an implementation detail of devices and
-// mappers; CPU execution and debugger code should not construct bus modes.
+// TODO(RJ) why are there so many exposed variants!
 NES_MappedRead nes_cpu_bus_read_mapped(NES_Emulator *core, u16 address);
-static inline u8 nes_cpu_bus_read(NES_Emulator *core, u16 address)
-{
+static inline u8 nes_cpu_bus_read(NES_Emulator *core, u16 address) {
 	return nes_cpu_bus_read_mapped(core, address).value;
 }
-void nes_cpu_bus_write(NES_Emulator *core, u16 address, u8 value);
-u8   nes_cpu_bus_peek(NES_Emulator *core, u16 address);
 
+u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
+u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
+NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
+
+void nes_cpu_bus_write(NES_Emulator *core, u16 address, u8 value);
+u8 nes_cpu_bus_peek(NES_Emulator *core, u16 address);
 NES_BusAccess nes_cpu_bus_peek_mapped(NES_Emulator *core, u16 address);
 NES_MapAddr nes_cpu_bus_map(NES_Emulator *core, u16 address);
 
-u8          nes_ppu_bus_read(NES_Emulator *core, u16 address);
-void        nes_ppu_bus_write(NES_Emulator *core, u16 address, u8 value);
-u8          nes_ppu_bus_peek(NES_Emulator *core, u16 address);
+u8 nes_ppu_bus_read(NES_Emulator *core, u16 address);
+void nes_ppu_bus_write(NES_Emulator *core, u16 address, u8 value);
+u8 nes_ppu_bus_peek(NES_Emulator *core, u16 address);
 NES_MapAddr nes_ppu_bus_map(NES_Emulator *core, u16 address);
-
-#if 0
-ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
-b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
-b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge);
-#endif
-
 
 #endif

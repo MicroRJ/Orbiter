@@ -217,47 +217,6 @@ void debugger_reset(Debugger *debugger)
 	debugger_capture_snapshot(debugger);
 }
 
-#if 0
-b32 debugger_load_cartridge(Debugger *debugger, NES_CartridgeDesc cartridge)
-{
-	// Todo, provide much better errors here!
-	b32 success = nes_emulator_load_cartridge(debugger->emulator, cartridge);
-	if (success)
-	{
-		debugger->warned_missing_cartridge = false;
-		debugger_reset(debugger);
-	}
-	else LOG_WARN("failed to load ROM: mapper %u or its cartridge configuration is unsupported", cartridge.mapper);
-	return success;
-}
-
-b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
-{
-	NES_CartridgeDesc cartridge = {};
-	if (!nes_cartridge_parse_ines(data, &cartridge))
-	{
-		LOG_WARN("failed to load ROM: invalid or unsupported iNES image");
-		return false;
-	}
-	return debugger_load_cartridge(debugger, cartridge);
-}
-
-b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
-{
-	b32 success = nes_emulator_load_state(debugger->emulator, state);
-	if (success)
-	{
-		debugger->warned_missing_cartridge = false;
-
-	}
-	// Todo, remove diagnostic printing from the debugger instead return an error code or something,
-	// otherwise tests print stuff
-	else LOG_WARN("failed to restore state: no supported cartridge was instantiated");
-	return success;
-}
-#endif
-
-
 static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *debugger)
 {
 	Assert(debugger->snapshots_cursor >= 1);

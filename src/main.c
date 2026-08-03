@@ -13,6 +13,7 @@
 #include "gif_recorder.h"
 #include "nes_target.h"
 #include "orb_runtime.h"
+#include "nes_serialize.h"
 #include "os.h"
 #include "actions.h"
 
@@ -195,7 +196,7 @@ static void app_refresh_catalog(void)
 }
 #endif
 
-static Str app_rom_name(Str path);
+static Str app_rom_name(Str path) {return LIT("WTF");}
 static void app_discard_audio(void);
 
 static u64 app_unix_time_ms(void)
@@ -269,7 +270,7 @@ static void app_create_runtime_orb(Str source_path)
 		.created_unix_ms = app.save_created_unix_ms,
 		.updated_unix_ms = now,
 		.play_time_ms = play_time_ms,
-		.state = nes_emulator_save_state(&app.emulator, &store->arena),
+		.state = orb_nes_state_encode(&store->arena, &app.emulator),
 	};
 	store->orb = (Orb) {
 		.cartridge = cartridge,
@@ -312,7 +313,7 @@ static b32 app_save_state(void)
 	ByteSpan state = {};
 	SCRATCH_SCOPE(&app.frame_arena)
 	{
-		ByteSpan captured = nes_emulator_save_state(&app.emulator, &app.frame_arena);
+		ByteSpan captured = orb_nes_state_encode(&app.frame_arena, &app.emulator);
 		if (captured.size == app.active_save->state.size)
 		{
 			memory_copy(app.active_save->state.data, captured.data, captured.size);
@@ -364,6 +365,18 @@ static b32 app_write_active_orb(void)
 	return success;
 }
 
+static NES_SetupParams app_nes_setup_params(NES_CartridgeDesc cartridge)
+{
+	return (NES_SetupParams) {
+		.mapper = cartridge.mapper,
+		.vmirror = cartridge.vertical_mirroring,
+		.four_screen = cartridge.four_screen,
+		.has_trainer = cartridge.has_trainer,
+		.prg_rom = cartridge.prg_rom,
+		.chr_rom = cartridge.chr_rom,
+	};
+}
+
 static b32 orbiter_load_file(const char *path)
 {
 	b32 success = false;
@@ -381,9 +394,9 @@ static b32 orbiter_load_file(const char *path)
 	{
 		if (!latest || save->updated_unix_ms > latest->updated_unix_ms) latest = save;
 	}
-	// STAT still contains a complete emulator snapshot. Once it becomes
-	// mutable-only, load the cartridge first and apply STAT on top of it.
-	success = latest ? debugger_restore_state(app.debugger, latest->state) : debugger_load_cartridge(app.debugger, orb->cartridge);
+	success = nes_setup_emulator(&app.emulator, app_nes_setup_params(orb->cartridge));
+	if (success && latest) success = orb_nes_state_decode(&app.emulator, latest->state);
+	if (success) debugger_reset(app.debugger);
 	if (success && !latest)
 	{
 		u64 now = app_unix_time_ms();
@@ -395,7 +408,7 @@ static b32 orbiter_load_file(const char *path)
 			.created_unix_ms = now,
 			.updated_unix_ms = now,
 			.play_time_ms = orb->play_time_ms,
-			.state = nes_emulator_save_state(&app.emulator, &app.orb_store.arena),
+			.state = orb_nes_state_encode(&app.orb_store.arena, &app.emulator),
 		};
 		if (!latest->state.size)
 		{
@@ -420,7 +433,7 @@ static b32 orbiter_load_file(const char *path)
 		app.last_rom_path = orb->source_path.size ? str_push_copy(&app.arena, orb->source_path) : (Str) {};
 		Str title = orb->title.size ? orb->title : app.last_rom_path.size ? app_rom_name(app.last_rom_path) : LIT("NES game");
 		app.current_game_title = str_push_copy(&app.arena, title);
-		app_set_game_cartridge(orb->cartridge);
+		// app_set_game_cartridge(orb->cartridge);
 		app.active_orb = orb;
 		app.active_save = latest;
 	}

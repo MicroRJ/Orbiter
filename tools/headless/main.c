@@ -1,5 +1,6 @@
 #include "debugger.h"
 #include "nes_target.h"
+#include "nes_serialize.h"
 #include "os.h"
 
 #include <string.h>
@@ -49,7 +50,7 @@ static b32 parse_frame_count(const char *text, u32 *frame_count)
 
 static ByteSpan capture_state(NES_Emulator *emulator, Arena *arena)
 {
-	return nes_emulator_save_state(emulator, arena);
+	return orb_nes_state_encode(arena, emulator);
 }
 
 static b32 check_determinism(Debugger *debugger, NES_Emulator *emulator, NES_TargetPublication *publication, Arena *arena, u32 frame)
@@ -150,20 +151,35 @@ int main(int argc, char **argv)
 		LOG_ERROR("could not read ROM '%s'", argv[1]);
 		goto done;
 	}
-	if (!debugger_open_rom(debugger, byte_span((void *)rom.text, rom.size)))
+	NES_CartridgeDesc cartridge = {};
+	if (!nes_cartridge_parse_ines(byte_span((void *)rom.text, rom.size), &cartridge))
 	{
-		LOG_ERROR("could not load ROM '%s'", argv[1]);
+		LOG_ERROR("could not parse ROM '%s'", argv[1]);
+		goto done;
+	}
+	NES_SetupParams setup = {
+		.mapper = cartridge.mapper,
+		.vmirror = cartridge.vertical_mirroring,
+		.four_screen = cartridge.four_screen,
+		.has_trainer = cartridge.has_trainer,
+		.prg_rom = cartridge.prg_rom,
+		.chr_rom = cartridge.chr_rom,
+	};
+	if (!nes_setup_emulator(emulator, setup))
+	{
+		LOG_ERROR("could not set up ROM '%s'", argv[1]);
 		goto done;
 	}
 	if (positional_argc >= 4)
 	{
 		Str state = headless_read_file(&arena, argv[3]);
-		if (!state.text || !state.size || !debugger_restore_state(debugger, byte_span((void *)state.text, state.size)))
+		if (!state.text || !state.size || !orb_nes_state_decode(emulator, byte_span((void *)state.text, state.size)))
 		{
 			LOG_ERROR("could not restore state '%s'", argv[3]);
 			goto done;
 		}
 	}
+	debugger_reset(debugger);
 	u64 sample_capacity = nes_required_sample_capacity();
 	f32 *samples = arena_push(&arena, sizeof(*samples) * sample_capacity);
 	if (check_replay)

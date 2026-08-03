@@ -4,6 +4,17 @@
 #include "../bus/bus.h"
 
 
+// TODO(RJ)
+NES_BusAccess nes_oam_mem_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_pram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_vram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_wram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_chr_rom_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_prg_rom_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_chr_ram_access(NES_Emulator *nes, NES_BusAccess access);
+NES_BusAccess nes_prg_ram_access(NES_Emulator *nes, NES_BusAccess access);
+
+
 void nes_mapper_set_value(NES_Emulator *core, u32 index, u8 value);
 
 NES_MAPPER_RSET_FUNC(nrom_reset);

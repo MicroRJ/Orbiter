@@ -24,11 +24,12 @@ NES_BusAccess uxrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
 	/* prg rom, 0x8000 + */
 	if ((access.address >> 15) == 1) {
 		if (access.kind == NES_BUS_ACCESS_WRITE) {
-			/* Todo: check spec about something
-				about open bus conflicts... */
+			/* Todo: check spec about something about open bus conflicts... */
 			nes_mapper_set_value(nes, 0, access.value);
 		}
 		else {
+			// TODO(RJ) k could be stored in nes->values[1] on setup which would
+			// get rid of this branch
 			i32 b = nes->values[0];
 			i32 k = nes->num_prg_banks - 1;
 			if (access.address < 0xC000)
