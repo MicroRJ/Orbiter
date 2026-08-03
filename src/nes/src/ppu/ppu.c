@@ -40,7 +40,7 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 	}
 
 	Assert(access.kind == NES_BUS_ACCESS_READ || access.kind == NES_BUS_ACCESS_WRITE);
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	b32 write = access.kind == NES_BUS_ACCESS_WRITE;
 	u8 value = access.value;
 
@@ -50,14 +50,14 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 		{
 			if (write)
 			{
-				core->core.ppu.PPUCTRL = (u8)(value);
-				core->core.ppu.t = (u16)((ppu->t & ~(3 << 10)) | (value & 3) << 10);
+				core->ppu.PPUCTRL = (u8)(value);
+				core->ppu.t = (u16)((ppu->t & ~(3 << 10)) | (value & 3) << 10);
 			}
 		} break;
 
 		case 1: // PPUMASK
 		{
-			if (write) core->core.ppu.PPUMASK = (u8)(value);
+			if (write) core->ppu.PPUMASK = (u8)(value);
 		} break;
 
 		case 2: // PPUSTATUS
@@ -65,14 +65,14 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 			if (!write)
 			{
 				value = ppu->PPUSTATUS;
-				core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS & ~0x80);
-				core->core.ppu.w = (u8)(0);
+				core->ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS & ~0x80);
+				core->ppu.w = (u8)(0);
 			}
 		} break;
 
 		case 3: // OAMADDR
 		{
-			if (write) core->core.ppu.OAMADDR = (u8)(value);
+			if (write) core->ppu.OAMADDR = (u8)(value);
 		} break;
 
 		case 4: // OAMDATA
@@ -82,8 +82,8 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 				// Outside rendering, OAMDATA writes store at OAMADDR and then
 				// increment its 8-bit address. This case used to be empty, so
 				// CPU-driven OAM writes were silently discarded.
-				core->core.ppu._oam[ppu->OAMADDR] = (u8)(value);
-				core->core.ppu.OAMADDR = (u8)(ppu->OAMADDR + 1);
+				core->ppu._oam[ppu->OAMADDR] = (u8)(value);
+				core->ppu.OAMADDR = (u8)(ppu->OAMADDR + 1);
 			}
 			else
 			{
@@ -100,15 +100,15 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 			{
 				if (!ppu->w)
 				{
-					core->core.ppu.t = (u16)((ppu->t & ~0x001F) | (value >> 3));
-					core->core.ppu.x = (u8)(value & 7);
+					core->ppu.t = (u16)((ppu->t & ~0x001F) | (value >> 3));
+					core->ppu.x = (u8)(value & 7);
 				}
 				else
 				{
 					u32 t = (ppu->t & ~0x03E0) | ((value >> 3 & 31) << 5);
-					core->core.ppu.t = (u16)((t & ~0x7000) | ((value & 7) << 12));
+					core->ppu.t = (u16)((t & ~0x7000) | ((value & 7) << 12));
 				}
-				core->core.ppu.w = (u8)(ppu->w ^ 1);
+				core->ppu.w = (u8)(ppu->w ^ 1);
 			}
 		} break;
 
@@ -118,14 +118,14 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 			{
 				if (!ppu->w)
 				{
-					core->core.ppu.t = (u16)((ppu->t & 0x00FF) | ((value & 0x3F) << 8));
+					core->ppu.t = (u16)((ppu->t & 0x00FF) | ((value & 0x3F) << 8));
 				}
 				else
 				{
-					core->core.ppu.t = (u16)((ppu->t & 0x7F00) | value);
-					core->core.ppu.v = (u16)(ppu->t);
+					core->ppu.t = (u16)((ppu->t & 0x7F00) | value);
+					core->ppu.v = (u16)(ppu->t);
 				}
-				core->core.ppu.w = (u8)(ppu->w ^ 1);
+				core->ppu.w = (u8)(ppu->w ^ 1);
 			}
 		} break;
 
@@ -141,16 +141,16 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 				// Palette data bypasses the delayed buffer. Simultaneously, the
 				// external bus reads the nametable address under the palette.
 				value = ppu_bus_read(core, bus_address);
-				core->core.ppu.data_read_buf = (u8)(ppu_bus_read(core, bus_address - 0x1000));
+				core->ppu.data_read_buf = (u8)(ppu_bus_read(core, bus_address - 0x1000));
 			}
 			else
 			{
 				value = ppu->data_read_buf;
-				core->core.ppu.data_read_buf = (u8)(ppu_bus_read(core, bus_address));
+				core->ppu.data_read_buf = (u8)(ppu_bus_read(core, bus_address));
 			}
 
 			// v is 15 bits even though only its low 14 bits reach the bus.
-			core->core.ppu.v = (u16)((ppu->v + ((ppu->PPUCTRL & 4) ? 32 : 1)) & 0x7FFF);
+			core->ppu.v = (u16)((ppu->v + ((ppu->PPUCTRL & 4) ? 32 : 1)) & 0x7FFF);
 		} break;
 	}
 
@@ -160,33 +160,33 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 
 static void ppu_shift_background(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
-	core->core.ppu.atr_r0 = (u8)(ppu->atr_l0 << 7 | ppu->atr_r0 >> 1);
-	core->core.ppu.atr_r1 = (u8)(ppu->atr_l1 << 7 | ppu->atr_r1 >> 1);
-	core->core.ppu.chr_r0 = (u16)(ppu->chr_r0 << 1);
-	core->core.ppu.chr_r1 = (u16)(ppu->chr_r1 << 1);
+	NES_PPUState *ppu = &core->ppu;
+	core->ppu.atr_r0 = (u8)(ppu->atr_l0 << 7 | ppu->atr_r0 >> 1);
+	core->ppu.atr_r1 = (u8)(ppu->atr_l1 << 7 | ppu->atr_r1 >> 1);
+	core->ppu.chr_r0 = (u16)(ppu->chr_r0 << 1);
+	core->ppu.chr_r1 = (u16)(ppu->chr_r1 << 1);
 
 	if (ppu->spr0_2cycle_delay)
 	{
-		core->core.ppu.spr0_2cycle_delay = (u8)(false);
-		core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x40);
+		core->ppu.spr0_2cycle_delay = (u8)(false);
+		core->ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x40);
 	}
 }
 
 static void ppu_fetch_nametable_byte(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
-	core->core.ppu.tile_id = (u8)(ppu_bus_read(core, 0x2000 | (ppu->v & 0x0FFF)));
+	NES_PPUState *ppu = &core->ppu;
+	core->ppu.tile_id = (u8)(ppu_bus_read(core, 0x2000 | (ppu->v & 0x0FFF)));
 }
 
 static void ppu_fetch_attribute_byte(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	u16 coarse_x = ppu->v & 31;
 	u16 coarse_y = (ppu->v >> 5) & 31;
 	u16 nametable = ppu->v & 0x0C00;
 	u16 address = 0x23C0 | nametable | ((coarse_y >> 2) << 3) | (coarse_x >> 2);
-	core->core.ppu.atr_b = (u8)(ppu_bus_read(core, address));
+	core->ppu.atr_b = (u8)(ppu_bus_read(core, address));
 }
 
 static u16 ppu_background_pattern_address(const NES_PPUState *ppu, u16 plane)
@@ -198,41 +198,41 @@ static u16 ppu_background_pattern_address(const NES_PPUState *ppu, u16 plane)
 
 static void ppu_fetch_pattern_low(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
-	core->core.ppu.tile_lo = (u8)(ppu_bus_read(core, ppu_background_pattern_address(ppu, 0)));
+	NES_PPUState *ppu = &core->ppu;
+	core->ppu.tile_lo = (u8)(ppu_bus_read(core, ppu_background_pattern_address(ppu, 0)));
 }
 
 static void ppu_fetch_pattern_high_and_reload(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
-	core->core.ppu.tile_hi = (u8)(ppu_bus_read(core, ppu_background_pattern_address(ppu, 8)));
-	core->core.ppu.chr_r0 = (u16)(ppu->chr_r0 | ppu->tile_lo);
-	core->core.ppu.chr_r1 = (u16)(ppu->chr_r1 | ppu->tile_hi);
+	NES_PPUState *ppu = &core->ppu;
+	core->ppu.tile_hi = (u8)(ppu_bus_read(core, ppu_background_pattern_address(ppu, 8)));
+	core->ppu.chr_r0 = (u16)(ppu->chr_r0 | ppu->tile_lo);
+	core->ppu.chr_r1 = (u16)(ppu->chr_r1 | ppu->tile_hi);
 
 	u32 attribute_shift = (((ppu->v >> 5) & 2) << 1) | (ppu->v & 2);
-	core->core.ppu.atr_l0 = (u8)((ppu->atr_b >> attribute_shift) & 1);
-	core->core.ppu.atr_l1 = (u8)((ppu->atr_b >> (attribute_shift + 1)) & 1);
+	core->ppu.atr_l0 = (u8)((ppu->atr_b >> attribute_shift) & 1);
+	core->ppu.atr_l1 = (u8)((ppu->atr_b >> (attribute_shift + 1)) & 1);
 }
 
 static void ppu_increment_horizontal(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	if ((ppu->v & 31) == 31)
 	{
-		core->core.ppu.v = (u16)((ppu->v & ~31) ^ 0x0400);
+		core->ppu.v = (u16)((ppu->v & ~31) ^ 0x0400);
 	}
 	else
 	{
-		core->core.ppu.v = (u16)(ppu->v + 1);
+		core->ppu.v = (u16)(ppu->v + 1);
 	}
 }
 
 static void ppu_increment_vertical(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	if (((ppu->v >> 12) & 7) != 7)
 	{
-		core->core.ppu.v = (u16)(ppu->v + 0x1000);
+		core->ppu.v = (u16)(ppu->v + 0x1000);
 		return;
 	}
 
@@ -250,19 +250,19 @@ static void ppu_increment_vertical(NES_Emulator *core)
 	{
 		v += 0x0020;
 	}
-	core->core.ppu.v = (u16)(v);
+	core->ppu.v = (u16)(v);
 }
 
 static void ppu_copy_horizontal(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
-	core->core.ppu.v = (u16)((ppu->v & ~0x041F) | (ppu->t & 0x041F));
+	NES_PPUState *ppu = &core->ppu;
+	core->ppu.v = (u16)((ppu->v & ~0x041F) | (ppu->t & 0x041F));
 }
 
 static void ppu_copy_vertical(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
-	core->core.ppu.v = (u16)((ppu->v & ~0x7BE0) | (ppu->t & 0x7BE0));
+	NES_PPUState *ppu = &core->ppu;
+	core->ppu.v = (u16)((ppu->v & ~0x7BE0) | (ppu->t & 0x7BE0));
 }
 
 static u8 ppu_background_pixel(const NES_PPUState *ppu)
@@ -291,7 +291,7 @@ static u16 ppu_sprite_pattern_address(const NES_PPUState *ppu, NES_PPUSprite spr
 
 static inline u8 ppu_sprite_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y, u8 background_pixel)
 {
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	if (!(ppu->PPUMASK & PPUMASK_SPRITES)) return 0;
 
 	for (i32 i = 0; i < ppu->nsprs; ++i)
@@ -309,7 +309,7 @@ static inline u8 ppu_sprite_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y
 
 		if (background_pixel && i == 0)
 		{
-			core->core.ppu.spr0_2cycle_delay = (u8)(ppu->spr0_enable);
+			core->ppu.spr0_2cycle_delay = (u8)(ppu->spr0_enable);
 		}
 
 		if ((sprite.attrs & 0x20) && background_pixel) return 0;
@@ -321,7 +321,7 @@ static inline u8 ppu_sprite_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y
 
 static inline void ppu_render_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y)
 {
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	u8 background_pixel = ppu_background_pixel(ppu);
 	u8 palette_index = ppu_sprite_pixel(core, screen_x, screen_y, background_pixel);
 
@@ -339,10 +339,10 @@ static inline void ppu_render_pixel(NES_Emulator *core, i32 screen_x, i32 screen
 
 static void ppu_evaluate_sprites(NES_Emulator *core, i32 scanline)
 {
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	i32 sprite_height = (ppu->PPUCTRL & PPUCTRL_SPRITE_SIZE_8X16) ? 16 : 8;
-	core->core.ppu.spr0_enable = (u8)(false);
-	core->core.ppu.nsprs = (u8)(0);
+	core->ppu.spr0_enable = (u8)(false);
+	core->ppu.nsprs = (u8)(0);
 
 	for (i32 i = 0; i < 64; ++i)
 	{
@@ -352,46 +352,46 @@ static void ppu_evaluate_sprites(NES_Emulator *core, i32 scanline)
 
 		if (ppu->nsprs < ppu_max_nsprs_per_scanline)
 		{
-			if (i == 0) core->core.ppu.spr0_enable = (u8)(true);
+			if (i == 0) core->ppu.spr0_enable = (u8)(true);
 			u32 sprite_index = ppu->nsprs;
 			ppu->sprs[sprite_index] = sprite;
-			core->core.ppu.nsprs = (u8)(sprite_index + 1);
+			core->ppu.nsprs = (u8)(sprite_index + 1);
 		}
 		else
 		{
-			core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x20);
+			core->ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x20);
 		}
 	}
 }
 
 static inline void ppu_advance_clock(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
-	core->core.ppu.xtick = (u16)(ppu->xtick + 1);
+	NES_PPUState *ppu = &core->ppu;
+	core->ppu.xtick = (u16)(ppu->xtick + 1);
 	if (ppu->xtick < 341) return;
 
-	core->core.ppu.xtick = (u16)(0);
-	core->core.ppu.ytick = (u16)(ppu->ytick + 1);
-	if (ppu->ytick >= 262) core->core.ppu.ytick = (u16)(0);
+	core->ppu.xtick = (u16)(0);
+	core->ppu.ytick = (u16)(ppu->ytick + 1);
+	if (ppu->ytick >= 262) core->ppu.ytick = (u16)(0);
 }
 
 u32 nes_ppu_step(NES_Emulator *core)
 {
-	NES_PPUState *ppu = &core->core.ppu;
+	NES_PPUState *ppu = &core->ppu;
 	u32 dot = ppu->xtick;
 	u32 scanline = ppu->ytick;
 	u32 events = NES_PPU_EVENT_NONE;
 
 	if (scanline == 241 && dot == 1)
 	{
-		core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x80);
+		core->ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x80);
 		prof_add_metric(PROF_METRIC_PPU_VBLANKS, 1);
 		events |= NES_PPU_EVENT_FRAME;
 		if (ppu->PPUCTRL & PPUCTRL_NMI_ENABLED) events |= NES_PPU_EVENT_NMI;
 	}
 	else if (scanline == 261 && dot == 1)
 	{
-		core->core.ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS & 0x1F);
+		core->ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS & 0x1F);
 	}
 	b32 visible_scanline   = scanline < 240;
 	b32 prerender_scanline = scanline == 261;

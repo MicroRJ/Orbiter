@@ -15,42 +15,40 @@ void debugger_capture_snapshot(Debugger *debugger)
 	Assert(debugger->snapshots_replay_marker - debugger->snapshots_rewind_marker <= DEBUGGER_SNAPSHOT_CAPACITY);
 
 	NES_Emulator *emulator = debugger->emulator;
-	NES_State *state = &emulator->core;
 
 	memory_zero(snapshot, sizeof(*snapshot));
 	snapshot->sample_phase = emulator->sample_phase;
-	memory_copy(snapshot->values, state->values, sizeof(snapshot->values));
-	snapshot->input_state = state->input_state;
-	snapshot->cpu_stall_cycles = state->cpu_stall_cycles;
+	memory_copy(snapshot->values, emulator->values, sizeof(snapshot->values));
+	snapshot->input_state = emulator->input_state;
+	snapshot->cpu_stall_cycles = emulator->cpu_stall_cycles;
 	snapshot->scheduler_clock = emulator->scheduler_clock;
-	snapshot->cpu = state->cpu;
-	snapshot->ppu = state->ppu;
-	snapshot->apu = state->apu;
-	memory_copy(snapshot->controllers, state->controllers, sizeof(snapshot->controllers));
-	memory_copy(snapshot->wram, state->_wram, sizeof(snapshot->wram));
-	memory_copy(snapshot->vram, state->_vram, sizeof(snapshot->vram));
-	memory_copy(snapshot->chr_ram, state->chr_ram, sizeof(snapshot->chr_ram));
-	memory_copy(snapshot->prg_ram, state->prg_ram, sizeof(snapshot->prg_ram));
+	snapshot->cpu = emulator->cpu;
+	snapshot->ppu = emulator->ppu;
+	snapshot->apu = emulator->apu;
+	memory_copy(snapshot->controllers, emulator->controllers, sizeof(snapshot->controllers));
+	memory_copy(snapshot->wram, emulator->_wram, sizeof(snapshot->wram));
+	memory_copy(snapshot->vram, emulator->_vram, sizeof(snapshot->vram));
+	memory_copy(snapshot->chr_ram, emulator->chr_ram, sizeof(snapshot->chr_ram));
+	memory_copy(snapshot->prg_ram, emulator->prg_ram, sizeof(snapshot->prg_ram));
 	memory_copy(snapshot->video, emulator->video, sizeof(snapshot->video));
 }
 
 static void debugger_restore(Debugger *debugger, const DBG_LiveSnapshot *snapshot)
 {
 	NES_Emulator *emulator = debugger->emulator;
-	NES_State *state = &emulator->core;
-	memory_copy(state->values, snapshot->values, sizeof(snapshot->values));
+	memory_copy(emulator->values, snapshot->values, sizeof(snapshot->values));
 	emulator->sample_phase = snapshot->sample_phase;
-	state->input_state = snapshot->input_state;
-	state->cpu_stall_cycles = snapshot->cpu_stall_cycles;
+	emulator->input_state = snapshot->input_state;
+	emulator->cpu_stall_cycles = snapshot->cpu_stall_cycles;
 	emulator->scheduler_clock = snapshot->scheduler_clock;
-	state->cpu = snapshot->cpu;
-	state->ppu = snapshot->ppu;
-	state->apu = snapshot->apu;
-	memory_copy(state->controllers, snapshot->controllers, sizeof(snapshot->controllers));
-	memory_copy(state->_wram, snapshot->wram, sizeof(snapshot->wram));
-	memory_copy(state->_vram, snapshot->vram, sizeof(snapshot->vram));
-	memory_copy(state->chr_ram, snapshot->chr_ram, sizeof(snapshot->chr_ram));
-	memory_copy(state->prg_ram, snapshot->prg_ram, sizeof(snapshot->prg_ram));
+	emulator->cpu = snapshot->cpu;
+	emulator->ppu = snapshot->ppu;
+	emulator->apu = snapshot->apu;
+	memory_copy(emulator->controllers, snapshot->controllers, sizeof(snapshot->controllers));
+	memory_copy(emulator->_wram, snapshot->wram, sizeof(snapshot->wram));
+	memory_copy(emulator->_vram, snapshot->vram, sizeof(snapshot->vram));
+	memory_copy(emulator->chr_ram, snapshot->chr_ram, sizeof(snapshot->chr_ram));
+	memory_copy(emulator->prg_ram, snapshot->prg_ram, sizeof(snapshot->prg_ram));
 	memory_copy(emulator->video, snapshot->video, sizeof(snapshot->video));
 }
 
@@ -210,6 +208,29 @@ void debugger_update_cpu_mapping(Debugger *debugger)
 	debugger->cpu_mapping.initialized = true;
 }
 
+void debugger_reset(Debugger *debugger)
+{
+	debugger_discard_scheduler_trace(debugger);
+	execution_graph_reset(&debugger->execution_graph);
+	program_reset(debugger);
+	debugger_clear_snapshots(debugger);
+	debugger_capture_snapshot(debugger);
+}
+
+#if 0
+b32 debugger_load_cartridge(Debugger *debugger, NES_CartridgeDesc cartridge)
+{
+	// Todo, provide much better errors here!
+	b32 success = nes_emulator_load_cartridge(debugger->emulator, cartridge);
+	if (success)
+	{
+		debugger->warned_missing_cartridge = false;
+		debugger_reset(debugger);
+	}
+	else LOG_WARN("failed to load ROM: mapper %u or its cartridge configuration is unsupported", cartridge.mapper);
+	return success;
+}
+
 b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 {
 	NES_CartridgeDesc cartridge = {};
@@ -218,19 +239,7 @@ b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 		LOG_WARN("failed to load ROM: invalid or unsupported iNES image");
 		return false;
 	}
-	// Todo, provide much better errors here!
-	b32 success = nes_emulator_load_cartridge(debugger->emulator, cartridge);
-	if (success)
-	{
-		debugger->warned_missing_cartridge = false;
-		debugger_discard_scheduler_trace(debugger);
-		execution_graph_reset(&debugger->execution_graph);
-		program_reset(debugger);
-		debugger_clear_snapshots(debugger);
-		debugger_capture_snapshot(debugger);
-	}
-	else LOG_WARN("failed to load ROM: mapper %u or its cartridge configuration is unsupported", cartridge.mapper);
-	return success;
+	return debugger_load_cartridge(debugger, cartridge);
 }
 
 b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
@@ -239,17 +248,15 @@ b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 	if (success)
 	{
 		debugger->warned_missing_cartridge = false;
-		debugger_discard_scheduler_trace(debugger);
-		execution_graph_reset(&debugger->execution_graph);
-		program_reset(debugger);
-		debugger_clear_snapshots(debugger);
-		debugger_capture_snapshot(debugger);
+
 	}
 	// Todo, remove diagnostic printing from the debugger instead return an error code or something,
 	// otherwise tests print stuff
 	else LOG_WARN("failed to restore state: no supported cartridge was instantiated");
 	return success;
 }
+#endif
+
 
 static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *debugger)
 {

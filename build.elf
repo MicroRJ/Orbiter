@@ -114,7 +114,6 @@ objects := {
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
 	{ name = "nes_target",         input = "src/frontend/nes_target.c" },
 	{ name = "execution_activity", input = "src/frontend/execution_activity.c" },
-	{ name = "catalog",            input = "src/frontend/catalog.c" },
 	{ name = "gif_recorder",      input = "src/frontend/gif_recorder.c" },
 	{ name = "views",             input = "src/frontend/views.c" },
 	{ name = "panels",            input = "src/frontend/panels.c" },
@@ -131,7 +130,6 @@ tests := {
 	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
 	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
 	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
-	{ name = "catalog_test",         input = "src/tests/catalog_test.c" },
 	{ name = "orb_test",             input = "src/tests/orb_test.c" },
 	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
 	{ name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
@@ -142,9 +140,9 @@ tests := {
 }
 
 executables := tests:clone():extend({
-	{ name = "nes_headless",    input = "tools/headless/main.c" },
-	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
-	{ name = "ui_playground",   input = "tools/ui_playground/main.c" },
+	// { name = "nes_headless",    input = "tools/headless/main.c" },
+	// { name = "nes_benchmark",   input = "tools/benchmark/main.c" },
+	// { name = "ui_playground",   input = "tools/ui_playground/main.c" },
 	{ name = "main",            input = "src/main.c" },
 })
 

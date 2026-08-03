@@ -120,7 +120,25 @@ NES_MapperClass;
 
 struct NES_Emulator
 {
-	NES_State               core;
+	// TODO(RJ) not sure that keeping all the memory in one block is paying off
+	u32                     mapper_number;
+	u32                     num_chr_banks, num_prg_banks;
+	u32                     prg_rom_size,  chr_rom_size;
+	u32                     prg_bank_size, chr_bank_size;
+	b32                     vmirror;
+	u8                      values[32];
+	NES_InputState          input_state;
+	u32                     cpu_stall_cycles;
+	NES_CPUState            cpu;
+	NES_PPUState            ppu;
+	NES_APUState            apu;
+	u8                      controllers[2];
+	u8                      _wram[NES_WRAM_SIZE];
+	u8                      _vram[NES_VRAM_SIZE];
+	u8                      chr_ram[NES_MAX_CHR_RAM_SIZE];
+	u8                      prg_ram[NES_MAX_PRG_RAM_SIZE];
+	u8                      chr_rom[NES_MAX_CHR_ROM_SIZE];
+	u8                      prg_rom[NES_MAX_PRG_ROM_SIZE];
 	NES_MapperClass         mapper;
 	// TODO(RJ) a better name would be emulation step
 	u64                     scheduler_clock;
@@ -138,8 +156,6 @@ u32 nes_emulator_prg_rom_size(const NES_Emulator *core);
 
 b32 nes_emulator_has_cartridge(const NES_Emulator *core);
 b32 nes_emulator_supports_cartridge(NES_CartridgeInfo cartridge);
-// Copies the descriptor's borrowed PRG and CHR data into emulator-owned storage.
-b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge);
 u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
 
 u32 nes_emulator_step(NES_Emulator *core);
@@ -165,17 +181,10 @@ NES_RunFrameResult;
 
 NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer, u64 sample_capacity);
 
-
-
 void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
-
 u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
 u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
 NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
-
-ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
-b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
-
 
 static inline NES_BusAccess nes_bus_access_mapped(NES_BusAccess access, NES_DeviceId device)
 {
@@ -218,6 +227,12 @@ u8          nes_ppu_bus_read(NES_Emulator *core, u16 address);
 void        nes_ppu_bus_write(NES_Emulator *core, u16 address, u8 value);
 u8          nes_ppu_bus_peek(NES_Emulator *core, u16 address);
 NES_MapAddr nes_ppu_bus_map(NES_Emulator *core, u16 address);
+
+#if 0
+ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena);
+b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state);
+b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge);
+#endif
 
 
 #endif

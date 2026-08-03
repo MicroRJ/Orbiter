@@ -174,7 +174,7 @@ static void apu_pulse_write_timer_high(NES_APU_Pulse *pulse, u8 value)
 
 NES_BusAccess nes_apu_register_access(NES_Emulator *core, NES_BusAccess access)
 {
-	NES_APUState *apu = &core->core.apu;
+	NES_APUState *apu = &core->apu;
 	switch (access.address)
 	{
 		case 0x4017:

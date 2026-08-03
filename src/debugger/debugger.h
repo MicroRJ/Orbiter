@@ -16,6 +16,7 @@ enum
 
 Debugger *debugger_create(Arena *arena, NES_Emulator *emulator);
 void debugger_destroy(Debugger *debugger);
+b32 debugger_load_cartridge(Debugger *debugger, NES_CartridgeDesc cartridge);
 b32 debugger_open_rom(Debugger *debugger, ByteSpan data);
 b32 debugger_restore_state(Debugger *debugger, ByteSpan state);
 u32 debugger_step(Debugger *debugger);

@@ -42,11 +42,11 @@ static Mapper_TestFixture mapper_test_fixture_create(void)
 static void mapper_test_prepare(Mapper_TestFixture *fixture,
 	u32 prg_rom_size, u32 chr_rom_size)
 {
-	memory_zero(&fixture->core->core, sizeof(fixture->core->core));
-	fixture->core->core.prg_rom_size = prg_rom_size;
-	fixture->core->core.chr_rom_size = chr_rom_size;
-	fixture->core->core.num_prg_banks = prg_rom_size / KiB(16);
-	fixture->core->core.num_chr_banks = chr_rom_size / KiB(8);
+	memory_zero(fixture->core, offsetof(NES_Emulator, mapper));
+	fixture->core->prg_rom_size = prg_rom_size;
+	fixture->core->chr_rom_size = chr_rom_size;
+	fixture->core->num_prg_banks = prg_rom_size / KiB(16);
+	fixture->core->num_chr_banks = chr_rom_size / KiB(8);
 }
 
 static NES_BusAccess mapper_access(NES_Emulator *core, NES_BusFunc bus,
@@ -83,16 +83,16 @@ static NES_MapAddr mapper_map(NES_Emulator *core, NES_BusFunc bus,
 
 static void mapper_mark_prg_banks(NES_Emulator *core, u32 bank_size)
 {
-	for (u32 bank = 0; bank * bank_size < core->core.prg_rom_size; ++bank)
+	for (u32 bank = 0; bank * bank_size < core->prg_rom_size; ++bank)
 	{
-		core->core.prg_rom[bank * bank_size] = (u8)(0x40 + bank);
+		core->prg_rom[bank * bank_size] = (u8)(0x40 + bank);
 	}
 }
 
 static void mapper_mark_chr_banks(NES_Emulator *core, u32 bank_size)
 {
-	for (u32 bank = 0; bank * bank_size < core->core.chr_rom_size; ++bank) {
-		core->core.chr_rom[bank * bank_size] = (u8)(0x60 + bank);
+	for (u32 bank = 0; bank * bank_size < core->chr_rom_size; ++bank) {
+		core->chr_rom[bank * bank_size] = (u8)(0x60 + bank);
 	}
 }
 
@@ -115,18 +115,18 @@ static void mapper_test_nrom(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(0x4000, mapper_map(core, nrom_cpu, 0xC000).offset);
 	MAPPER_EXPECT_EQUAL(NES_DEVICE_CHR_ROM, mapper_map(core, nrom_ppu, 0x1ABC).device);
 	MAPPER_EXPECT_EQUAL(0x1ABC, mapper_map(core, nrom_ppu, 0x1ABC).offset);
-	core->core.prg_rom[0x0123] = 0xA5;
-	core->core.chr_rom[0x1ABC] = 0x5A;
+	core->prg_rom[0x0123] = 0xA5;
+	core->chr_rom[0x1ABC] = 0x5A;
 	mapper_write(core, nrom_cpu, 0x8123, 0x11);
 	mapper_write(core, nrom_ppu, 0x1ABC, 0x22);
-	MAPPER_EXPECT_EQUAL(0xA5, core->core.prg_rom[0x0123]);
-	MAPPER_EXPECT_EQUAL(0x5A, core->core.chr_rom[0x1ABC]);
+	MAPPER_EXPECT_EQUAL(0xA5, core->prg_rom[0x0123]);
+	MAPPER_EXPECT_EQUAL(0x5A, core->chr_rom[0x1ABC]);
 
-	core->core.vmirror = 1;
+	core->vmirror = 1;
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, nrom_ppu, 0x2000).offset);
 	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, nrom_ppu, 0x2400).offset);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, nrom_ppu, 0x2800).offset);
-	core->core.vmirror = 0;
+	core->vmirror = 0;
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, nrom_ppu, 0x2000).offset);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, nrom_ppu, 0x2400).offset);
 	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, nrom_ppu, 0x2800).offset);
@@ -144,10 +144,10 @@ static void mapper_test_uxrom(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(0x43, mapper_read(core, uxrom_cpu, 0xC000));
 	MAPPER_EXPECT_EQUAL(KiB(16), mapper_map(core, uxrom_cpu, 0x8000).offset);
 
-	u8 selected_bank = core->core.values[0];
+	u8 selected_bank = core->values[0];
 	mapper_peek(core, uxrom_cpu, 0x8000);
 	mapper_map(core, uxrom_cpu, 0x8000);
-	MAPPER_EXPECT_EQUAL(selected_bank, core->core.values[0]);
+	MAPPER_EXPECT_EQUAL(selected_bank, core->values[0]);
 
 	mapper_write(core, uxrom_cpu, 0x8000, 2);
 	MAPPER_EXPECT_EQUAL(0x42, mapper_read(core, uxrom_cpu, 0x8000));
@@ -182,65 +182,65 @@ static void mapper_test_mmc1(Mapper_TestFixture *fixture)
 	NES_Emulator *core = fixture->core;
 	mapper_mark_prg_banks(core, KiB(16));
 	mapper_mark_chr_banks(core, KiB(4));
-	core->core.values[TEST_MMC1_CONTROL] = 0x0C;
-	core->core.values[TEST_MMC1_SHIFT] = 0x10;
+	core->values[TEST_MMC1_CONTROL] = 0x0C;
+	core->values[TEST_MMC1_SHIFT] = 0x10;
 
 	mapper_mmc1_serial_write(core, 0xE000, 2);
-	MAPPER_EXPECT_EQUAL(2, core->core.values[TEST_MMC1_PRG]);
+	MAPPER_EXPECT_EQUAL(2, core->values[TEST_MMC1_PRG]);
 	MAPPER_EXPECT_EQUAL(0x42, mapper_read(core, mmc1_cpu, 0x8000));
 	MAPPER_EXPECT_EQUAL(0x43, mapper_read(core, mmc1_cpu, 0xC000));
 	MAPPER_EXPECT_EQUAL(KiB(32), mapper_map(core, mmc1_cpu, 0x8000).offset);
 
-	u8 shift = core->core.values[TEST_MMC1_SHIFT];
+	u8 shift = core->values[TEST_MMC1_SHIFT];
 	mapper_peek(core, mmc1_cpu, 0xE000);
 	mapper_map(core, mmc1_cpu, 0xE000);
-	MAPPER_EXPECT_EQUAL(shift, core->core.values[TEST_MMC1_SHIFT]);
+	MAPPER_EXPECT_EQUAL(shift, core->values[TEST_MMC1_SHIFT]);
 
-	core->core.values[TEST_MMC1_CONTROL] = 0x08;
+	core->values[TEST_MMC1_CONTROL] = 0x08;
 	MAPPER_EXPECT_EQUAL(0x40, mapper_read(core, mmc1_cpu, 0x8000));
 	MAPPER_EXPECT_EQUAL(0x42, mapper_read(core, mmc1_cpu, 0xC000));
-	core->core.values[TEST_MMC1_CONTROL] = 0x00;
-	core->core.values[TEST_MMC1_PRG] = 2;
+	core->values[TEST_MMC1_CONTROL] = 0x00;
+	core->values[TEST_MMC1_PRG] = 2;
 	MAPPER_EXPECT_EQUAL(0x42, mapper_read(core, mmc1_cpu, 0x8000));
 	MAPPER_EXPECT_EQUAL(0x43, mapper_read(core, mmc1_cpu, 0xC000));
 
-	core->core.values[TEST_MMC1_CONTROL] = 0x0C;
-	core->core.values[TEST_MMC1_CHR0] = 3;
+	core->values[TEST_MMC1_CONTROL] = 0x0C;
+	core->values[TEST_MMC1_CHR0] = 3;
 	MAPPER_EXPECT_EQUAL(NES_DEVICE_CHR_ROM, mapper_map(core, mmc1_ppu, 0x0000).device);
 	MAPPER_EXPECT_EQUAL(KiB(8), mapper_map(core, mmc1_ppu, 0x0000).offset);
 	MAPPER_EXPECT_EQUAL(KiB(12), mapper_map(core, mmc1_ppu, 0x1000).offset);
 	MAPPER_EXPECT_EQUAL(0x62, mapper_read(core, mmc1_ppu, 0x0000));
 	MAPPER_EXPECT_EQUAL(0x63, mapper_read(core, mmc1_ppu, 0x1000));
 
-	core->core.values[TEST_MMC1_CONTROL] = 0x1C;
-	core->core.values[TEST_MMC1_CHR0] = 1;
-	core->core.values[TEST_MMC1_CHR1] = 3;
+	core->values[TEST_MMC1_CONTROL] = 0x1C;
+	core->values[TEST_MMC1_CHR0] = 1;
+	core->values[TEST_MMC1_CHR1] = 3;
 	MAPPER_EXPECT_EQUAL(KiB(4), mapper_map(core, mmc1_ppu, 0x0000).offset);
 	MAPPER_EXPECT_EQUAL(KiB(12), mapper_map(core, mmc1_ppu, 0x1000).offset);
 	MAPPER_EXPECT_EQUAL(0x61, mapper_read(core, mmc1_ppu, 0x0000));
 	MAPPER_EXPECT_EQUAL(0x63, mapper_read(core, mmc1_ppu, 0x1000));
 
-	core->core.values[TEST_MMC1_CONTROL] = 0;
+	core->values[TEST_MMC1_CONTROL] = 0;
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc1_ppu, 0x2000).offset);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc1_ppu, 0x2C00).offset);
-	core->core.values[TEST_MMC1_CONTROL] = 1;
+	core->values[TEST_MMC1_CONTROL] = 1;
 	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, mmc1_ppu, 0x2000).offset);
 	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, mmc1_ppu, 0x2800).offset);
-	core->core.values[TEST_MMC1_CONTROL] = 2;
+	core->values[TEST_MMC1_CONTROL] = 2;
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc1_ppu, 0x2000).offset);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc1_ppu, 0x2800).offset);
-	core->core.values[TEST_MMC1_CONTROL] = 3;
+	core->values[TEST_MMC1_CONTROL] = 3;
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc1_ppu, 0x2000).offset);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc1_ppu, 0x2400).offset);
 
-	memory_zero(core->core.values, sizeof(core->core.values));
+	memory_zero(core->values, sizeof(core->values));
 	mmc1_reset(core);
-	MAPPER_EXPECT_EQUAL(0x10, core->core.values[TEST_MMC1_SHIFT]);
-	MAPPER_EXPECT_EQUAL(0x0C, core->core.values[TEST_MMC1_CONTROL]);
+	MAPPER_EXPECT_EQUAL(0x10, core->values[TEST_MMC1_SHIFT]);
+	MAPPER_EXPECT_EQUAL(0x0C, core->values[TEST_MMC1_CONTROL]);
 
-	core->core.values[TEST_MMC1_CONTROL] = 0x13;
+	core->values[TEST_MMC1_CONTROL] = 0x13;
 	mapper_write(core, mmc1_cpu, 0x8000, 0x80);
-	MAPPER_EXPECT_EQUAL(0x1F, core->core.values[TEST_MMC1_CONTROL]);
+	MAPPER_EXPECT_EQUAL(0x1F, core->values[TEST_MMC1_CONTROL]);
 
 	mapper_test_prepare(fixture, KiB(32), 0);
 	mmc1_reset(core);
@@ -276,10 +276,10 @@ static void mapper_test_mmc2(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(KiB(120), mapper_map(core, mmc2_cpu, 0xE000).offset);
 	MAPPER_EXPECT_EQUAL(KiB(112), mapper_map(core, mmc2_cpu, 0xC000).offset);
 
-	u8 selected_bank = core->core.values[TEST_MMC2_PRG];
+	u8 selected_bank = core->values[TEST_MMC2_PRG];
 	mapper_peek(core, mmc2_cpu, 0xA000);
 	mapper_map(core, mmc2_cpu, 0xA000);
-	MAPPER_EXPECT_EQUAL(selected_bank, core->core.values[TEST_MMC2_PRG]);
+	MAPPER_EXPECT_EQUAL(selected_bank, core->values[TEST_MMC2_PRG]);
 
 	mapper_write(core, mmc2_cpu, 0xB000, 2);
 	mapper_write(core, mmc2_cpu, 0xC000, 3);
@@ -289,18 +289,18 @@ static void mapper_test_mmc2(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(5 * KiB(4), mapper_map(core, mmc2_ppu, 0x1000).offset);
 
 	mapper_read(core, mmc2_ppu, 0x0FD8);
-	MAPPER_EXPECT_EQUAL(0xFD, core->core.values[TEST_MMC2_LATCH0]);
+	MAPPER_EXPECT_EQUAL(0xFD, core->values[TEST_MMC2_LATCH0]);
 	MAPPER_EXPECT_EQUAL(2 * KiB(4), mapper_map(core, mmc2_ppu, 0x0000).offset);
 	mapper_peek(core, mmc2_ppu, 0x0FE8);
 	mapper_map(core, mmc2_ppu, 0x0FE8);
-	MAPPER_EXPECT_EQUAL(0xFD, core->core.values[TEST_MMC2_LATCH0]);
+	MAPPER_EXPECT_EQUAL(0xFD, core->values[TEST_MMC2_LATCH0]);
 	mapper_read(core, mmc2_ppu, 0x0FE8);
-	MAPPER_EXPECT_EQUAL(0xFE, core->core.values[TEST_MMC2_LATCH0]);
+	MAPPER_EXPECT_EQUAL(0xFE, core->values[TEST_MMC2_LATCH0]);
 	mapper_read(core, mmc2_ppu, 0x1FD8);
-	MAPPER_EXPECT_EQUAL(0xFD, core->core.values[TEST_MMC2_LATCH1]);
+	MAPPER_EXPECT_EQUAL(0xFD, core->values[TEST_MMC2_LATCH1]);
 	MAPPER_EXPECT_EQUAL(4 * KiB(4), mapper_map(core, mmc2_ppu, 0x1000).offset);
 	mapper_read(core, mmc2_ppu, 0x1FE8);
-	MAPPER_EXPECT_EQUAL(0xFE, core->core.values[TEST_MMC2_LATCH1]);
+	MAPPER_EXPECT_EQUAL(0xFE, core->values[TEST_MMC2_LATCH1]);
 
 	mapper_write(core, mmc2_cpu, 0xF000, 1);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc2_ppu, 0x2000).offset);

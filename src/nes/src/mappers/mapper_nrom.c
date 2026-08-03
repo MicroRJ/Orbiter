@@ -24,10 +24,10 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 	switch (access.address >> 12)
 	{
 		case 0: case 1: {
-			access = nes->core.chr_rom_size ? nes_chr_rom_access(nes, access) : nes_chr_ram_access(nes, access);
+			access = nes->chr_rom_size ? nes_chr_rom_access(nes, access) : nes_chr_ram_access(nes, access);
 		} break;
 		case 2: {
-			b32 v = nes->core.vmirror;
+			b32 v = nes->vmirror;
 			// NOTE(RJ)
 			// Here's how this works for when I forget:
 			// https://www.nesdev.org/wiki/Mirroring#Nametable_Mirroring
@@ -58,7 +58,7 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 
 NES_BusAccess nrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
 	if ((access.address >> 15) == 1) {
-		if (nes->core.num_prg_banks == 1) access.address &= KiB(16) - 1;
+		if (nes->num_prg_banks == 1) access.address &= KiB(16) - 1;
 		else                              access.address &= KiB(32) - 1;
 		access = nes_prg_rom_access(nes, access);
 	}

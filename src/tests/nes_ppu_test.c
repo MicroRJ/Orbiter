@@ -50,10 +50,10 @@ static PPU_TestFixture ppu_test_fixture_create(void)
 
 static void ppu_test_prepare(PPU_TestFixture *fixture)
 {
-	nes_ppu_reset(&fixture->core->core.ppu);
-	memory_zero(fixture->core->core._wram, sizeof(fixture->core->core._wram));
-	memory_zero(fixture->core->core._vram, sizeof(fixture->core->core._vram));
-	fixture->core->core.cpu_stall_cycles = 0;
+	nes_ppu_reset(&fixture->core->ppu);
+	memory_zero(fixture->core->_wram, sizeof(fixture->core->_wram));
+	memory_zero(fixture->core->_vram, sizeof(fixture->core->_vram));
+	fixture->core->cpu_stall_cycles = 0;
 }
 
 static void ppu_cpu_write(PPU_TestFixture *fixture, u16 address, u8 value)
@@ -103,7 +103,7 @@ static void ppu_test_scroll_and_address_latch(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "scroll and address latch";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_cpu_write(fixture, 0x2000, 0x03);
 	PPU_EXPECT_EQUAL(0x03, ppu->PPUCTRL);
@@ -135,7 +135,7 @@ static void ppu_test_data_port_address_increment(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPUDATA uses and increments v";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_cpu_write(fixture, 0x2000, 0x00);
 	ppu_set_vram_address(fixture, 0x2000);
@@ -160,7 +160,7 @@ static void ppu_test_data_read_buffer(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPUDATA delayed read buffer";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_bus_write(fixture, 0x2000, 0x11);
 	ppu_bus_write(fixture, 0x2001, 0x22);
@@ -188,7 +188,7 @@ static void ppu_test_palette_read_buffer(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "palette reads bypass and refill the PPUDATA buffer";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_bus_write(fixture, 0x2F05, 0x36);
 	ppu_bus_write(fixture, 0x3F05, 0x25);
@@ -221,7 +221,7 @@ static void ppu_test_oam_data_port(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "OAMDATA read, write, increment, and wrapping";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_cpu_write(fixture, 0x2003, 0x10);
 	ppu_cpu_write(fixture, 0x2004, 0xAB);
@@ -247,11 +247,11 @@ static void ppu_test_oam_dma(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "OAM DMA begins at OAMADDR and wraps";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	for (u32 i = 0; i < 256; ++i)
 	{
-		fixture->core->core._wram[0x200 + i] = (u8)i;
+		fixture->core->_wram[0x200 + i] = (u8)i;
 	}
 
 	ppu_cpu_write(fixture, 0x2003, 0xF8);
@@ -262,14 +262,14 @@ static void ppu_test_oam_dma(PPU_TestFixture *fixture)
 	PPU_EXPECT_EQUAL(0x08, ppu->_oam[0x00]);
 	PPU_EXPECT_EQUAL(0xFF, ppu->_oam[0xF7]);
 	PPU_EXPECT_EQUAL(0xF8, ppu->OAMADDR);
-	PPU_EXPECT_EQUAL(513, fixture->core->core.cpu_stall_cycles);
+	PPU_EXPECT_EQUAL(513, fixture->core->cpu_stall_cycles);
 }
 
 static void ppu_test_forced_blank_preserves_vram_address(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "forced blank preserves the CPU VRAM address";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu->PPUMASK = 0;
 	ppu->v = 0x2345;
@@ -302,7 +302,7 @@ static void ppu_test_clock_and_vblank_events(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPU clock and vblank events";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu->xtick = 340;
 	ppu->ytick = 0;
@@ -341,7 +341,7 @@ static void ppu_test_video_is_published_separately(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPU video output boundary";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu->_pram[0] = 0x2A;
 	ppu->PPUMASK = 0x10;

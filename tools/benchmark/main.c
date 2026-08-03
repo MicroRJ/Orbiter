@@ -89,18 +89,17 @@ static void benchmark_run(NES_Emulator *core, u64 ppu_cycles)
 
 static void benchmark_capture_runtime_snapshot(BenchmarkRuntimeSnapshot *snapshot, const NES_Emulator *core)
 {
-	const NES_State *state = &core->core;
-	memory_copy(snapshot->values, state->values, sizeof(snapshot->values));
-	snapshot->input_state = state->input_state;
-	snapshot->cpu_stall_cycles = state->cpu_stall_cycles;
-	snapshot->cpu = state->cpu;
-	snapshot->ppu = state->ppu;
-	snapshot->apu = state->apu;
-	memory_copy(snapshot->controllers, state->controllers, sizeof(snapshot->controllers));
-	memory_copy(snapshot->wram, state->_wram, sizeof(snapshot->wram));
-	memory_copy(snapshot->vram, state->_vram, sizeof(snapshot->vram));
-	memory_copy(snapshot->chr_ram, state->chr_ram, sizeof(snapshot->chr_ram));
-	memory_copy(snapshot->prg_ram, state->prg_ram, sizeof(snapshot->prg_ram));
+	memory_copy(snapshot->values, core->values, sizeof(snapshot->values));
+	snapshot->input_state = core->input_state;
+	snapshot->cpu_stall_cycles = core->cpu_stall_cycles;
+	snapshot->cpu = core->cpu;
+	snapshot->ppu = core->ppu;
+	snapshot->apu = core->apu;
+	memory_copy(snapshot->controllers, core->controllers, sizeof(snapshot->controllers));
+	memory_copy(snapshot->wram, core->_wram, sizeof(snapshot->wram));
+	memory_copy(snapshot->vram, core->_vram, sizeof(snapshot->vram));
+	memory_copy(snapshot->chr_ram, core->chr_ram, sizeof(snapshot->chr_ram));
+	memory_copy(snapshot->prg_ram, core->prg_ram, sizeof(snapshot->prg_ram));
 	memory_copy(snapshot->video, core->video, sizeof(snapshot->video));
 }
 
@@ -349,13 +348,14 @@ int main(int argc, char **argv)
 	}
 
 	f64 *samples = arena_push(&arena, sizeof(*samples) * iterations);
-	u64 full_snapshot_size = sizeof(core->core) + sizeof(core->video);
+	u64 emulator_state_size = offsetof(NES_Emulator, mapper);
+	u64 full_snapshot_size = emulator_state_size + sizeof(core->video);
 	u8 *full_snapshot = arena_push(&arena, full_snapshot_size);
 	for (u32 iteration = 0; iteration < iterations; ++iteration)
 	{
 		Seconds begin = seconds_now();
-		memory_copy(full_snapshot, &core->core, sizeof(core->core));
-		memory_copy(full_snapshot + sizeof(core->core), core->video, sizeof(core->video));
+		memory_copy(full_snapshot, core, emulator_state_size);
+		memory_copy(full_snapshot + emulator_state_size, core->video, sizeof(core->video));
 		samples[iteration] = seconds_now().seconds - begin.seconds;
 		benchmark_snapshot_sink += full_snapshot[iteration % full_snapshot_size];
 	}

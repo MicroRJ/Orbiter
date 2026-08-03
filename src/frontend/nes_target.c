@@ -171,9 +171,9 @@ void nes_target_publish(NES_TargetPublication *publication, NES_Emulator *emulat
 	Assert(nes_emulator_has_cartridge(emulator));
 
 	publication->valid = false;
-	publication->cpu = emulator->core.cpu;
-	publication->ppu = emulator->core.ppu;
-	publication->apu = emulator->core.apu;
+	publication->cpu = emulator->cpu;
+	publication->ppu = emulator->ppu;
+	publication->apu = emulator->apu;
 	PROF_BLOCK("capture video") memory_copy(publication->palletised_video, emulator->video, sizeof(publication->palletised_video));
 	PROF_BLOCK("capture CHR map") nes_emulator_capture_chr_map(emulator, &publication->chr_map);
 	memory_copy(publication->palette, nes_target_palette, sizeof(publication->palette));

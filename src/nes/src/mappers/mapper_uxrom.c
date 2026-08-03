@@ -12,7 +12,7 @@ NES_BusAccess uxrom_ppu(NES_Emulator *emulator, NES_BusAccess access) {
 			access = nes_chr_ram_access(emulator, access);
 		} break;
 		case 2: {
-			b32 v = emulator->core.vmirror;
+			b32 v = emulator->vmirror;
 			access.address = access.address & 0x3FF | (access.address >> !v & 0x400);
 			access = nes_vram_access(emulator, access);
 		} break;
@@ -29,8 +29,8 @@ NES_BusAccess uxrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
 			nes_mapper_set_value(nes, 0, access.value);
 		}
 		else {
-			i32 b = nes->core.values[0];
-			i32 k = nes->core.num_prg_banks - 1;
+			i32 b = nes->values[0];
+			i32 k = nes->num_prg_banks - 1;
 			if (access.address < 0xC000)
 			{
 				access.address = (access.address & 0x3FFF) + (b << 14);

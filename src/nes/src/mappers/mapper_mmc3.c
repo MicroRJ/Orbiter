@@ -17,8 +17,8 @@ enum {
 };
 
 NES_MAPPER_RSET_FUNC(mmc3_reset) {
-	nes_mapper_set_value(nes, R8, (nes->core.prg_rom_size >> 13) - 2);
-	nes_mapper_set_value(nes, R9, (nes->core.prg_rom_size >> 13) - 1);
+	nes_mapper_set_value(nes, R8, (nes->prg_rom_size >> 13) - 2);
+	nes_mapper_set_value(nes, R9, (nes->prg_rom_size >> 13) - 1);
 	return true;
 }
 
@@ -53,7 +53,7 @@ NES_BusAccess mmc3_cpu(NES_Emulator *nes, NES_BusAccess access)
 				// R0 and R1 ignore the bottom bit, as the value written still counts banks in 1KB units
 				// but odd numbered banks can't be selected
 				// """
-				u32 selected_register = nes->core.values[R_MODE] & 0x07;
+				u32 selected_register = nes->values[R_MODE] & 0x07;
 				if (selected_register == R0 || selected_register == R1) access.value &= ~0x01; else
 				if (selected_register == R6 || selected_register == R7) access.value &= ~0xC0;
 				nes_mapper_set_value(nes, selected_register, access.value);
@@ -85,8 +85,8 @@ NES_BusAccess mmc3_cpu(NES_Emulator *nes, NES_BusAccess access)
 		if (access.address >= 0x8000) {
 			// Bit 6 of the last value written to $8000 swaps the PRG windows at $8000 and $C000
 			u32 index = (access.address >> 13) - 4;
-			if (~index & 1) index ^= nes->core.values[R_MODE] >> 5 & 2;
-			u32 bank = nes->core.values[R6 + index];
+			if (~index & 1) index ^= nes->values[R_MODE] >> 5 & 2;
+			u32 bank = nes->values[R6 + index];
 			access.address = (bank << 13) | (access.address & 0x1FFF);
 			access = nes_prg_rom_access(nes, access);
 		}

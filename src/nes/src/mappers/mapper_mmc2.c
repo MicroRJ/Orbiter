@@ -24,10 +24,10 @@ NES_BusAccess mmc2_ppu(NES_Emulator *nes, NES_BusAccess access) {
 	switch (access.address >> 12) {
 		case 0: case 1: {
 			u32 table = access.address >> 12;
-			u8 latch = nes->core.values[LATCH0 + table];
+			u8 latch = nes->values[LATCH0 + table];
 			Assert(latch == 0xFD || latch == 0xFE);
 			u32 register_index = CHR0_A + table * 2 + (latch == 0xFE);
-			u32 bank = nes->core.values[register_index];
+			u32 bank = nes->values[register_index];
 			access.address = (bank << 12) + (access.address & 0x0FFF);
 			access = nes_chr_rom_access(nes, access);
 
@@ -48,7 +48,7 @@ NES_BusAccess mmc2_ppu(NES_Emulator *nes, NES_BusAccess access) {
 			}
 		} break;
 		case 2: {
-			b32 v = nes->core.values[MIRRORING];
+			b32 v = nes->values[MIRRORING];
 			Assert(v == 0 || v == 1);
 			access.address = access.address & 0x3FF |
 				(access.address >> !v & 0x400);
@@ -84,12 +84,12 @@ NES_BusAccess mmc2_cpu(NES_Emulator *nes, NES_BusAccess access) {
 				if (access.address < 0xA000) {
 					// [0x8000 - 0xA000 - 1] (8 KiB) switchable prg rom bank
 					access.address = (access.address & 0x1FFF) +
-						(nes->core.values[PRG_BANK] << 13);
+						(nes->values[PRG_BANK] << 13);
 					access = nes_prg_rom_access(nes, access);
 				}
 				else {
 					u32 fixed_window = (access.address - 0xA000) >> 13;
-					u32 prg_bank_count = nes->core.prg_rom_size / KiB(8);
+					u32 prg_bank_count = nes->prg_rom_size / KiB(8);
 					u32 bank = prg_bank_count - 3 + fixed_window;
 					access.address = bank * KiB(8) + (access.address & 0x1FFF);
 					access = nes_prg_rom_access(nes, access);

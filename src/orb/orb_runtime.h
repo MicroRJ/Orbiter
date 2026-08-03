@@ -16,13 +16,13 @@ struct Orb_Save
 	ByteSpan state;
 };
 
+// TODO(RJ) we don't have to keep the orb loaded in memory
 typedef struct
 {
-	u32 system;
+	NES_CartridgeDesc cartridge;
 	Hash256 content_hash;
 	Str title;
 	Str source_path;
-	ByteSpan content;
 	u64 first_played_unix_ms;
 	u64 last_played_unix_ms;
 	u64 play_time_ms;
@@ -65,7 +65,7 @@ typedef struct
 }
 Orb_Store;
 
-// Runtime objects borrow strings, content, state, and thumbnails from source.
+// Runtime objects borrow strings, cartridge ROMs, state, and thumbnails from source.
 // Save nodes are allocated from runtime_arena.
 Orb_Result orb_runtime_decode(Arena *runtime_arena, ByteSpan source, Orb *orb);
 Orb_Result orb_runtime_encode(Arena *output_arena, const Orb *orb, ByteSpan *output);

@@ -117,7 +117,7 @@ int main(int argc, char **argv)
 
 	b32 seen_field_ids[NES_STATE_FIELD_ID_COUNT] = {};
 	u32 field_id_count = 0;
-	for (u32 record_id = NES_RECORD_MACHINE; record_id < NES_RECORD_COUNT; ++record_id)
+	for (u32 record_id = NES_RECORD_EMULATOR; record_id < NES_RECORD_COUNT; ++record_id)
 	{
 		const NES_StateRecord *record = nes_state_record((NES_RecordId)record_id);
 		Assert(record);
@@ -134,18 +134,19 @@ int main(int argc, char **argv)
 	}
 	Assert(field_id_count == NES_STATE_FIELD_ID_COUNT - 14);
 	Assert(!nes_state_field_from_id(NES_STATE_FIELD_ID_NONE));
-	Assert(!nes_state_field_from_id(NES_STATE_FIELD_ID_MACHINE_AUDIO_SAMPLE_PHASE));
+	Assert(!nes_state_field_from_id(NES_STATE_FIELD_ID_EMULATOR_AUDIO_SAMPLE_PHASE));
 	Assert(!nes_state_field_from_id(NES_STATE_FIELD_ID_COUNT));
 
 	const NES_StateRecord *cpu_record =
 		nes_state_record(NES_RECORD_CPU);
 	const NES_StateRecord *ppu_record =
 		nes_state_record(NES_RECORD_PPU);
-	const NES_StateRecord *machine_record =
-		nes_state_record(NES_RECORD_MACHINE);
+	const NES_StateRecord *emulator_record =
+		nes_state_record(NES_RECORD_EMULATOR);
 	Assert(cpu_record && cpu_record->size == sizeof(NES_CPUState));
 	Assert(ppu_record && ppu_record->size == sizeof(NES_PPUState));
-	Assert(machine_record && machine_record->id == NES_RECORD_MACHINE);
+	Assert(emulator_record && emulator_record->id == NES_RECORD_EMULATOR);
+	Assert(emulator_record->size == sizeof(NES_Emulator));
 	Assert(serialize_record_from_id(nes_state_record_map(), cpu_record->id) == cpu_record);
 	Assert(serialize_record_from_id(nes_state_record_map(), ppu_record->id) == ppu_record);
 	Assert(nes_state_visible_field_count(cpu_record) == 6);
@@ -158,10 +159,10 @@ int main(int argc, char **argv)
 	Assert(program_counter->size == sizeof(((NES_CPUState *)0)->PC));
 	Assert(program_counter->flags & NES_STATE_FIELD_SERIALIZED);
 	Assert(program_counter->flags & NES_STATE_FIELD_DEBUG_VISIBLE);
-	const NES_StateField *machine_ppu = find_state_field(machine_record, "ppu");
-	Assert(machine_ppu);
-	Assert(machine_ppu->wire_type == SERIALIZE_WIRE_RECORD);
-	Assert(machine_ppu->record_id == NES_RECORD_PPU);
+	const NES_StateField *emulator_ppu = find_state_field(emulator_record, "ppu");
+	Assert(emulator_ppu);
+	Assert(emulator_ppu->wire_type == SERIALIZE_WIRE_RECORD);
+	Assert(emulator_ppu->record_id == NES_RECORD_PPU);
 
 	Arena arena = arena_create(0, "Orbiter emulator test");
 	u32 rom_size = 16 + KiB(16) + KiB(8);
@@ -219,11 +220,11 @@ int main(int argc, char **argv)
 	Assert(!nes_emulator_load_state(core, byte_span(obsolete_state_header, sizeof(obsolete_state_header))));
 	Assert(nes_emulator_has_cartridge(core));
 
-	NES_CPUState before = core->core.cpu;
+	NES_CPUState before = core->cpu;
 	Assert(before.PC != 0);
 
 	nes_emulator_step(core);
-	NES_CPUState after = core->core.cpu;
+	NES_CPUState after = core->cpu;
 	Assert(after.PC != before.PC);
 	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(core);
 	Assert(trace.index > 0);
@@ -256,9 +257,9 @@ int main(int argc, char **argv)
 	Assert(split.spans[1].entries == wrapped.trace);
 	Assert(split.spans[1].count == 7);
 
-	NES_CPUState captured_cpu = core->core.cpu;
-	NES_PPUState captured_ppu = core->core.ppu;
-	NES_APUState captured_apu = core->core.apu;
+	NES_CPUState captured_cpu = core->cpu;
+	NES_PPUState captured_ppu = core->ppu;
+	NES_APUState captured_apu = core->apu;
 	Assert(captured_cpu.PC == after.PC);
 	Assert(captured_ppu.xtick < 341);
 	Assert(captured_ppu.ytick < 262);
@@ -268,12 +269,12 @@ int main(int argc, char **argv)
 	// Captured values are copies of the actual device structs. Advancing the
 	// emulator must not mutate a previously captured state value.
 	nes_emulator_step(core);
-	Assert(core->core.cpu.PC != captured_cpu.PC);
+	Assert(core->cpu.PC != captured_cpu.PC);
 
 	Assert(ArrayCount(core->video) == NES_VIDEO_HEIGHT);
 	Assert(ArrayCount(core->video[0]) == NES_VIDEO_WIDTH);
 
-	NES_PPUState state_before_save_ppu = core->core.ppu;
+	NES_PPUState state_before_save_ppu = core->ppu;
 	NES_PPUState state_after_load_ppu = {};
 	core->video[7][11] = 0x2A;
 	SCRATCH_SCOPE(&arena)
@@ -301,10 +302,10 @@ int main(int argc, char **argv)
 		Assert(!nes_emulator_load_state(core,
 			byte_span(corrupt_state, state.size)));
 		Assert(memory_match(core, before_failed_load, sizeof(*core)));
-		u32 valid_xtick = core->core.ppu.xtick;
-		core->core.ppu.xtick = 341;
+		u32 valid_xtick = core->ppu.xtick;
+		core->ppu.xtick = 341;
 		ByteSpan invalid_state = nes_emulator_save_state(core, &arena);
-		core->core.ppu.xtick = valid_xtick;
+		core->ppu.xtick = valid_xtick;
 		Assert(!nes_emulator_load_state(core, invalid_state));
 		Assert(memory_match(core, before_failed_load, sizeof(*core)));
 
@@ -316,21 +317,21 @@ int main(int argc, char **argv)
 		nes_emulator_step(core);
 		core->video[7][11] = 0;
 		Assert(nes_emulator_load_state(core, byte_span(disk_state.text, disk_state.size)));
-		state_after_load_ppu = core->core.ppu;
+		state_after_load_ppu = core->ppu;
 	}
 	assert_serialized_fields_equal(ppu_record, &state_before_save_ppu, &state_after_load_ppu);
 	Assert(core->video[7][11] == 0x2A);
 
-	Assert(core->core.ppu.xtick > 0);
-	Assert(core->core.apu.cpu_cycle_counter < 7457);
+	Assert(core->ppu.xtick > 0);
+	Assert(core->apu.cpu_cycle_counter < 7457);
 
 	Assert(nes_emulator_load_cartridge(core, parsed_cartridge));
-	Assert(core->core.cpu.PC == before.PC);
-	Assert(core->core.ppu.xtick == 0);
-	Assert(core->core.ppu.ytick == 0);
-	Assert(core->core.apu.mode == 0);
-	Assert(core->core.apu.step_index == 0);
-	Assert(core->core.apu.cpu_cycle_counter == 0);
+	Assert(core->cpu.PC == before.PC);
+	Assert(core->ppu.xtick == 0);
+	Assert(core->ppu.ytick == 0);
+	Assert(core->apu.mode == 0);
+	Assert(core->apu.step_index == 0);
+	Assert(core->apu.cpu_cycle_counter == 0);
 
 	if (argc > 1)
 	{
@@ -341,9 +342,9 @@ int main(int argc, char **argv)
 			NES_Emulator *external_core = arena_push_zero(&arena, sizeof(NES_Emulator));
 			Assert(nes_emulator_load_state(external_core,
 				byte_span(external_state.text, external_state.size)));
-			Assert(external_core->core.cpu.PC != 0);
-			Assert(external_core->core.ppu.xtick < 341);
-			Assert(external_core->core.ppu.ytick < 262);
+			Assert(external_core->cpu.PC != 0);
+			Assert(external_core->ppu.xtick < 341);
+			Assert(external_core->ppu.ytick < 262);
 		}
 	}
 

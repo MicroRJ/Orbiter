@@ -5,9 +5,12 @@ enum
 	ORB_MAGIC = ORB_FOURCC('O', 'R', 'B', 'S'),
 	ORB_FILE_HEADER_SIZE = 16,
 	ORB_CHUNK_HEADER_SIZE = 32,
-	ORB_GAME_METADATA_VERSION = 1,
-	ORB_GAME_METADATA_FIXED_SIZE = 72,
-	ORB_GAME_CONTENT_VERSION = 1,
+	ORB_METADATA_VERSION = 1,
+	ORB_METADATA_FIXED_SIZE = 68,
+	ORB_CARTRIDGE_VERSION = 1,
+	ORB_CARTRIDGE_FIXED_SIZE = 16,
+	ORB_PRG_ROM_VERSION = 1,
+	ORB_CHR_ROM_VERSION = 1,
 	ORB_SAVE_VERSION = 1,
 	ORB_SAVE_METADATA_VERSION = 1,
 	ORB_SAVE_METADATA_FIXED_SIZE = 48,
@@ -17,11 +20,18 @@ enum
 	ORB_ALIGNMENT = 8,
 	ORB_MAX_CHUNKS = 1024,
 
-	ORB_ROOT_GAME = 1 << 0,
-	ORB_ROOT_CONTENT = 1 << 1,
+	ORB_ROOT_METADATA = 1 << 0,
+	ORB_ROOT_CARTRIDGE = 1 << 1,
+	ORB_ROOT_PRG_ROM = 1 << 2,
+	ORB_ROOT_CHR_ROM = 1 << 3,
+	ORB_ROOT_ALL = ORB_ROOT_METADATA | ORB_ROOT_CARTRIDGE | ORB_ROOT_PRG_ROM | ORB_ROOT_CHR_ROM,
 	ORB_SAVE_METADATA = 1 << 0,
 	ORB_SAVE_STATE = 1 << 1,
 	ORB_SAVE_THUMBNAIL = 1 << 2,
+
+	ORB_CARTRIDGE_VERTICAL_MIRRORING = 1 << 0,
+	ORB_CARTRIDGE_FOUR_SCREEN = 1 << 1,
+	ORB_CARTRIDGE_KNOWN_FLAGS = ORB_CARTRIDGE_VERTICAL_MIRRORING | ORB_CARTRIDGE_FOUR_SCREEN,
 };
 
 static const u64 ORB_MAX_FILE_SIZE = MB(256);
@@ -53,7 +63,6 @@ Orb_ChunkHeader;
 
 typedef struct
 {
-	u32 system;
 	u32 flags;
 	Hash256 content_hash;
 	u64 first_played_unix_ms;
@@ -62,7 +71,16 @@ typedef struct
 	u32 title_size;
 	u32 source_path_size;
 }
-Orb_GameMetadataFixed;
+Orb_MetadataFixed;
+
+typedef struct
+{
+	u32 mapper;
+	u32 flags;
+	u32 prg_rom_size;
+	u32 chr_rom_size;
+}
+Orb_CartridgeMetadataFixed;
 
 typedef struct
 {
@@ -86,7 +104,8 @@ Orb_ThumbnailFixed;
 
 STATIC_ASSERT(4 + 2 + 2 + 4 + 4 == ORB_FILE_HEADER_SIZE);
 STATIC_ASSERT(4 + 2 + 2 + 8 + 8 + 4 + 2 + 2 == ORB_CHUNK_HEADER_SIZE);
-STATIC_ASSERT(4 * 2 + 32 + 8 * 3 + 4 * 2 == ORB_GAME_METADATA_FIXED_SIZE);
+STATIC_ASSERT(4 + 32 + 8 * 3 + 4 * 2 == ORB_METADATA_FIXED_SIZE);
+STATIC_ASSERT(4 * 4 == ORB_CARTRIDGE_FIXED_SIZE);
 STATIC_ASSERT(4 * 2 + 16 + 8 * 3 == ORB_SAVE_METADATA_FIXED_SIZE);
 STATIC_ASSERT(4 * 4 == ORB_THUMBNAIL_FIXED_SIZE);
 
@@ -111,9 +130,8 @@ static void orb_transfer_chunk_header(ByteStream *stream, Orb_ChunkHeader *heade
 	byte_transfer_u16(stream, &header->header_size);
 }
 
-static void orb_transfer_game_metadata_fixed(ByteStream *stream, Orb_GameMetadataFixed *metadata)
+static void orb_transfer_metadata_fixed(ByteStream *stream, Orb_MetadataFixed *metadata)
 {
-	byte_transfer_u32(stream, &metadata->system);
 	byte_transfer_u32(stream, &metadata->flags);
 	byte_transfer_bytes(stream, byte_span(metadata->content_hash.bytes, sizeof(metadata->content_hash.bytes)));
 	byte_transfer_u64(stream, &metadata->first_played_unix_ms);
@@ -121,6 +139,14 @@ static void orb_transfer_game_metadata_fixed(ByteStream *stream, Orb_GameMetadat
 	byte_transfer_u64(stream, &metadata->play_time_ms);
 	byte_transfer_u32(stream, &metadata->title_size);
 	byte_transfer_u32(stream, &metadata->source_path_size);
+}
+
+static void orb_transfer_cartridge_fixed(ByteStream *stream, Orb_CartridgeMetadataFixed *cartridge)
+{
+	byte_transfer_u32(stream, &cartridge->mapper);
+	byte_transfer_u32(stream, &cartridge->flags);
+	byte_transfer_u32(stream, &cartridge->prg_rom_size);
+	byte_transfer_u32(stream, &cartridge->chr_rom_size);
 }
 
 static void orb_transfer_save_metadata_fixed(ByteStream *stream, Orb_SaveMetadataFixed *metadata)
@@ -197,11 +223,65 @@ static b32 orb_thumbnail_valid(Orb_Thumbnail thumbnail)
 	return expected_size <= ORB_MAX_THUMBNAIL_SIZE && expected_size == pixel_size;
 }
 
-static b32 orb_game_metadata_valid(Orb_GameMetadata metadata)
+static b32 orb_metadata_valid(Orb_Metadata metadata)
 {
-	if (!metadata.system || hash256_is_zero(metadata.content_hash) || !orb_string_valid(metadata.title) || !orb_string_valid(metadata.source_path)) return false;
+	if (hash256_is_zero(metadata.content_hash) || !orb_string_valid(metadata.title) || !orb_string_valid(metadata.source_path)) return false;
 	if (metadata.first_played_unix_ms && metadata.last_played_unix_ms && metadata.last_played_unix_ms < metadata.first_played_unix_ms) return false;
 	return true;
+}
+
+static b32 orb_cartridge_metadata_valid(Orb_CartridgeMetadata cartridge)
+{
+	if (!cartridge.prg_rom_size) return false;
+	if ((cartridge.vertical_mirroring != 0 && cartridge.vertical_mirroring != 1) || (cartridge.four_screen != 0 && cartridge.four_screen != 1)) return false;
+	return true;
+}
+
+static Orb_CartridgeMetadata orb_cartridge_metadata(NES_CartridgeDesc cartridge)
+{
+	if (cartridge.has_trainer || cartridge.prg_rom.size > MAX_VALUE_U32 || cartridge.chr_rom.size > MAX_VALUE_U32) return (Orb_CartridgeMetadata) {};
+	return (Orb_CartridgeMetadata) {
+		.mapper = cartridge.mapper,
+		.prg_rom_size = (u32)cartridge.prg_rom.size,
+		.chr_rom_size = (u32)cartridge.chr_rom.size,
+		.vertical_mirroring = !!cartridge.vertical_mirroring,
+		.four_screen = !!cartridge.four_screen,
+	};
+}
+
+static Orb_CartridgeMetadataFixed orb_cartridge_fixed(Orb_CartridgeMetadata cartridge)
+{
+	return (Orb_CartridgeMetadataFixed) {
+		.mapper = cartridge.mapper,
+		.flags = (cartridge.vertical_mirroring ? ORB_CARTRIDGE_VERTICAL_MIRRORING : 0) |
+			(cartridge.four_screen ? ORB_CARTRIDGE_FOUR_SCREEN : 0),
+		.prg_rom_size = cartridge.prg_rom_size,
+		.chr_rom_size = cartridge.chr_rom_size,
+	};
+}
+
+static void orb_cartridge_hash_begin(SHA256_Context *context, Orb_CartridgeMetadata cartridge)
+{
+	static const u8 domain[] = "ORB NES CARTRIDGE 1";
+	u8 encoded[ORB_CARTRIDGE_FIXED_SIZE];
+	Orb_CartridgeMetadataFixed fixed = orb_cartridge_fixed(cartridge);
+	ByteStream writer = byte_stream_writer(byte_span(encoded, sizeof(encoded)));
+	orb_transfer_cartridge_fixed(&writer, &fixed);
+	Assert(!writer.failed && writer.cursor == writer.size);
+	sha256_init(context);
+	sha256_update(context, byte_span((void *)domain, sizeof(domain) - 1));
+	sha256_update(context, byte_span(encoded, sizeof(encoded)));
+}
+
+Hash256 orb_cartridge_hash(NES_CartridgeDesc cartridge)
+{
+	Orb_CartridgeMetadata metadata = orb_cartridge_metadata(cartridge);
+	if (!orb_cartridge_metadata_valid(metadata) || !cartridge.prg_rom.data || cartridge.chr_rom.size && !cartridge.chr_rom.data) return (Hash256) {};
+	SHA256_Context context;
+	orb_cartridge_hash_begin(&context, metadata);
+	sha256_update(&context, cartridge.prg_rom);
+	sha256_update(&context, cartridge.chr_rom);
+	return sha256_final(&context);
 }
 
 static b32 orb_save_metadata_valid(Orb_SaveMetadata metadata)
@@ -327,18 +407,17 @@ Orb_Encoder orb_begin_encoding(Arena *output_arena)
 	return encoder;
 }
 
-b32 orb_write_game_metadata_chunk(Orb_Encoder *encoder, Orb_GameMetadata metadata)
+b32 orb_write_metadata_chunk(Orb_Encoder *encoder, Orb_Metadata metadata)
 {
 	if (!encoder) return false;
 	if (encoder->ended || encoder->in_save || encoder->root_chunks) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
-	if (!orb_game_metadata_valid(metadata)) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
-	u64 payload_size = ORB_GAME_METADATA_FIXED_SIZE;
+	if (!orb_metadata_valid(metadata)) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
+	u64 payload_size = ORB_METADATA_FIXED_SIZE;
 	if (!orb_add_size(&payload_size, metadata.title.size) || !orb_add_size(&payload_size, metadata.source_path.size) || payload_size > ORB_MAX_METADATA_SIZE) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
 	u64 header = orb_encoder_begin_chunk(encoder);
 	ByteSpan payload = orb_encoder_push(encoder, payload_size);
 	if (encoder->result.status != ORB_STATUS_OK) return false;
-	Orb_GameMetadataFixed fixed = {
-		.system = metadata.system,
+	Orb_MetadataFixed fixed = {
 		.content_hash = metadata.content_hash,
 		.first_played_unix_ms = metadata.first_played_unix_ms,
 		.last_played_unix_ms = metadata.last_played_unix_ms,
@@ -347,30 +426,59 @@ b32 orb_write_game_metadata_chunk(Orb_Encoder *encoder, Orb_GameMetadata metadat
 		.source_path_size = metadata.source_path.size,
 	};
 	ByteStream writer = byte_stream_writer(payload);
-	orb_transfer_game_metadata_fixed(&writer, &fixed);
+	orb_transfer_metadata_fixed(&writer, &fixed);
 	if (metadata.title.size) byte_transfer_bytes(&writer, byte_span(metadata.title.data, metadata.title.size));
 	if (metadata.source_path.size) byte_transfer_bytes(&writer, byte_span(metadata.source_path.data, metadata.source_path.size));
 	Assert(!writer.failed && writer.cursor == writer.size);
-	if (!orb_encoder_end_chunk(encoder, header, ORB_CHUNK_GAME_METADATA, ORB_GAME_METADATA_VERSION, ORB_CHUNK_REQUIRED | ORB_CHUNK_HAS_CRC32)) return false;
+	if (!orb_encoder_end_chunk(encoder, header, ORB_CHUNK_METADATA, ORB_METADATA_VERSION, ORB_CHUNK_REQUIRED | ORB_CHUNK_HAS_CRC32)) return false;
 	encoder->content_hash = metadata.content_hash;
-	encoder->root_chunks |= ORB_ROOT_GAME;
+	encoder->root_chunks |= ORB_ROOT_METADATA;
 	return true;
 }
 
-b32 orb_write_game_content_chunk(Orb_Encoder *encoder, ByteSpan content)
+b32 orb_write_cartridge_chunk(Orb_Encoder *encoder, Orb_CartridgeMetadata cartridge)
 {
 	if (!encoder) return false;
-	if (encoder->ended || encoder->in_save || encoder->root_chunks != ORB_ROOT_GAME) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
-	if (!content.data || !content.size) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
-	if (!hash256_match(encoder->content_hash, sha256(content))) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
-	if (!orb_encoder_write_bytes_chunk(encoder, ORB_CHUNK_GAME_CONTENT, ORB_GAME_CONTENT_VERSION, ORB_CHUNK_REQUIRED | ORB_CHUNK_HAS_CRC32, content)) return false;
-	encoder->root_chunks |= ORB_ROOT_CONTENT;
+	if (encoder->ended || encoder->in_save || encoder->root_chunks != ORB_ROOT_METADATA) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
+	if (!orb_cartridge_metadata_valid(cartridge)) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
+	Orb_CartridgeMetadataFixed fixed = orb_cartridge_fixed(cartridge);
+	u8 payload[ORB_CARTRIDGE_FIXED_SIZE];
+	ByteStream writer = byte_stream_writer(byte_span(payload, sizeof(payload)));
+	orb_transfer_cartridge_fixed(&writer, &fixed);
+	Assert(!writer.failed && writer.cursor == writer.size);
+	if (!orb_encoder_write_bytes_chunk(encoder, ORB_CHUNK_CARTRIDGE, ORB_CARTRIDGE_VERSION, ORB_CHUNK_REQUIRED | ORB_CHUNK_HAS_CRC32, byte_span(payload, sizeof(payload)))) return false;
+	encoder->cartridge = cartridge;
+	orb_cartridge_hash_begin(&encoder->cartridge_hash, cartridge);
+	encoder->root_chunks |= ORB_ROOT_CARTRIDGE;
+	return true;
+}
+
+b32 orb_write_prg_rom_chunk(Orb_Encoder *encoder, ByteSpan prg_rom)
+{
+	if (!encoder) return false;
+	if (encoder->ended || encoder->in_save || encoder->root_chunks != (ORB_ROOT_METADATA | ORB_ROOT_CARTRIDGE)) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
+	if (!prg_rom.data || prg_rom.size != encoder->cartridge.prg_rom_size) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
+	if (!orb_encoder_write_bytes_chunk(encoder, ORB_CHUNK_PRG_ROM, ORB_PRG_ROM_VERSION, ORB_CHUNK_REQUIRED | ORB_CHUNK_HAS_CRC32, prg_rom)) return false;
+	sha256_update(&encoder->cartridge_hash, prg_rom);
+	encoder->root_chunks |= ORB_ROOT_PRG_ROM;
+	return true;
+}
+
+b32 orb_write_chr_rom_chunk(Orb_Encoder *encoder, ByteSpan chr_rom)
+{
+	if (!encoder) return false;
+	if (encoder->ended || encoder->in_save || encoder->root_chunks != (ORB_ROOT_METADATA | ORB_ROOT_CARTRIDGE | ORB_ROOT_PRG_ROM)) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
+	if (chr_rom.size != encoder->cartridge.chr_rom_size || chr_rom.size && !chr_rom.data) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
+	if (!orb_encoder_write_bytes_chunk(encoder, ORB_CHUNK_CHR_ROM, ORB_CHR_ROM_VERSION, ORB_CHUNK_REQUIRED | ORB_CHUNK_HAS_CRC32, chr_rom)) return false;
+	sha256_update(&encoder->cartridge_hash, chr_rom);
+	if (!hash256_match(encoder->content_hash, sha256_final(&encoder->cartridge_hash))) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_ARGUMENT);
+	encoder->root_chunks |= ORB_ROOT_CHR_ROM;
 	return true;
 }
 
 b32 orb_begin_save_chunk(Orb_Encoder *encoder)
 {
-	if (!encoder || encoder->ended || encoder->in_save || encoder->root_chunks != (ORB_ROOT_GAME | ORB_ROOT_CONTENT)) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
+	if (!encoder || encoder->ended || encoder->in_save || encoder->root_chunks != ORB_ROOT_ALL) return orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
 	encoder->save_header_position = orb_encoder_begin_chunk(encoder);
 	if (encoder->result.status != ORB_STATUS_OK) return false;
 	encoder->save_chunks = 0;
@@ -466,7 +574,7 @@ Orb_Result orb_end_encoding(Orb_Encoder *encoder, ByteSpan *output)
 	}
 	if (encoder->ended) return orb_result(ORB_STATUS_INVALID_SEQUENCE, encoder->result.offset);
 	if (encoder->in_save) orb_encoder_fail(encoder, ORB_STATUS_INVALID_SEQUENCE);
-	if (encoder->root_chunks != (ORB_ROOT_GAME | ORB_ROOT_CONTENT)) orb_encoder_fail(encoder, ORB_STATUS_MISSING_CHUNK);
+	if (encoder->root_chunks != ORB_ROOT_ALL) orb_encoder_fail(encoder, ORB_STATUS_MISSING_CHUNK);
 	if (encoder->result.status == ORB_STATUS_OK)
 	{
 		Assert(encoder->arena->position == encoder->expected_position);
@@ -594,19 +702,18 @@ static Orb_Result orb_validate_typed_chunk(Orb_Chunk chunk, u32 type, u16 versio
 	return orb_result(ORB_STATUS_OK, 0);
 }
 
-Orb_Result orb_decode_game_metadata_chunk(Orb_Chunk chunk, Orb_GameMetadata *metadata)
+Orb_Result orb_decode_metadata_chunk(Orb_Chunk chunk, Orb_Metadata *metadata)
 {
-	if (metadata) *metadata = (Orb_GameMetadata) {};
+	if (metadata) *metadata = (Orb_Metadata) {};
 	if (!metadata) return orb_result(ORB_STATUS_INVALID_ARGUMENT, chunk.offset);
-	Orb_Result result = orb_validate_typed_chunk(chunk, ORB_CHUNK_GAME_METADATA, ORB_GAME_METADATA_VERSION, ORB_MAX_METADATA_SIZE);
+	Orb_Result result = orb_validate_typed_chunk(chunk, ORB_CHUNK_METADATA, ORB_METADATA_VERSION, ORB_MAX_METADATA_SIZE);
 	if (result.status != ORB_STATUS_OK) return result;
-	if (chunk.data.size < ORB_GAME_METADATA_FIXED_SIZE) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
+	if (chunk.data.size < ORB_METADATA_FIXED_SIZE) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
 	ByteStream reader = byte_stream_reader(chunk.data);
-	Orb_GameMetadataFixed fixed = {};
-	orb_transfer_game_metadata_fixed(&reader, &fixed);
+	Orb_MetadataFixed fixed = {};
+	orb_transfer_metadata_fixed(&reader, &fixed);
 	u64 strings_size = (u64)fixed.title_size + fixed.source_path_size;
-	if (reader.failed || fixed.flags || strings_size != chunk.data.size - ORB_GAME_METADATA_FIXED_SIZE) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
-	metadata->system = fixed.system;
+	if (reader.failed || fixed.flags || strings_size != chunk.data.size - ORB_METADATA_FIXED_SIZE) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
 	metadata->content_hash = fixed.content_hash;
 	metadata->first_played_unix_ms = fixed.first_played_unix_ms;
 	metadata->last_played_unix_ms = fixed.last_played_unix_ms;
@@ -615,8 +722,51 @@ Orb_Result orb_decode_game_metadata_chunk(Orb_Chunk chunk, Orb_GameMetadata *met
 	ByteSpan source_path = byte_stream_take(&reader, fixed.source_path_size);
 	metadata->title = str_from_data(title.data, fixed.title_size);
 	metadata->source_path = str_from_data(source_path.data, fixed.source_path_size);
-	if (reader.failed || !orb_game_metadata_valid(*metadata)) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
+	if (reader.failed || !orb_metadata_valid(*metadata)) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
 	return orb_result(ORB_STATUS_OK, 0);
+}
+
+Orb_Result orb_decode_cartridge_chunk(Orb_Chunk chunk, Orb_CartridgeMetadata *cartridge)
+{
+	if (cartridge) *cartridge = (Orb_CartridgeMetadata) {};
+	if (!cartridge) return orb_result(ORB_STATUS_INVALID_ARGUMENT, chunk.offset);
+	Orb_Result result = orb_validate_typed_chunk(chunk, ORB_CHUNK_CARTRIDGE, ORB_CARTRIDGE_VERSION, ORB_CARTRIDGE_FIXED_SIZE);
+	if (result.status != ORB_STATUS_OK) return result;
+	if (chunk.data.size != ORB_CARTRIDGE_FIXED_SIZE) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
+	ByteStream reader = byte_stream_reader(chunk.data);
+	Orb_CartridgeMetadataFixed fixed = {};
+	orb_transfer_cartridge_fixed(&reader, &fixed);
+	if (reader.failed || fixed.flags & ~ORB_CARTRIDGE_KNOWN_FLAGS) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
+	*cartridge = (Orb_CartridgeMetadata) {
+		.mapper = fixed.mapper,
+		.prg_rom_size = fixed.prg_rom_size,
+		.chr_rom_size = fixed.chr_rom_size,
+		.vertical_mirroring = !!(fixed.flags & ORB_CARTRIDGE_VERTICAL_MIRRORING),
+		.four_screen = !!(fixed.flags & ORB_CARTRIDGE_FOUR_SCREEN),
+	};
+	if (!orb_cartridge_metadata_valid(*cartridge)) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
+	return orb_result(ORB_STATUS_OK, 0);
+}
+
+static Orb_Result orb_decode_rom_chunk(Orb_Chunk chunk, u32 type, u16 version, b32 allow_empty, ByteSpan *rom)
+{
+	if (rom) *rom = (ByteSpan) {};
+	if (!rom) return orb_result(ORB_STATUS_INVALID_ARGUMENT, chunk.offset);
+	Orb_Result result = orb_validate_typed_chunk(chunk, type, version, ORB_MAX_FILE_SIZE);
+	if (result.status != ORB_STATUS_OK) return result;
+	if (!allow_empty && !chunk.data.size) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
+	*rom = chunk.data;
+	return orb_result(ORB_STATUS_OK, 0);
+}
+
+Orb_Result orb_decode_prg_rom_chunk(Orb_Chunk chunk, ByteSpan *prg_rom)
+{
+	return orb_decode_rom_chunk(chunk, ORB_CHUNK_PRG_ROM, ORB_PRG_ROM_VERSION, false, prg_rom);
+}
+
+Orb_Result orb_decode_chr_rom_chunk(Orb_Chunk chunk, ByteSpan *chr_rom)
+{
+	return orb_decode_rom_chunk(chunk, ORB_CHUNK_CHR_ROM, ORB_CHR_ROM_VERSION, true, chr_rom);
 }
 
 Orb_Result orb_decode_save_metadata_chunk(Orb_Chunk chunk, Orb_SaveMetadata *metadata)
@@ -635,17 +785,6 @@ Orb_Result orb_decode_save_metadata_chunk(Orb_Chunk chunk, Orb_SaveMetadata *met
 	metadata->updated_unix_ms = fixed.updated_unix_ms;
 	metadata->play_time_ms = fixed.play_time_ms;
 	if (reader.failed || fixed.flags || !orb_save_metadata_valid(*metadata)) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
-	return orb_result(ORB_STATUS_OK, 0);
-}
-
-Orb_Result orb_decode_game_content_chunk(Orb_Chunk chunk, ByteSpan *content)
-{
-	if (content) *content = (ByteSpan) {};
-	if (!content) return orb_result(ORB_STATUS_INVALID_ARGUMENT, chunk.offset);
-	Orb_Result result = orb_validate_typed_chunk(chunk, ORB_CHUNK_GAME_CONTENT, ORB_GAME_CONTENT_VERSION, ORB_MAX_FILE_SIZE);
-	if (result.status != ORB_STATUS_OK) return result;
-	if (!chunk.data.size) return orb_result(ORB_STATUS_INVALID_FORMAT, chunk.payload_offset);
-	*content = chunk.data;
 	return orb_result(ORB_STATUS_OK, 0);
 }
 

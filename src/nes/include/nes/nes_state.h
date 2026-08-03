@@ -142,27 +142,3 @@ typedef struct
 NES_APUState;
 
 typedef struct { u8 inputs[2]; } NES_InputState;
-
-typedef struct NES_State
-{
-	u32 mapper;
-	u32 num_chr_banks, num_prg_banks;
-	u32 prg_rom_size,  chr_rom_size;
-	u32 prg_bank_size, chr_bank_size;
-	b32                vmirror;
-	// LIVE STATE
-	u8             values[32];
-	NES_InputState input_state;
-	u32            cpu_stall_cycles;
-	NES_CPUState   cpu;
-	NES_PPUState   ppu;
-	NES_APUState   apu;
-	u8             controllers[2];
-	u8             _wram[NES_WRAM_SIZE];
-	u8             _vram[NES_VRAM_SIZE];
-	u8             chr_ram[NES_MAX_CHR_RAM_SIZE];
-	u8             prg_ram[NES_MAX_PRG_RAM_SIZE];
-	u8             chr_rom[NES_MAX_CHR_ROM_SIZE];
-	u8             prg_rom[NES_MAX_PRG_ROM_SIZE];
-}
-NES_State;

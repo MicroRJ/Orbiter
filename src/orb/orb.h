@@ -2,17 +2,18 @@
 #define ORB_H
 
 #include "base.h"
+#include "nes/cartridge.h"
 
 #define ORB_FOURCC(a, b, c, d) ((u32)(u8)(a) | (u32)(u8)(b) << 8 | (u32)(u8)(c) << 16 | (u32)(u8)(d) << 24)
 
 enum
 {
-	ORB_SYSTEM_NES = ORB_FOURCC('N', 'E', 'S', ' '),
+	ORB_FILE_VERSION_CURRENT = 3,
 
-	ORB_FILE_VERSION_CURRENT = 2,
-
-	ORB_CHUNK_GAME_METADATA   = ORB_FOURCC('G', 'A', 'M', 'E'),
-	ORB_CHUNK_GAME_CONTENT    = ORB_FOURCC('C', 'O', 'N', 'T'),
+	ORB_CHUNK_METADATA        = ORB_FOURCC('M', 'E', 'T', 'A'),
+	ORB_CHUNK_CARTRIDGE       = ORB_FOURCC('C', 'A', 'R', 'T'),
+	ORB_CHUNK_PRG_ROM         = ORB_FOURCC('P', 'R', 'G', ' '),
+	ORB_CHUNK_CHR_ROM         = ORB_FOURCC('C', 'H', 'R', ' '),
 	ORB_CHUNK_SAVE            = ORB_FOURCC('S', 'A', 'V', 'E'),
 	ORB_CHUNK_SAVE_METADATA   = ORB_FOURCC('S', 'M', 'E', 'T'),
 	ORB_CHUNK_STATE           = ORB_FOURCC('S', 'T', 'A', 'T'),
@@ -61,7 +62,6 @@ Orb_Id;
 
 typedef struct
 {
-	u32 system;
 	Hash256 content_hash;
 	u64 first_played_unix_ms;
 	u64 last_played_unix_ms;
@@ -70,7 +70,19 @@ typedef struct
 	// Informational only. Content identity must not depend on this path.
 	Str source_path;
 }
-Orb_GameMetadata;
+Orb_Metadata;
+
+typedef struct
+{
+	// CART stores the normalized cartridge configuration. Trainer-backed
+	// cartridges are not representable until ORB has an explicit trainer chunk.
+	u32 mapper;
+	u32 prg_rom_size;
+	u32 chr_rom_size;
+	b32 vertical_mirroring;
+	b32 four_screen;
+}
+Orb_CartridgeMetadata;
 
 typedef struct
 {
@@ -125,6 +137,8 @@ typedef struct
 	u64 save_header_position;
 	Orb_Result result;
 	Hash256 content_hash;
+	SHA256_Context cartridge_hash;
+	Orb_CartridgeMetadata cartridge;
 	u32 root_chunks;
 	u32 save_chunks;
 	u32 chunk_count;
@@ -154,8 +168,10 @@ struct Orb_Decoder
 // arena tail until end_encoding or cancel_encoding; do not push or pop that
 // arena between calls.
 Orb_Encoder orb_begin_encoding(Arena *output_arena);
-b32 orb_write_game_metadata_chunk(Orb_Encoder *encoder, Orb_GameMetadata metadata);
-b32 orb_write_game_content_chunk(Orb_Encoder *encoder, ByteSpan content);
+b32 orb_write_metadata_chunk(Orb_Encoder *encoder, Orb_Metadata metadata);
+b32 orb_write_cartridge_chunk(Orb_Encoder *encoder, Orb_CartridgeMetadata cartridge);
+b32 orb_write_prg_rom_chunk(Orb_Encoder *encoder, ByteSpan prg_rom);
+b32 orb_write_chr_rom_chunk(Orb_Encoder *encoder, ByteSpan chr_rom);
 b32 orb_begin_save_chunk(Orb_Encoder *encoder);
 b32 orb_write_save_metadata_chunk(Orb_Encoder *encoder, Orb_SaveMetadata metadata);
 b32 orb_write_save_state_chunk(Orb_Encoder *encoder, ByteSpan state);
@@ -170,11 +186,16 @@ Orb_Result orb_begin_container_decoding(Orb_Decoder *decoder, Orb_Decoder *paren
 b32 orb_read_chunk(Orb_Decoder *decoder, Orb_Chunk *chunk);
 Orb_Result orb_end_decoding(Orb_Decoder *decoder);
 
-Orb_Result orb_decode_game_metadata_chunk(Orb_Chunk chunk, Orb_GameMetadata *metadata);
+Orb_Result orb_decode_metadata_chunk(Orb_Chunk chunk, Orb_Metadata *metadata);
+Orb_Result orb_decode_cartridge_chunk(Orb_Chunk chunk, Orb_CartridgeMetadata *cartridge);
+Orb_Result orb_decode_prg_rom_chunk(Orb_Chunk chunk, ByteSpan *prg_rom);
+Orb_Result orb_decode_chr_rom_chunk(Orb_Chunk chunk, ByteSpan *chr_rom);
 Orb_Result orb_decode_save_metadata_chunk(Orb_Chunk chunk, Orb_SaveMetadata *metadata);
-Orb_Result orb_decode_game_content_chunk(Orb_Chunk chunk, ByteSpan *content);
 Orb_Result orb_decode_save_state_chunk(Orb_Chunk chunk, ByteSpan *state);
 Orb_Result orb_decode_thumbnail_chunk(Orb_Chunk chunk, Orb_Thumbnail *thumbnail);
+
+// Returns zero when the descriptor cannot be represented by this ORB version.
+Hash256 orb_cartridge_hash(NES_CartridgeDesc cartridge);
 
 const char *orb_status_string(Orb_Status status);
 
