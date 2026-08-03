@@ -68,6 +68,7 @@ struct DF_PanelViewData
 struct ViewFrameData
 {
 	DF_PanelViewData *view;
+	NES_Emulator  *emulator;
 	Debugger      *debugger;
 	UI_Context    *ui;
 	Arena         *scratch;

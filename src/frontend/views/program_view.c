@@ -132,7 +132,7 @@ static void program_view_content(ViewFrameData *frame)
 	main_rect.h += frame->header_height;
 	Arena *scratch = frame->scratch;
 	UI_TextStyle font = ui->theme.code;
-	if (!frame->publication->valid || !debugger_armed(debugger))
+	if (!frame->publication->valid || !nes_emulator_has_cartridge(frame->emulator))
 	{
 		ui_draw_text(ui, main_rect, font, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
@@ -303,10 +303,10 @@ void program_view_build_ui(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
 	Str title = LIT("PROGRAM");
-	if (debugger_armed(debugger) && frame->publication->valid)
+	if (nes_emulator_has_cartridge(frame->emulator) && frame->publication->valid)
 	{
 		u16 cpu_address = frame->publication->cpu.PC;
-		NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);
+		NES_MapAddr mapped = nes_emulator_cpu_map(frame->emulator, cpu_address);
 		u32 instruction_index = 0;
 		const char *mode = seconds_now().seconds >= frame->view->program.tracking_resume_time.seconds ? "tracking" : "manual";
 		if (mapped.device == NES_DEVICE_PRG_ROM && program_index_from_cpu_address(debugger, cpu_address, &instruction_index)) {

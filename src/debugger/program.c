@@ -94,14 +94,14 @@ static void program_update_cached_byte(Program *program, NES_MapAddr mapped, u32
 
 static void program_sync_byte(Debugger *debugger, u16 cpu_address, NES_MapAddr mapped, u32 storage_offset)
 {
-	program_update_cached_byte(&debugger->program, mapped, storage_offset, (u8)debugger_cpu_peek(debugger, cpu_address, 0));
+	program_update_cached_byte(&debugger->program, mapped, storage_offset, nes_emulator_cpu_peek(debugger->emulator, cpu_address));
 }
 
 static ProgramDecodedInstruction program_decode_instruction(Debugger *debugger, u16 address)
 {
 	return (ProgramDecodedInstruction) {
-		.type = (u16)debugger_cpu_peek(debugger, address, 0),
-		.data = (u16)debugger_cpu_peek_word(debugger, (u16)(address + 1)),
+		.type = nes_emulator_cpu_peek(debugger->emulator, address),
+		.data = nes_emulator_cpu_peek_word(debugger->emulator, (u16)(address + 1)),
 	};
 }
 
@@ -121,7 +121,7 @@ static b32 program_iterator_next(ProgramIterator *iterator, ProgramInstruction *
 	while (iterator->cursor < NES_CPU_ADDRESS_SPACE)
 	{
 		u16 cpu_address = (u16)iterator->cursor;
-		NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
 		u32 storage_offset = 0;
 		if (!program_storage_offset_from_map(&debugger->program, mapped, &storage_offset))
 		{
@@ -135,7 +135,7 @@ static b32 program_iterator_next(ProgramIterator *iterator, ProgramInstruction *
 		for (u32 byte_index = 1; byte_index < size; ++byte_index)
 		{
 			u16 operand_address = (u16)(cpu_address + byte_index);
-			NES_MapAddr operand = debugger_cpu_map(debugger, operand_address);
+			NES_MapAddr operand = nes_emulator_cpu_map(debugger->emulator, operand_address);
 			u32 operand_offset = 0;
 			if (program_storage_offset_from_map(&debugger->program, operand, &operand_offset)) {
 				program_sync_byte(debugger, operand_address, operand, operand_offset);
@@ -156,7 +156,7 @@ static b32 program_iterator_next(ProgramIterator *iterator, ProgramInstruction *
 			status = PROGRAM_ROW_GUESS;
 			for (u32 byte_index = 1; byte_index < size; ++byte_index)
 			{
-				NES_MapAddr operand = debugger_cpu_map(debugger, (u16)(cpu_address + byte_index));
+				NES_MapAddr operand = nes_emulator_cpu_map(debugger->emulator, (u16)(cpu_address + byte_index));
 				u32 operand_offset = 0;
 				if (!program_storage_offset_from_map(&debugger->program, operand, &operand_offset) || program_instruction_storage_offset(&debugger->program, operand_offset) != MAX_VALUE_U32)
 				{
@@ -190,7 +190,7 @@ static b32 program_cpu_address_from_index(Debugger *debugger, u32 instruction_in
 	u32 remaining = instruction_index;
 	for (u32 cpu_base = 0; cpu_base < NES_CPU_ADDRESS_SPACE; cpu_base += PROGRAM_BUCKET_SIZE)
 	{
-		NES_MapAddr mapped = debugger_cpu_map(debugger, (u16)cpu_base);
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, (u16)cpu_base);
 		u32 storage_base = 0;
 		if (!program_storage_offset_from_map(program, mapped, &storage_base)) {
 			continue;
@@ -236,7 +236,7 @@ b32 program_index_from_cpu_address(Debugger *debugger, u16 cpu_address, u32 *ins
 	u32 cpu_base = cpu_address & ~(PROGRAM_BUCKET_SIZE - 1);
 	for (u32 preceding_base = 0; preceding_base < cpu_base; preceding_base += PROGRAM_BUCKET_SIZE)
 	{
-		NES_MapAddr preceding = debugger_cpu_map(debugger, (u16)preceding_base);
+		NES_MapAddr preceding = nes_emulator_cpu_map(debugger->emulator, (u16)preceding_base);
 		u32 preceding_offset = 0;
 		if (!program_storage_offset_from_map(program, preceding, &preceding_offset)) {
 			continue;
@@ -246,12 +246,12 @@ b32 program_index_from_cpu_address(Debugger *debugger, u16 cpu_address, u32 *ins
 		Assert(bucket < program->instruction_bucket_count);
 		result += program->instruction_buckets[bucket];
 	}
-	NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);
+	NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
 	u32 mapped_offset = 0;
 	if (!program_storage_offset_from_map(program, mapped, &mapped_offset)) {
 		return false;
 	}
-	NES_MapAddr mapped_base = debugger_cpu_map(debugger, (u16)cpu_base);
+	NES_MapAddr mapped_base = nes_emulator_cpu_map(debugger->emulator, (u16)cpu_base);
 	u32 mapped_base_offset = 0;
 	if (!program_storage_offset_from_map(program, mapped_base, &mapped_base_offset) || mapped_offset < mapped_base_offset) {
 		return false;
@@ -332,7 +332,7 @@ u32 program_mapped_instruction_count(Debugger *debugger)
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk)
 	{
 		u16 cpu_address = (u16)(chunk * CPU_MAPPING_CHUNK_SIZE);
-		NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
 		u32 storage_offset = 0;
 		if (!program_storage_offset_from_map(program, mapped, &storage_offset)) {
 			continue;
@@ -524,7 +524,7 @@ static void program_map_instruction(Debugger *debugger, u16 cpu_address, u32 siz
 	NES_DeviceId device = NES_DEVICE_NONE;
 	for (u32 byte_index = 0; byte_index < size; ++byte_index)
 	{
-		NES_MapAddr mapped = debugger_cpu_map(debugger, (u16)(cpu_address + byte_index));
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, (u16)(cpu_address + byte_index));
 		if (!program_storage_offset_from_map(&debugger->program, mapped, &program_offsets[byte_index]) || (byte_index && mapped.device != device)) {
 			program_offsets[byte_index] = MAX_VALUE_U32;
 		}
@@ -615,7 +615,7 @@ static ProgramValidation program_validate(Debugger *debugger, u16 *expected_brid
 		}
 		expected_sources[source_offset] = true;
 		u16 destination_cpu = (u16)(instruction.cpu_address + 2 + (i8)instruction.data);
-		NES_MapAddr destination = debugger_cpu_map(debugger, destination_cpu);
+		NES_MapAddr destination = nes_emulator_cpu_map(debugger->emulator, destination_cpu);
 		i32 cpu_delta = (i16)(destination_cpu - instruction.cpu_address);
 		u32 destination_offset = 0;
 		if (destination.device != instruction.map_addr.device || !program_storage_offset_from_map(program, destination, &destination_offset) || cpu_delta != (i32)destination_offset - (i32)source_offset) {
@@ -664,7 +664,7 @@ b32 program_dump(Debugger *debugger, const char *path, Arena *scratch)
 	for (u32 cpu_offset = 0; cpu_offset < NES_CPU_ADDRESS_SPACE; ++cpu_offset)
 	{
 		u16 cpu_address = (u16)cpu_offset;
-		NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
 		u32 storage_offset = 0;
 		if (!program_storage_offset_from_map(program, mapped, &storage_offset) || program->bytes[storage_offset].offset_to_start != 0) {
 			continue;
@@ -725,7 +725,7 @@ static void program_add_next_bridge(Program *program, u32 source_offset, u32 des
 void program_refine(Debugger *debugger, u32 instruction_budget)
 {
 	Program *program = &debugger->program;
-	if (!debugger_armed(debugger) || !instruction_budget) {
+	if (!nes_emulator_has_cartridge(debugger->emulator) || !instruction_budget) {
 		return;
 	}
 	ProgramIterator iterator = program_iterator(debugger, program->refinement_cpu_cursor);
@@ -754,7 +754,7 @@ void program_refine(Debugger *debugger, u32 instruction_budget)
 			{
 				source->next_branch_seen = true;
 				u16 destination_cpu = (u16)(instruction.cpu_address + 2 + (i8)instruction.data);
-				NES_MapAddr destination = debugger_cpu_map(debugger, destination_cpu);
+				NES_MapAddr destination = nes_emulator_cpu_map(debugger->emulator, destination_cpu);
 				i32 cpu_delta = (i16)(destination_cpu - instruction.cpu_address);
 				u32 destination_offset = 0;
 				if (destination.device == instruction.map_addr.device && program_storage_offset_from_map(program, destination, &destination_offset) && cpu_delta == (i32)destination_offset - (i32)source_offset) {
@@ -775,7 +775,7 @@ void program_refine(Debugger *debugger, u32 instruction_budget)
 
 static void program_push_work(Debugger *debugger, ProgramWork work)
 {
-	NES_MapAddr mapped = debugger_cpu_map(debugger, work.address);
+	NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, work.address);
 	u32 storage_offset = 0;
 	if (!program_storage_offset_from_map(&debugger->program, mapped, &storage_offset)) return;
 	if (program_instruction_storage_offset(&debugger->program, storage_offset) != MAX_VALUE_U32) return;
@@ -801,8 +801,8 @@ static void program_process_work(Debugger *debugger, ProgramWork work)
 	for (u32 cursor = work.address; cursor < NES_CPU_ADDRESS_SPACE;)
 	{
 		u16 address = (u16)cursor;
-		NES_MapAddr mapped;
-		u32 type = debugger_cpu_peek(debugger, address, &mapped);
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, address);
+		u32 type = nes_emulator_cpu_peek(debugger->emulator, address);
 		if (!program_is_analyzed_map(&debugger->program, mapped)) {
 			break;
 		}
@@ -817,7 +817,7 @@ static void program_process_work(Debugger *debugger, ProgramWork work)
 			break;
 		}
 
-		u16 data = (u16)debugger_cpu_peek_word(debugger, (u16)(address + 1));
+		u16 data = nes_emulator_cpu_peek_word(debugger->emulator, (u16)(address + 1));
 		switch (type)
 		{
 			case JMP_ABS:
@@ -885,7 +885,7 @@ void program_reset(Debugger *debugger)
 	{
 		u16 vector = vector_addresses[index];
 		program_push_work(debugger, (ProgramWork) {
-			.address = (u16)debugger_cpu_peek_word(debugger, vector),
+			.address = nes_emulator_cpu_peek_word(debugger->emulator, vector),
 		});
 	}
 	program_run_work(debugger);

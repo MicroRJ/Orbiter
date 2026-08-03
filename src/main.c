@@ -254,7 +254,7 @@ static void app_file_log_sink(const LogRecord *record, void *user_data)
 
 static b32 app_save_state(void)
 {
-	if (!debugger_armed(app.debugger))
+	if (!nes_emulator_has_cartridge(&app.emulator))
 	{
 		LOG_WARN("cannot save emulator state without a loaded cartridge");
 		return false;
@@ -267,15 +267,15 @@ static b32 app_save_state(void)
 
 	Arena *arena = &app.orb_store.arena;
 	u64 arena_position = arena->position;
-	u8 *state_data = arena_top(arena);
-	if (!debugger_save_state(app.debugger, arena))
+	ByteSpan state = nes_emulator_save_state(&app.emulator, arena);
+	if (!state.size)
 	{
 		arena->position = arena_position;
 		LOG_WARN("failed to capture emulator state");
 		return false;
 	}
 
-	app.active_save->state = byte_span(state_data, arena->position - arena_position);
+	app.active_save->state = state;
 	app.active_orb->dirty = true;
 	LOG_INFO("updated active ORB save");
 	return true;
@@ -564,19 +564,19 @@ static NES_Input app_translate_controller_input_for_emulator(u32 player)
 	return input;
 }
 
-static void app_update_debugger_input(void)
+static void app_update_emulator_input(void)
 {
 	for (u32 player = 0; player < 2; player ++)
 	{
 		NES_Input input = app_translate_keyboard_input_for_emulator(player) | app_translate_controller_input_for_emulator(player);
-		debugger_set_input(app.debugger, input, player);
+		nes_emulator_set_input(&app.emulator, player, input);
 	}
 }
 
-static void app_clear_debugger_input(void)
+static void app_clear_emulator_input(void)
 {
 	for (u32 player = 0; player < 2; player++) {
-		debugger_set_input(app.debugger, 0, player);
+		nes_emulator_set_input(&app.emulator, player, 0);
 	}
 }
 
@@ -944,8 +944,8 @@ static void app_upload_chr_texture(void)
 
 static void app_publish(void)
 {
-	Assert(debugger_armed(app.debugger));
-	PROF_BLOCK("publish NES target") debugger_publish_target(app.debugger, &app.published);
+	Assert(nes_emulator_has_cartridge(&app.emulator));
+	PROF_BLOCK("publish NES target") nes_target_publish(&app.published, &app.emulator);
 	PROF_BLOCK("upload video texture") app_upload_video_texture();
 	PROF_BLOCK("upload CHR texture") app_upload_chr_texture();
 }
@@ -1208,7 +1208,7 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 		}
 		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
 		{
-			Assert(debugger_armed(app.debugger));
+			Assert(nes_emulator_has_cartridge(&app.emulator));
 
 			rect_f32 panel_rect = window_rect;
 			panel_rect.y += status_height;
@@ -1393,6 +1393,7 @@ static void app_draw_exclusive_ppu(GFX_Texture *frame_texture, rect_f32 window_r
 static void app_draw_debugger(GFX_Texture *frame_texture, rect_f32 window_rect)
 {
 	ViewFrameData frame = {
+		.emulator = &app.emulator,
 		.debugger = app.debugger,
 		.execution_graph = debugger_execution_graph(app.debugger),
 		.execution_activity = &app.execution_activity,
@@ -1486,12 +1487,12 @@ static void app_frame(void)
 			const Program *program = debugger_program(app.debugger);
 			u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
 
-			if (debugger_armed(app.debugger))
+			if (nes_emulator_has_cartridge(&app.emulator))
 			{
 				if (app.mode == APP_MODE_EMULATOR)
 				{
-					app_clear_debugger_input();
-					if (!app_consumed_input) app_update_debugger_input();
+					app_clear_emulator_input();
+					if (!app_consumed_input) app_update_emulator_input();
 
 					if (input.action == APP_ACTION_STEP) {
 						app.emulator_running = false;
@@ -1608,7 +1609,7 @@ static void app_init(void)
 	app_load_config();
 	app_restore_state();
 
-	if (debugger_armed(app.debugger)) {
+	if (nes_emulator_has_cartridge(&app.emulator)) {
 		app.mode = APP_MODE_EMULATOR;
 
 		// TODO(RJ) why do we do this here, the loop should just publish once the emulator runs and before the views draw

@@ -1,11 +1,10 @@
 #include "debugger_internal.h"
-#include "nes_target.h"
 
 void debugger_capture_snapshot(Debugger *debugger)
 {
 	if (debugger->snapshots_cursor > 0) {
 		DBG_LiveSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
-		if (previous_snapshot->scheduler_clock == debugger_scheduler_clock(debugger)) {
+		if (previous_snapshot->scheduler_clock == nes_emulator_scheduler_clock(debugger->emulator)) {
 			return;
 		}
 	}
@@ -157,7 +156,7 @@ static void debugger_process_scheduler_trace_(Debugger *debugger)
 				b32 success = debugger_undo_snapshot(debugger);
 				Assert(success);
 
-				while (debugger_scheduler_clock(debugger) < boundary.scheduler_clock) {
+				while (nes_emulator_scheduler_clock(debugger->emulator) < boundary.scheduler_clock) {
 					nes_emulator_step(debugger->emulator);
 				}
 				debugger_discard_scheduler_trace(debugger);
@@ -184,30 +183,6 @@ void debugger_destroy(Debugger *debugger)
 	arena_destroy(&debugger->program_work_arena);
 }
 
-b32 debugger_armed(const Debugger *debugger)
-{
-	return debugger && nes_emulator_has_cartridge(debugger->emulator);
-}
-
-u32 debugger_cpu_peek(Debugger *debugger, u16 address, NES_MapAddr *mapped)
-{
-	NES_MapAddr result = nes_emulator_cpu_map(debugger->emulator, address);
-	if (mapped) {
-		*mapped = result;
-	}
-	return nes_emulator_cpu_peek(debugger->emulator, address);
-}
-
-u32 debugger_cpu_peek_word(Debugger *debugger, u16 address)
-{
-	return nes_emulator_cpu_peek_word(debugger->emulator, address);
-}
-
-NES_MapAddr debugger_cpu_map(Debugger *debugger, u16 address)
-{
-	return nes_emulator_cpu_map(debugger->emulator, address);
-}
-
 NES_MapAddr debugger_cpu_mapping_chunk(const Debugger *debugger, u32 chunk)
 {
 	Assert(chunk < CPU_MAPPING_CHUNK_COUNT);
@@ -220,7 +195,7 @@ void debugger_update_cpu_mapping(Debugger *debugger)
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk)
 	{
 		u16 cpu_address = (u16)(chunk * CPU_MAPPING_CHUNK_SIZE);
-		NES_MapAddr mapped = debugger_cpu_map(debugger, cpu_address);
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
 		NES_MapAddr previous = debugger->cpu_mapping.chunks[chunk];
 		if (!debugger->cpu_mapping.initialized || mapped.device != previous.device || mapped.address != previous.address)
 		{
@@ -258,16 +233,6 @@ b32 debugger_open_rom(Debugger *debugger, ByteSpan data)
 	return success;
 }
 
-// Todo, eventually want to save more than just the emulator state, for instance compressed
-// rewind frames ...
-b32 debugger_save_state(Debugger *debugger, Arena *arena)
-{
-	Assert(debugger_armed(debugger));
-
-	ByteSpan state = nes_emulator_save_state(debugger->emulator, arena);
-	return state.data && state.size;
-}
-
 b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 {
 	b32 success = nes_emulator_load_state(debugger->emulator, state);
@@ -280,20 +245,10 @@ b32 debugger_restore_state(Debugger *debugger, ByteSpan state)
 		debugger_clear_snapshots(debugger);
 		debugger_capture_snapshot(debugger);
 	}
-	// Todo, remove diagnistic printing from the debugger instead return an error code or something,
+	// Todo, remove diagnostic printing from the debugger instead return an error code or something,
 	// otherwise tests print stuff
 	else LOG_WARN("failed to restore state: no supported cartridge was instantiated");
 	return success;
-}
-
-void debugger_set_input(Debugger *debugger, NES_Input input, u32 player)
-{
-	nes_emulator_set_input(debugger->emulator, player, input);
-}
-
-u64 debugger_scheduler_clock(const Debugger *debugger)
-{
-	return nes_emulator_scheduler_clock(debugger->emulator);
 }
 
 static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *debugger)
@@ -305,7 +260,7 @@ static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *de
 
 u32 debugger_step(Debugger *debugger)
 {
-	Assert(debugger_armed(debugger));
+	Assert(nes_emulator_has_cartridge(debugger->emulator));
 	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	u32 cycles = nes_emulator_step(debugger->emulator);
@@ -315,7 +270,7 @@ u32 debugger_step(Debugger *debugger)
 
 NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer, u64 sample_capacity)
 {
-	Assert(debugger_armed(debugger));
+	Assert(nes_emulator_has_cartridge(debugger->emulator));
 	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	NES_RunFrameResult result = nes_emulator_run_frame(debugger->emulator, sample_buffer, sample_capacity);
@@ -358,12 +313,6 @@ b32 debugger_breakpoint_hit(const Debugger *debugger)
 void debugger_run_program_crawler(Debugger *debugger, u32 instruction_budget)
 {
 	program_refine(debugger, instruction_budget);
-}
-
-void debugger_publish_target(Debugger *debugger, NES_TargetPublication *publication)
-{
-	Assert(debugger);
-	nes_target_publish(publication, debugger->emulator);
 }
 
 const Program *debugger_program(const Debugger *debugger)

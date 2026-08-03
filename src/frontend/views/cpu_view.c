@@ -68,8 +68,8 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 
 static void cpu_view_content(ViewFrameData *frame)
 {
-	Assert(frame->debugger);
-	if (!frame->publication->valid || !debugger_armed(frame->debugger))
+	Assert(frame->emulator);
+	if (!frame->publication->valid || !nes_emulator_has_cartridge(frame->emulator))
 	{
 		UI_TextStyle style = frame->ui->theme.code;
 		style.color = frame->ui->theme.text_subtle;

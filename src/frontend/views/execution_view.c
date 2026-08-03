@@ -303,7 +303,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 		}
 	}
 	u32 cell_size = state->cell_size;
-	NES_MapAddr active_mapping = debugger_cpu_map(debugger, pc);
+	NES_MapAddr active_mapping = nes_emulator_cpu_map(frame->emulator, pc);
 	u32 active_offset = 0;
 	b32 has_active_cell = prg_activity_storage_offset(program, active_mapping, include_prg_ram, &active_offset);
 	u32 active_cell = has_active_cell ? active_offset / cell_size : MAX_VALUE_U32;
@@ -313,7 +313,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	NES_MapAddr crawler_mapping = {};
 	b32 crawler_in_cpu_space = crawler_cpu < NES_CPU_ADDRESS_SPACE;
 	if (crawler_in_cpu_space) {
-		crawler_mapping = debugger_cpu_map(debugger, (u16)crawler_cpu);
+		crawler_mapping = nes_emulator_cpu_map(frame->emulator, (u16)crawler_cpu);
 	}
 	u32 crawler_offset = 0;
 	b32 crawler_in_prg = crawler_in_cpu_space && prg_activity_storage_offset(program, crawler_mapping, include_prg_ram, &crawler_offset);
