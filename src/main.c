@@ -41,11 +41,9 @@ AppMode;
 typedef struct
 {
 	AppMode                    mode;
-	f64            time_when_transition_to_library_panel;
 	b32            emulator_running;
 	b32     resume_emulator_running;
 	i32            rewind_direction;
-
 	b32          library_overlay_on;
 
 	f32 ppu_volume;
@@ -76,7 +74,6 @@ typedef struct
 
 	Str last_rom_path;
 	Str current_game_title;
-	NES_CartridgeDesc current_cartridge;
 	Orb_Id current_save_id;
 	Hash256 current_content_hash;
 	u64 save_created_unix_ms;
@@ -86,7 +83,7 @@ typedef struct
 
 	Orb_Store orb_store;
 	Orb *active_orb;
-	Orb_Save *active_save;
+	Orb_SaveNode *active_save;
 
 	b32 exclusive_ppu_mode;
 	b32 fullscreen_mode;
@@ -144,60 +141,7 @@ static b32 app_write_file_atomic(const char *path, const void *data, u32 size)
 	return false;
 }
 
-#if 0
-static void app_load_catalog(void)
-{
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		Platform_File_Info info = {};
-		if (platform_get_file_info(catalog_config_path, &info))
-		{
-			Str source = app_read_file(&app.frame_arena, catalog_config_path);
-			Catalog_Result result = source.size
-				? catalog_from_source(&app.catalog, str_from_data(catalog_config_path, sizeof(catalog_config_path) - 1), source, &app.frame_arena)
-				: (Catalog_Result) { .status = CATALOG_STATUS_PARSE_ERROR, .message = LIT("catalog state is empty or unreadable") };
-			if (result.status != CATALOG_STATUS_OK)
-			{
-				app.catalog_write_protected = true;
-				app_log_catalog_error(result);
-				LOG_WARN("automatic catalog writes are disabled to preserve '%s'", catalog_config_path);
-			}
-		}
-	}
-}
-
-static b32 app_save_catalog(void)
-{
-	if (!app.catalog.dirty) return true;
-	if (app.catalog_write_protected) return false;
-	b32 success = false;
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		Catalog_EncodeResult encoded = catalog_to_source(&app.catalog, &app.frame_arena);
-		if (encoded.result.status != CATALOG_STATUS_OK) {
-			app_log_catalog_error(encoded.result);
-		}
-		else
-		{
-			success = app_write_file_atomic(catalog_config_path, encoded.source.data, encoded.source.size);
-			if (success) catalog_mark_saved(&app.catalog);
-			else LOG_WARN("failed to save catalog state to '%s'", catalog_config_path);
-		}
-	}
-	return success;
-}
-
-static void app_refresh_catalog(void)
-{
-	Str application_sources[] = { LIT("data") };
-	catalog_refresh(&app.catalog, &app.frame_arena, application_sources, ArrayCount(application_sources));
-	app.catalog_refresh_pending = false;
-	if (app.catalog.scan_error_count) LOG_WARN("catalog refresh completed with %u unreadable entries or sources", app.catalog.scan_error_count);
-}
-#endif
-
 static Str app_rom_name(Str path) {return LIT("WTF");}
-static void app_discard_audio(void);
 
 static u64 app_unix_time_ms(void)
 {
@@ -210,85 +154,6 @@ static u64 app_play_time_ms(void)
 	return (u64)(app.play_time_seconds + 0.5);
 }
 
-static Orb_Id app_new_save_id(u64 unix_time_ms)
-{
-	Orb_Id id = {};
-	u64 values[] = {
-		unix_time_ms,
-		platform_counter() ^ platform_current_process_id() * 0x9E3779B97F4A7C15ull,
-	};
-	memory_copy(id.bytes, values, sizeof(id.bytes));
-	return id;
-}
-
-#if 0
-static void app_begin_game_history(Str title)
-{
-	u64 now = app_unix_time_ms();
-	app.current_game_title = str_push_copy(&app.arena, title);
-	app.current_save_id = app_new_save_id(now);
-	app.current_content_hash = (Hash256) {};
-	app.save_created_unix_ms = now;
-	app.first_played_unix_ms = now;
-	app.play_time_seconds = 0.0;
-}
-
-static void app_set_game_cartridge(NES_CartridgeDesc cartridge)
-{
-	arena_reset(&app.game_arena);
-	app.current_cartridge = (NES_CartridgeDesc) {};
-	app.current_content_hash = (Hash256) {};
-	Hash256 content_hash = orb_cartridge_hash(cartridge);
-	if (hash256_is_zero(content_hash)) return;
-	ByteSpan prg_rom = byte_span(arena_push_copy(&app.game_arena, cartridge.prg_rom.size, cartridge.prg_rom.data), cartridge.prg_rom.size);
-	ByteSpan chr_rom = {};
-	if (cartridge.chr_rom.size) chr_rom = byte_span(arena_push_copy(&app.game_arena, cartridge.chr_rom.size, cartridge.chr_rom.data), cartridge.chr_rom.size);
-	app.current_cartridge = cartridge;
-	app.current_cartridge.prg_rom = prg_rom;
-	app.current_cartridge.chr_rom = chr_rom;
-	app.current_content_hash = content_hash;
-}
-#endif
-
-static void app_create_runtime_orb(Str source_path)
-{
-	Orb_Store *store = &app.orb_store;
-	arena_reset(&store->arena);
-	store->path = str_push_copy(&store->arena, str_from_cstr(orb_save_path));
-	store->source = (ByteSpan) {};
-	store->loaded = true;
-
-	u64 now = app_unix_time_ms();
-	u64 play_time_ms = app_play_time_ms();
-	NES_CartridgeDesc cartridge = app.current_cartridge;
-	cartridge.prg_rom = byte_span(arena_push_copy(&store->arena, cartridge.prg_rom.size, cartridge.prg_rom.data), cartridge.prg_rom.size);
-	if (cartridge.chr_rom.size) cartridge.chr_rom = byte_span(arena_push_copy(&store->arena, cartridge.chr_rom.size, cartridge.chr_rom.data), cartridge.chr_rom.size);
-	Orb_Save *save = arena_push_zero(&store->arena, sizeof(*save));
-	*save = (Orb_Save) {
-		.id = app.current_save_id,
-		.kind = ORB_SAVE_RESUME,
-		.created_unix_ms = app.save_created_unix_ms,
-		.updated_unix_ms = now,
-		.play_time_ms = play_time_ms,
-		.state = orb_nes_state_encode(&store->arena, &app.emulator),
-	};
-	store->orb = (Orb) {
-		.cartridge = cartridge,
-		.content_hash = app.current_content_hash,
-		.title = str_push_copy(&store->arena, app.current_game_title),
-		.source_path = str_push_copy(&store->arena, source_path),
-		.first_played_unix_ms = app.first_played_unix_ms,
-		.last_played_unix_ms = now,
-		.play_time_ms = play_time_ms,
-		.dirty = true,
-		.first_save = save,
-		.last_save = save,
-		.save_count = 1,
-	};
-	app.active_orb = &store->orb;
-	app.active_save = save;
-}
-
 // TODO(RJ) why are we using CRT files for this!?
 static void app_file_log_sink(const LogRecord *record, void *user_data)
 {
@@ -297,263 +162,11 @@ static void app_file_log_sink(const LogRecord *record, void *user_data)
 	fflush(file);
 }
 
-static b32 app_save_state(void)
+static void app_restore_state()
 {
-	if (!nes_emulator_has_cartridge(&app.emulator))
-	{
-		LOG_WARN("cannot save emulator state without a loaded cartridge");
-		return false;
-	}
-	if (!app.active_orb || !app.active_save)
-	{
-		LOG_WARN("cannot save emulator state without an active ORB save");
-		return false;
-	}
-
-	ByteSpan state = {};
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		ByteSpan captured = orb_nes_state_encode(&app.frame_arena, &app.emulator);
-		if (captured.size == app.active_save->state.size)
-		{
-			memory_copy(app.active_save->state.data, captured.data, captured.size);
-			state = app.active_save->state;
-		}
-		else if (captured.size) state = byte_span(arena_push_copy(&app.orb_store.arena, captured.size, captured.data), captured.size);
-	}
-	if (!state.size)
-	{
-		LOG_WARN("failed to capture emulator state");
-		return false;
-	}
-
-	app.active_save->state = state;
-	app.active_save->updated_unix_ms = app_unix_time_ms();
-	app.active_save->play_time_ms = app_play_time_ms();
-	app.active_orb->last_played_unix_ms = app.active_save->updated_unix_ms;
-	app.active_orb->play_time_ms = app.active_save->play_time_ms;
-	app.active_orb->dirty = true;
-	LOG_INFO("updated active ORB save");
-	return true;
 }
-
-static b32 app_write_active_orb(void)
+static void app_save_state()
 {
-	if (!app.active_orb || !app.active_orb->dirty) return true;
-	if (!app.orb_store.path.size)
-	{
-		LOG_WARN("cannot write active ORB without a path");
-		return false;
-	}
-
-	b32 success = false;
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		ByteSpan encoded = {};
-		Orb_Result result = orb_runtime_encode(&app.frame_arena, app.active_orb, &encoded);
-		if (result.status != ORB_STATUS_OK) LOG_WARN("failed to encode active ORB: %s", orb_status_string(result.status));
-		else if (encoded.size > MAX_VALUE_U32) LOG_WARN("failed to write active ORB: encoded file is too large");
-		else success = app_write_file_atomic(app.orb_store.path.text, encoded.data, (u32)encoded.size);
-	}
-
-	if (success)
-	{
-		app.active_orb->dirty = false;
-		LOG_INFO("saved active ORB to '%s'", app.orb_store.path.text);
-	}
-	else LOG_WARN("failed to save active ORB to '%s'", app.orb_store.path.text);
-	return success;
-}
-
-static NES_SetupParams app_nes_setup_params(NES_CartridgeDesc cartridge)
-{
-	return (NES_SetupParams) {
-		.mapper = cartridge.mapper,
-		.vmirror = cartridge.vertical_mirroring,
-		.four_screen = cartridge.four_screen,
-		.has_trainer = cartridge.has_trainer,
-		.prg_rom = cartridge.prg_rom,
-		.chr_rom = cartridge.chr_rom,
-	};
-}
-
-static b32 orbiter_load_file(const char *path)
-{
-	b32 success = false;
-	Orb_StoreResult store_result = orb_store_load(&app.orb_store, str_from_cstr(path));
-	if (store_result.status != ORB_STORE_STATUS_OK)
-	{
-		if (store_result.status == ORB_STORE_STATUS_INVALID_ORB) LOG_WARN("failed to parse '%s' at byte %llu: %s", path, store_result.orb_result.offset, orb_status_string(store_result.orb_result.status));
-		else LOG_WARN("failed to open '%s': %s", path, orb_store_status_string(store_result.status));
-		return false;
-	}
-
-	Orb *orb = &app.orb_store.orb;
-	Orb_Save *latest = 0;
-	for (Orb_Save *save = orb->first_save; save; save = save->next)
-	{
-		if (!latest || save->updated_unix_ms > latest->updated_unix_ms) latest = save;
-	}
-	success = nes_setup_emulator(&app.emulator, app_nes_setup_params(orb->cartridge));
-	if (success && latest) success = orb_nes_state_decode(&app.emulator, latest->state);
-	if (success) debugger_reset(app.debugger);
-	if (success && !latest)
-	{
-		u64 now = app_unix_time_ms();
-		u64 arena_position = app.orb_store.arena.position;
-		latest = arena_push_zero(&app.orb_store.arena, sizeof(*latest));
-		*latest = (Orb_Save) {
-			.id = app_new_save_id(now),
-			.kind = ORB_SAVE_RESUME,
-			.created_unix_ms = now,
-			.updated_unix_ms = now,
-			.play_time_ms = orb->play_time_ms,
-			.state = orb_nes_state_encode(&app.orb_store.arena, &app.emulator),
-		};
-		if (!latest->state.size)
-		{
-			app.orb_store.arena.position = arena_position;
-			latest = 0;
-			success = false;
-		}
-		else
-		{
-			orb->first_save = latest;
-			orb->last_save = latest;
-			orb->save_count = 1;
-			orb->dirty = true;
-		}
-	}
-	if (success)
-	{
-		app.current_save_id = latest->id;
-		app.save_created_unix_ms = latest->created_unix_ms;
-		app.first_played_unix_ms = orb->first_played_unix_ms;
-		app.play_time_seconds = latest->play_time_ms / 1000.0;
-		app.last_rom_path = orb->source_path.size ? str_push_copy(&app.arena, orb->source_path) : (Str) {};
-		Str title = orb->title.size ? orb->title : app.last_rom_path.size ? app_rom_name(app.last_rom_path) : LIT("NES game");
-		app.current_game_title = str_push_copy(&app.arena, title);
-		// app_set_game_cartridge(orb->cartridge);
-		app.active_orb = orb;
-		app.active_save = latest;
-	}
-
-	if (success)
-	{
-		app.mode = APP_MODE_EMULATOR;
-		app.library_overlay_on = false;
-		app_discard_audio();
-		LOG_INFO("restored emulator state from '%s'", path);
-	}
-	else LOG_WARN("failed to restore emulator state from '%s'", path);
-
-	app.active_orb  = 0;
-	app.active_save = 0;
-	return success;
-}
-
-static b32 orbiter_restore_state(void)
-{
-	// Platform_File_Info info = {};
-	// if (platform_get_file_info(orb_save_path, &info)) return orbiter_load_file(orb_save_path);
-	// return false;
-	return true;
-}
-
-#if 0
-static b32 app_open_rom_path(Str path)
-{
-	b32 success = false;
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		Str rom = app_read_file(&app.frame_arena, path.text);
-		if (rom.size)
-		{
-			LOG_INFO("open file: %s", path.text);
-			NES_CartridgeDesc cartridge = {};
-			if (!nes_cartridge_parse_ines(byte_span((void *)rom.data, rom.size), &cartridge)) LOG_WARN("failed to load ROM: invalid or unsupported iNES image");
-			else success = debugger_load_cartridge(app.debugger, cartridge);
-			if (success) {
-				Hash256 content_hash = orb_cartridge_hash(cartridge);
-				b32 same_game = !hash256_is_zero(app.current_content_hash) && hash256_match(app.current_content_hash, content_hash);
-				app.mode = APP_MODE_EMULATOR;
-				app.library_overlay_on = false;
-
-				app.last_rom_path = str_push_copy(&app.arena, path);
-				if (!same_game) app_begin_game_history(app_rom_name(app.last_rom_path));
-				app_set_game_cartridge(cartridge);
-				app_create_runtime_orb(app.last_rom_path);
-				if (!catalog_find_path(&app.catalog, path) && catalog_add_source(&app.catalog, path))
-				{
-					app_save_catalog();
-					app.catalog_refresh_pending = true;
-				}
-			}
-		} else {
-			LOG_WARN("failed to read ROM '%s'", path.text);
-		}
-	}
-	return success;
-}
-static void app_open_rom(void)
-{
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		Str path = os_dialog_open_file(&app.frame_arena);
-		if (path.size) {
-			app_open_rom_path(path);
-		}
-	}
-}
-#endif
-
-static void app_load_config(void)
-{
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		const char *config_path = debugger_config_path;
-		Str config = app_read_file(&app.frame_arena, config_path);
-		if (!config.size)
-		{
-			config_path = debugger_default_config_path;
-			config = app_read_file(&app.frame_arena, config_path);
-		}
-		if (config.size)
-		{
-			Str version = str_consume_line(&config);
-			Str rom = str_consume_line(&config);
-			Str layout = str_consume_line(&config);
-			if (str_match(version, LIT("version 1")) && str_match(layout, LIT("layout")))
-			{
-				if (str_consume_prefix(&rom, LIT("rom ")) && rom.size)
-				{
-					// Str terminated_path = str_push_copy(&app.frame_arena, rom);
-					// app_open_rom_path(terminated_path);
-				}
-				if (!panels_restore_layout(app.panels, config)) {
-					LOG_WARN("ignored invalid panel layout in '%s'", config_path);
-				}
-			} else {
-				LOG_WARN("ignored unsupported debugger config '%s'", config_path);
-			}
-		}
-	}
-}
-
-static void app_save_config(void)
-{
-	SCRATCH_SCOPE(&app.frame_arena)
-	{
-		Str layout = panels_save_layout(app.panels, &app.frame_arena);
-		Str header = str_push_copy_f(&app.frame_arena, "version 1\nrom %.*s\nlayout\n", app.last_rom_path.size, app.last_rom_path.text ? app.last_rom_path.text : "");
-		u32 size = header.size + layout.size;
-		char *text = arena_push_aligned(&app.frame_arena, size, 1);
-		memory_copy(text, header.text, header.size);
-		memory_copy(text + header.size, layout.text, layout.size);
-		if (!app_write_file_atomic(debugger_config_path, text, size)) {
-			LOG_WARN("failed to save debugger config to '%s'", debugger_config_path);
-		}
-	}
 }
 
 static const KeyBind app_emulator_mode_key_binds[] =
@@ -565,10 +178,6 @@ static const KeyBind app_emulator_mode_key_binds[] =
 	{APP_ACTION_SPLIT_PANEL_HORIZONTALLY , {KEY_CHORD_ON_RELEASE, OS_Key_H, OS_MODIFIER_CONTROL}},
 	{APP_ACTION_SPLIT_PANEL_VERTICALLY   , {KEY_CHORD_ON_RELEASE, OS_Key_V, OS_MODIFIER_CONTROL}},
 	{APP_ACTION_CLOSE_PANEL              , {KEY_CHORD_ON_RELEASE, OS_Key_Q, OS_MODIFIER_CONTROL}},
-	// NO CTRL ALTERNATE
-	{APP_ACTION_SPLIT_PANEL_HORIZONTALLY , {KEY_CHORD_ON_RELEASE, OS_Key_H}},
-	{APP_ACTION_SPLIT_PANEL_VERTICALLY   , {KEY_CHORD_ON_RELEASE, OS_Key_V}},
-	{APP_ACTION_CLOSE_PANEL              , {KEY_CHORD_ON_RELEASE, OS_Key_Q}},
 
 	{APP_ACTION_OPEN_VIEW_0 , {KEY_CHORD_ON_RELEASE, OS_Key_1                      }},
 	{APP_ACTION_OPEN_VIEW_1 , {KEY_CHORD_ON_RELEASE, OS_Key_2                      }},
@@ -674,11 +283,6 @@ static void app_clear_emulator_input(void)
 	}
 }
 
-static void app_discard_audio(void)
-{
-	audio_stream_discard(app.audio);
-}
-
 static Audio_Clip app_make_ui_click(Arena *arena, u32 sample_rate)
 {
 	Assert(arena);
@@ -743,6 +347,21 @@ static AppInput app_translate_input_events_based_on_mode(void)
 	return input;
 }
 
+static b32 app_setup_emulator_from_orb(Orb *orb)
+{
+	Orb_Game game = orb->game;
+	Orb_GameMetadata metadata = game.metadata;
+	NES_SetupParams setup_params = {};
+	setup_params.mapper       = metadata.mapper;
+	setup_params.vmirror      = metadata.vmirror;
+	setup_params.four_screen  = metadata.four_screen;
+	setup_params.has_trainer  = metadata.has_trainer;
+	setup_params.prg_rom      = byte_span(game.prg_rom_data, metadata.prg_rom_size);
+	setup_params.chr_rom      = byte_span(game.chr_rom_data, metadata.chr_rom_size);
+	b32 success = nes_setup_emulator(&app.emulator, setup_params);
+	return success;
+}
+
 static b32 app_handle_input(AppInput input)
 {
 	b32 handled = false;
@@ -805,6 +424,19 @@ static b32 app_handle_input(AppInput input)
 		break;
 		case APP_ACTION_OPEN_ROM:
 		{
+			Str path = os_dialog_open_file(&app.frame_arena);
+			if (path.size) {
+				Orb *orb = orb_from_file(&app.orb_store, path);
+				if (orb && app_setup_emulator_from_orb(orb)) {
+					Assert(nes_is_booted(& app.emulator));
+					app.mode = APP_MODE_EMULATOR;
+					app.library_overlay_on = false;
+					LOG_INFO("emulator setup successfully");
+				}
+				else {
+					LOG_INFO("could not setup emulator");
+				}
+			}
 			handled = true;
 		}
 		break;
@@ -816,7 +448,7 @@ static b32 app_handle_input(AppInput input)
 		}
 		break;
 		case APP_ACTION_SAVE_STATE:    app_save_state();    break;
-		case APP_ACTION_RESTORE_STATE: orbiter_restore_state(); break;
+		case APP_ACTION_RESTORE_STATE: app_restore_state(); break;
 		case APP_ACTION_DUMP_PROGRAM:
 		{
 			if (program_dump(app.debugger, debugger_program_path, &app.frame_arena)) {
@@ -947,7 +579,6 @@ static void app_run_frame(void)
 		if (debugger_breakpoint_hit(app.debugger))
 		{
 			app.emulator_running = false;
-			app_discard_audio();
 			return;
 		}
 		app.play_time_seconds += frame.samples / (f64)nes_sample_rate(0);
@@ -967,7 +598,6 @@ static void app_run_frame(void)
 		if (debugger_breakpoint_hit(app.debugger))
 		{
 			app.emulator_running = false;
-			app_discard_audio();
 			return;
 		}
 
@@ -977,7 +607,7 @@ static void app_run_frame(void)
 	}
 }
 
-static void app_drain_audio(void)
+static void app_mix_and_output_audio(void)
 {
 	if (!app.audio_backend_available) return;
 	u32 writable = os_audio_writable_frames();
@@ -1011,14 +641,6 @@ static void app_drain_audio(void)
 	}
 }
 
-static void app_pace_frame(void)
-{
-	Seconds now = seconds_now();
-	f64 elapsed = now.seconds - app.frame_begin.seconds;
-	platform_sleep((u64)(Max(0.0, 1.0 / 60.0 - elapsed) * 1000.0));
-	app.frame_begin = seconds_now();
-}
-
 static void app_upload_video_texture(void)
 {
 	gfx_update_texture(app.video_texture, (GFX_UpdateTextureParams) {
@@ -1038,15 +660,6 @@ static void app_upload_chr_texture(void)
 		.data = app.published.chr_image,
 	});
 }
-
-static void app_publish(void)
-{
-	Assert(nes_emulator_has_cartridge(&app.emulator));
-	PROF_BLOCK("publish NES target") nes_target_publish(&app.published, &app.emulator);
-	PROF_BLOCK("upload video texture") app_upload_video_texture();
-	PROF_BLOCK("upload CHR texture") app_upload_chr_texture();
-}
-
 #if 0
 static Str app_rom_name(Str path)
 {
@@ -1307,7 +920,7 @@ static UI_Box *app_build_shell(rect_f32 window_rect, ViewFrameData *frame)
 		}
 		if (app.mode == APP_MODE_EMULATOR || app.mode == APP_MODE_REWINDING)
 		{
-			Assert(nes_emulator_has_cartridge(&app.emulator));
+			Assert(nes_is_booted(&app.emulator));
 
 			rect_f32 panel_rect = window_rect;
 			panel_rect.y += status_height;
@@ -1528,19 +1141,6 @@ static void app_draw(void)
 	ui_begin_frame(app.ui);
 	os_window_set_cursor(app.os_window, OS_CURSOR_POINTER);
 
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1) {
-		// TODO(RJ) this needs to be configurable, and also, we should just be able
-		// to skip backwards arbitrarily
-		for(u32 i=0;i<4;++i) if(debugger_undo_snapshot(app.debugger)) {
-			app_discard_audio();
-		} else break;
-	}
-	if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1) {
-		for(u32 i=0;i<4;++i) if(debugger_redo_snapshot(app.debugger)) {
-			app_discard_audio();
-		} else break;
-	}
-
 	GFX_Texture *frame_texture = app_acquire_pass_output(app.os_window->size, GRAPHICS_SAMPLER_POINT, "application frame");
 
 	if (app.exclusive_ppu_mode) {
@@ -1549,8 +1149,7 @@ static void app_draw(void)
 	else {
 		app_draw_debugger(frame_texture, window_rect);
 	}
-	PROF_BLOCK("UI audio feedback") app_play_ui_feedback();
-	PROF_BLOCK("drain audio") app_drain_audio();
+
 
 	GFX_Texture *present_texture = frame_texture;
 	if (app.mode == APP_MODE_REWINDING) present_texture = app_rewind_pass(present_texture);
@@ -1573,66 +1172,87 @@ static void app_draw(void)
 	ui_end_frame(app.ui);
 }
 
-static void app_frame(void)
+static void app_tick(void)
 {
-	prof_begin_frame();
-	SCRATCH_SCOPE(&app.frame_arena)
+	AppInput input = app_translate_input_events_based_on_mode();
+	b32 app_consumed_input = app_handle_input(input);
+
+	const Program *program = debugger_program(app.debugger);
+	u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
+
+	if (nes_is_booted(&app.emulator))
 	{
-		PROF_BLOCK("main frame")
+		if (app.mode == APP_MODE_EMULATOR)
 		{
-			AppInput input = app_translate_input_events_based_on_mode();
-			b32 app_consumed_input = app_handle_input(input);
+			app_clear_emulator_input();
+			if (!app_consumed_input) app_update_emulator_input();
 
-			const Program *program = debugger_program(app.debugger);
-			u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
-
-			if (nes_emulator_has_cartridge(&app.emulator))
-			{
-				if (app.mode == APP_MODE_EMULATOR)
-				{
-					app_clear_emulator_input();
-					if (!app_consumed_input) app_update_emulator_input();
-
-					if (input.action == APP_ACTION_STEP) {
-						app.emulator_running = false;
-						PROF_BLOCK("emulation step") debugger_step(app.debugger);
-					}
-					else if (app.emulator_running) {
-						PROF_BLOCK("emulation") app_run_frame();
-					}
-				}
-				PROF_BLOCK("update cpu mapping") debugger_update_cpu_mapping(app.debugger);
-				PROF_BLOCK("program refinement") debugger_run_program_crawler(app.debugger, crawler_budget);
-				PROF_BLOCK("execution activity") execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
-				PROF_BLOCK("app publish")        app_publish();
+			if (input.action == APP_ACTION_STEP) {
+				app.emulator_running = false;
+				PROF_BLOCK("emulation step") debugger_step(app.debugger);
 			}
+			else if (app.emulator_running) {
+				PROF_BLOCK("emulation") app_run_frame();
+			}
+		}
+		else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == -1)
+		{
+			// TODO(RJ) this needs to be configurable, and also, we should just be able
+			// to skip backwards arbitrarily instead of doing one step at a time
+			for(u32 i=0;i<4;++i) {
+				if(!debugger_undo_snapshot(app.debugger)) break;
+			}
+		}
+		else if (app.mode == APP_MODE_REWINDING && app.rewind_direction == +1)
+		{
+			for(u32 i=0;i<4;++i) {
+				if(!debugger_redo_snapshot(app.debugger)) break;
+			}
+		}
 
-			PROF_BLOCK("app draw")   app_draw();
-			PROF_BLOCK("pace frame") app_pace_frame();
+		PROF_BLOCK("update cpu mapping")   debugger_update_cpu_mapping(app.debugger);
+		// PROF_BLOCK("program refinement")   debugger_run_program_crawler(app.debugger, crawler_budget);
+		PROF_BLOCK("execution activity")   execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
+		PROF_BLOCK("publish NES target")   nes_target_publish(&app.published, &app.emulator);
+		PROF_BLOCK("upload video texture") app_upload_video_texture();
+		PROF_BLOCK("upload CHR texture")   app_upload_chr_texture();
+
+		if (app.mode != APP_MODE_EMULATOR || !app.emulator_running) {
+			audio_stream_discard(app.audio);
 		}
 	}
+	PROF_BLOCK("UI audio feedback") app_play_ui_feedback();
+
+	PROF_BLOCK("mix and output audio") app_mix_and_output_audio();
+
+}
+
+static void app_frame(void)
+{
+	arena_reset(&app.frame_arena);
+	prof_begin_frame();
+	PROF_BLOCK("app tick") app_tick();
+	PROF_BLOCK("app draw") app_draw();
 	prof_close_frame();
 }
 
-static void app_init(void)
+static b32 app_init(void)
 {
-	b32 sucess;
+	if (!os_init()) {
+		LOG_ERROR("failed to initialize os");
+		return false;
+	}
 
-	sucess = os_init();
-	Assert(sucess);
-
-	sucess = os_graphical_init();
-	Assert(sucess);
+	if (!os_graphical_init()) {
+		LOG_ERROR("failed to initialize graphics");
+		return false;
+	}
 
 	app.arena = arena_create(0, "app arena");
 	app.frame_arena = arena_create(0, "app frame arena");
 	app.game_arena = arena_create(0, "app game arena");
 
 	orb_store_init(&app.orb_store);
-
-	// catalog_init(&app.catalog, &app.arena);
-	// app_load_catalog();
-	// app_refresh_catalog();
 
 	OS_AudioInfo audio_info;
 	app.audio_backend_available = os_audio_init(&audio_info);
@@ -1652,8 +1272,7 @@ static void app_init(void)
 		LOG_WARN("audio output is unavailable; emulation will continue without sound");
 	}
 	app.audio_backend_capacity = audio_info.buffer_frame_count;
-	u32 audio_capacity = Max(audio_info.buffer_frame_count * 4,
-	Max(audio_info.sample_rate / 10, 1));
+	u32 audio_capacity = Max(audio_info.buffer_frame_count * 4, Max(audio_info.sample_rate / 10, 1));
 	app.audio = audio_stream_create(&app.arena, (Audio_StreamDesc) {
 		.frame_capacity = audio_capacity,
 	});
@@ -1662,11 +1281,9 @@ static void app_init(void)
 	});
 	app.ui_click = app_make_ui_click(&app.arena, audio_info.sample_rate);
 
-	// Font_Handle code_font = ttf_load(app_read_file(&app.arena, "data/fonts/IBMPlexMono-Medium.ttf"));
 	ttf_init_api();
 	Font_Handle code_font = ttf_load(app_read_file(&app.arena, app_font_path));
 	UI_Theme theme = ui_default_theme(code_font);
-
 
 	app.os_window = os_window_create((OS_WindowDesc) {
 		.title = "Orbiter v0.1.0",
@@ -1687,7 +1304,7 @@ static void app_init(void)
 	app.ui = ui_create(&app.arena, app.os_window, app.text, app.draw, theme);
 	app.panels = panels_create(&app.arena);
 	app.crt_enabled = true;
-	// CPU-uploaded source textures persist; render pass outputs are transient.
+
 	app.video_texture = gfx_create_texture(app.renderer, (GFX_TextureDesc) {
 		.usage = GRAPHICS_TEXTURE_USAGE_PER_FRAME,
 		.bind_flags = GFX_TEXTURE_BIND_INPUT,
@@ -1706,27 +1323,15 @@ static void app_init(void)
 	});
 
 	app.debugger = debugger_create(&app.arena, &app.emulator);
-
-	app_load_config();
-	orbiter_restore_state();
-
-	if (nes_emulator_has_cartridge(&app.emulator)) {
-		app.mode = APP_MODE_EMULATOR;
-
-		// TODO(RJ) why do we do this here, the loop should just publish once the emulator runs and before the views draw
-		app_publish();
-	}
-	else app.library_overlay_on = true;
-
-	app.frame_begin = seconds_now();
+	app.library_overlay_on = true;
+	return true;
 }
 
 static void app_shutdown(void)
 {
-	if (app.active_orb && app.active_save) app_save_state();
-	app_write_active_orb();
+	app_save_state();
+	// app_write_active_orb();
 	// app_save_catalog();
-	// app_save_config();
 	// catalog_destroy(&app.catalog);
 	orb_store_destroy(&app.orb_store);
 	os_window_destroy(app.os_window);
@@ -1741,12 +1346,21 @@ static void app_shutdown(void)
 	}
 }
 
+static void app_pace_frame(void)
+{
+	Seconds now = seconds_now();
+	f64 elapsed = now.seconds - app.frame_begin.seconds;
+	platform_sleep((u64)(Max(0.0, 1.0 / 60.0 - elapsed) * 1000.0));
+	app.frame_begin = seconds_now();
+}
+
 int main(void)
 {
 	Platform_File_Info font_info;
 	if (!platform_get_file_info(app_font_path, &font_info)) {
 		os_set_current_directory_to_executable();
 	}
+
 	debugger_log_file = fopen(debugger_log_path, "w");
 	if (debugger_log_file) {
 		Assert(logger_add_sink(app_file_log_sink, debugger_log_file));
@@ -1754,13 +1368,281 @@ int main(void)
 		LOG_WARN("failed to open session log '%s'", debugger_log_path);
 	}
 
-	app_init();
+	if (!app_init()) {
+		LOG_ERROR("failed to initialize orbiter");
+		return 1;
+	}
 
+	app.frame_begin = seconds_now();
 	while (os_window_is_open(app.os_window))
 	{
-		os_graphical_poll();
-		if (os_window_is_open(app.os_window)) app_frame();
+		os_poll_windows();
+		if (os_window_is_open(app.os_window)) {
+			app_frame();
+		}
+
+		PROF_BLOCK("pacing") app_pace_frame();
 	}
 	app_shutdown();
 	return 0;
 }
+
+
+#if 0
+static b32 app_save_state(void)
+{
+	if (!nes_is_booted(&app.emulator))
+	{
+		LOG_WARN("cannot save emulator state without a loaded cartridge");
+		return false;
+	}
+	if (!app.active_orb || !app.active_save)
+	{
+		LOG_WARN("cannot save emulator state without an active ORB save");
+		return false;
+	}
+
+	ByteSpan state = {};
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		ByteSpan captured = orb_nes_state_encode(&app.frame_arena, &app.emulator);
+		if (captured.size == app.active_save->state.size)
+		{
+			memory_copy(app.active_save->state.data, captured.data, captured.size);
+			state = app.active_save->state;
+		}
+		else if (captured.size) state = byte_span(arena_push_copy(&app.orb_store.arena, captured.size, captured.data), captured.size);
+	}
+	if (!state.size)
+	{
+		LOG_WARN("failed to capture emulator state");
+		return false;
+	}
+
+	app.active_save->state = state;
+	app.active_save->updated_unix_ms = app_unix_time_ms();
+	app.active_save->play_time_ms = app_play_time_ms();
+	app.active_orb->last_played_unix_ms = app.active_save->updated_unix_ms;
+	app.active_orb->play_time_ms = app.active_save->play_time_ms;
+	app.active_orb->dirty = true;
+	LOG_INFO("updated active ORB save");
+	return true;
+}
+
+static NES_SetupParams app_nes_setup_params(NES_CartridgeDesc cartridge)
+{
+	return (NES_SetupParams) {
+		.mapper = cartridge.mapper,
+		.vmirror = cartridge.vmirror,
+		.four_screen = cartridge.four_screen,
+		.has_trainer = cartridge.has_trainer,
+		.prg_rom = cartridge.prg_rom,
+		.chr_rom = cartridge.chr_rom,
+	};
+}
+
+static b32 app_load_file(const char *path)
+{
+	b32 success = false;
+	Orb_StoreResult store_result = orb_store_load(&app.orb_store, str_from_cstr(path));
+	if (store_result.status != ORB_STORE_STATUS_OK)
+	{
+		if (store_result.status == ORB_STORE_STATUS_INVALID_ORB) LOG_WARN("failed to parse '%s' at byte %llu: %s", path, store_result.orb_result.offset, orb_status_string(store_result.orb_result.status));
+		else LOG_WARN("failed to open '%s': %s", path, orb_store_status_string(store_result.status));
+		return false;
+	}
+
+	Orb *orb = &app.orb_store.orb;
+	Orb_SaveNode *latest = 0;
+	for (Orb_SaveNode *save = orb->first_save; save; save = save->next)
+	{
+		if (!latest || save->updated_unix_ms > latest->updated_unix_ms) latest = save;
+	}
+	success = nes_setup_emulator(&app.emulator, app_nes_setup_params(orb->cartridge));
+	if (success && latest) success = orb_transfer_save_state_no_chunk(&app.emulator, latest->state);
+	if (success) debugger_reset(app.debugger);
+	if (success && !latest)
+	{
+		u64 now = app_unix_time_ms();
+		u64 arena_position = app.orb_store.arena.position;
+		latest = arena_push_zero(&app.orb_store.arena, sizeof(*latest));
+		*latest = (Orb_SaveNode) {
+			.id = app_new_save_id(now),
+			.kind = ORB_SAVE_RESUME,
+			.created_unix_ms = now,
+			.updated_unix_ms = now,
+			.play_time_ms = orb->play_time_ms,
+			.state = orb_nes_state_encode(&app.orb_store.arena, &app.emulator),
+		};
+		if (!latest->state.size)
+		{
+			app.orb_store.arena.position = arena_position;
+			latest = 0;
+			success = false;
+		}
+		else
+		{
+			orb->first_save = latest;
+			orb->last_save = latest;
+			orb->save_count = 1;
+			orb->dirty = true;
+		}
+	}
+	if (success)
+	{
+		app.current_save_id = latest->id;
+		app.save_created_unix_ms = latest->created_unix_ms;
+		app.first_played_unix_ms = orb->first_played_unix_ms;
+		app.play_time_seconds = latest->play_time_ms / 1000.0;
+		app.last_rom_path = orb->source_path.size ? str_push_copy(&app.arena, orb->source_path) : (Str) {};
+		Str title = orb->title.size ? orb->title : app.last_rom_path.size ? app_rom_name(app.last_rom_path) : LIT("NES game");
+		app.current_game_title = str_push_copy(&app.arena, title);
+		// app_set_game_cartridge(orb->cartridge);
+		app.active_orb = orb;
+		app.active_save = latest;
+	}
+
+	if (success)
+	{
+		app.mode = APP_MODE_EMULATOR;
+		app.library_overlay_on = false;
+		LOG_INFO("restored emulator state from '%s'", path);
+	}
+	else LOG_WARN("failed to restore emulator state from '%s'", path);
+
+	app.active_orb  = 0;
+	app.active_save = 0;
+	return success;
+}
+
+static b32 app_restore_state(void)
+{
+	// Platform_File_Info info = {};
+	// if (platform_get_file_info(orb_save_path, &info)) return app_load_file(orb_save_path);
+	// return false;
+	return true;
+}
+
+static b32 app_open_rom_path(Str path)
+{
+	b32 success = false;
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		Str rom = app_read_file(&app.frame_arena, path.text);
+		if (rom.size)
+		{
+			LOG_INFO("open file: %s", path.text);
+			NES_CartridgeDesc cartridge = {};
+			if (!nes_cartridge_parse_ines(byte_span((void *)rom.data, rom.size), &cartridge)) LOG_WARN("failed to load ROM: invalid or unsupported iNES image");
+			else success = debugger_load_cartridge(app.debugger, cartridge);
+			if (success) {
+				Hash256 content_hash = orb_cartridge_hash(cartridge);
+				b32 same_game = !hash256_is_zero(app.current_content_hash) && hash256_match(app.current_content_hash, content_hash);
+				app.mode = APP_MODE_EMULATOR;
+				app.library_overlay_on = false;
+
+				app.last_rom_path = str_push_copy(&app.arena, path);
+				if (!same_game) app_begin_game_history(app_rom_name(app.last_rom_path));
+				app_set_game_cartridge(cartridge);
+				app_create_runtime_orb(app.last_rom_path);
+				if (!catalog_find_path(&app.catalog, path) && catalog_add_source(&app.catalog, path))
+				{
+					app_save_catalog();
+					app.catalog_refresh_pending = true;
+				}
+			}
+		} else {
+			LOG_WARN("failed to read ROM '%s'", path.text);
+		}
+	}
+	return success;
+}
+static void app_open_rom(void)
+{
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		Str path = os_dialog_open_file(&app.frame_arena);
+		if (path.size) {
+			app_open_rom_path(path);
+		}
+	}
+}
+#endif
+#if 0
+static void app_load_catalog(void)
+{
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		Platform_File_Info info = {};
+		if (platform_get_file_info(catalog_config_path, &info))
+		{
+			Str source = app_read_file(&app.frame_arena, catalog_config_path);
+			Catalog_Result result = source.size
+				? catalog_from_source(&app.catalog, str_from_data(catalog_config_path, sizeof(catalog_config_path) - 1), source, &app.frame_arena)
+				: (Catalog_Result) { .status = CATALOG_STATUS_PARSE_ERROR, .message = LIT("catalog state is empty or unreadable") };
+			if (result.status != CATALOG_STATUS_OK)
+			{
+				app.catalog_write_protected = true;
+				app_log_catalog_error(result);
+				LOG_WARN("automatic catalog writes are disabled to preserve '%s'", catalog_config_path);
+			}
+		}
+	}
+}
+
+static b32 app_save_catalog(void)
+{
+	if (!app.catalog.dirty) return true;
+	if (app.catalog_write_protected) return false;
+	b32 success = false;
+	SCRATCH_SCOPE(&app.frame_arena)
+	{
+		Catalog_EncodeResult encoded = catalog_to_source(&app.catalog, &app.frame_arena);
+		if (encoded.result.status != CATALOG_STATUS_OK) {
+			app_log_catalog_error(encoded.result);
+		}
+		else
+		{
+			success = app_write_file_atomic(catalog_config_path, encoded.source.data, encoded.source.size);
+			if (success) catalog_mark_saved(&app.catalog);
+			else LOG_WARN("failed to save catalog state to '%s'", catalog_config_path);
+		}
+	}
+	return success;
+}
+
+static void app_refresh_catalog(void)
+{
+	Str application_sources[] = { LIT("data") };
+	catalog_refresh(&app.catalog, &app.frame_arena, application_sources, ArrayCount(application_sources));
+	app.catalog_refresh_pending = false;
+	if (app.catalog.scan_error_count) LOG_WARN("catalog refresh completed with %u unreadable entries or sources", app.catalog.scan_error_count);
+}
+
+static void app_begin_game_history(Str title)
+{
+	u64 now = app_unix_time_ms();
+	app.current_game_title = str_push_copy(&app.arena, title);
+	app.current_save_id = app_new_save_id(now);
+	app.current_content_hash = (Hash256) {};
+	app.save_created_unix_ms = now;
+	app.first_played_unix_ms = now;
+	app.play_time_seconds = 0.0;
+}
+
+static void app_set_game_cartridge(NES_CartridgeDesc cartridge)
+{
+	arena_reset(&app.game_arena);
+	app.current_cartridge = (NES_CartridgeDesc) {};
+	app.current_content_hash = (Hash256) {};
+	Hash256 content_hash = orb_cartridge_hash(cartridge);
+	if (hash256_is_zero(content_hash)) return;
+	ByteSpan prg_rom = byte_span(arena_push_copy(&app.game_arena, cartridge.prg_rom.size, cartridge.prg_rom.data), cartridge.prg_rom.size);
+	ByteSpan chr_rom = {};
+	if (cartridge.chr_rom.size) chr_rom = byte_span(arena_push_copy(&app.game_arena, cartridge.chr_rom.size, cartridge.chr_rom.data), cartridge.chr_rom.size);
+	app.current_cartridge = cartridge;
+	app.current_cartridge.prg_rom = prg_rom;
+	app.current_cartridge.chr_rom = chr_rom;
+	app.current_content_hash = content_hash;
+}
+#endif

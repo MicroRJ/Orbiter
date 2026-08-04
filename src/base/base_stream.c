@@ -8,6 +8,63 @@ ByteStream byte_stream_writer(ByteSpan destination)
 	return (ByteStream) { .data = destination.data, .size = destination.size, .mode = BYTE_STREAM_WRITE, .failed = !destination.data && destination.size };
 }
 
+ByteStream byte_stream_arena_writer(Arena *arena)
+{
+	ByteStream stream = { .arena = arena, .mode = BYTE_STREAM_WRITE };
+	if (!arena || !arena->memory || arena->position > arena->reserved_size) stream.failed = true;
+	else
+	{
+		stream.data = arena->memory + arena->position;
+		stream.size = arena->reserved_size - arena->position;
+		stream.arena_start_position = arena->position;
+	}
+	return stream;
+}
+
+static b32 byte_stream_owns_arena_tail(const ByteStream *stream)
+{
+	return !stream->arena || stream->arena->position == stream->arena_start_position + stream->cursor;
+}
+
+ByteSpan byte_stream_written(ByteStream *stream)
+{
+	if (!stream || stream->mode != BYTE_STREAM_WRITE || stream->ended)
+	{
+		if (stream) stream->failed = true;
+		return (ByteSpan) {};
+	}
+	if (!byte_stream_owns_arena_tail(stream))
+	{
+		stream->failed = true;
+		stream->ended = true;
+		return (ByteSpan) {};
+	}
+	if (stream->failed)
+	{
+		if (stream->arena) stream->arena->position = stream->arena_start_position;
+		stream->ended = true;
+		return (ByteSpan) {};
+	}
+	stream->ended = true;
+	return byte_span(stream->data, stream->cursor);
+}
+
+void byte_stream_cancel(ByteStream *stream)
+{
+	if (!stream || stream->ended) return;
+	if (stream->arena)
+	{
+		if (!byte_stream_owns_arena_tail(stream))
+		{
+			stream->failed = true;
+			stream->ended = true;
+			return;
+		}
+		stream->arena->position = stream->arena_start_position;
+	}
+	stream->ended = true;
+}
+
 u64 byte_stream_remaining(const ByteStream *stream)
 {
 	return stream->cursor <= stream->size ? stream->size - stream->cursor : 0;
@@ -15,13 +72,18 @@ u64 byte_stream_remaining(const ByteStream *stream)
 
 ByteSpan byte_stream_take(ByteStream *stream, u64 size)
 {
-	if (stream->failed || stream->cursor > stream->size || size > stream->size - stream->cursor)
+	if (stream->failed || stream->ended || !byte_stream_owns_arena_tail(stream) || stream->cursor > stream->size || size > stream->size - stream->cursor)
 	{
 		stream->failed = true;
 		return (ByteSpan) {};
 	}
 	if (!size) return byte_span(stream->data ? stream->data + stream->cursor : 0, 0);
 	ByteSpan result = byte_span(stream->data + stream->cursor, size);
+	if (stream->arena)
+	{
+		void *memory = arena_push_aligned(stream->arena, size, 1);
+		Assert(memory == result.data);
+	}
 	stream->cursor += size;
 	return result;
 }

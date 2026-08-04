@@ -38,7 +38,7 @@ int main(void)
 		.prg_rom = byte_span(prg_rom, sizeof(prg_rom)),
 		.chr_rom = byte_span(chr_rom, sizeof(chr_rom)),
 		.mapper = 9,
-		.vertical_mirroring = true,
+		.vmirror = true,
 	};
 	Orb_Metadata metadata = {
 		.content_hash = orb_cartridge_hash(cartridge),
@@ -48,11 +48,11 @@ int main(void)
 		.title = LIT("Incremental ORB"),
 		.source_path = LIT("games/incremental.nes"),
 	};
-	Orb_CartridgeMetadata cartridge_metadata = {
+	Orb_Game cartridge_metadata = {
 		.mapper = cartridge.mapper,
 		.prg_rom_size = sizeof(prg_rom),
 		.chr_rom_size = sizeof(chr_rom),
-		.vertical_mirroring = cartridge.vertical_mirroring,
+		.vmirror = cartridge.vmirror,
 	};
 	Orb_SaveMetadata first_save = {
 		.id = { .bytes = { 1 } },
@@ -113,7 +113,7 @@ int main(void)
 		}
 		else if (chunk.type == ORB_CHUNK_CARTRIDGE)
 		{
-			Orb_CartridgeMetadata decoded = {};
+			Orb_Game decoded = {};
 			Assert(orb_decode_cartridge_chunk(chunk, &decoded).status == ORB_STATUS_OK);
 			Assert(decoded.mapper == cartridge_metadata.mapper && decoded.prg_rom_size == sizeof(prg_rom) && decoded.chr_rom_size == sizeof(chr_rom));
 		}
@@ -169,7 +169,7 @@ int main(void)
 	Orb orb = {};
 	result = orb_runtime_decode(&runtime_arena, encoded, &orb);
 	Assert(result.status == ORB_STATUS_OK);
-	Assert(orb.cartridge.mapper == cartridge.mapper && orb.cartridge.vertical_mirroring == cartridge.vertical_mirroring);
+	Assert(orb.cartridge.mapper == cartridge.mapper && orb.cartridge.vmirror == cartridge.vmirror);
 	Assert(orb.cartridge.prg_rom.size == sizeof(prg_rom) && memory_match(orb.cartridge.prg_rom.data, prg_rom, sizeof(prg_rom)));
 	Assert(orb.cartridge.chr_rom.size == sizeof(chr_rom) && memory_match(orb.cartridge.chr_rom.data, chr_rom, sizeof(chr_rom)));
 	Assert(orb.save_count == 2 && orb.first_save && orb.last_save && orb.first_save != orb.last_save);

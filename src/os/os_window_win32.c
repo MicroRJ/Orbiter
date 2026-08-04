@@ -295,7 +295,7 @@ void os_window_destroy(OS_Window *base)
 	free(window);
 }
 
-void os_graphical_poll(void)
+void os_poll_windows(void)
 {
 	for (OS_Win32Window *window = os_win32_first_window; window; window = window->next)
 	{

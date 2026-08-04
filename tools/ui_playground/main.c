@@ -1348,7 +1348,7 @@ static int playground_run_window(void)
 	PlaygroundMode mode = PLAYGROUND_MODE_BASICS;
 	while (os_window_is_open(window))
 	{
-		os_graphical_poll();
+		os_poll_windows();
 		b32 reset_scroll_history = false;
 		if (!os_window_is_open(window)) {
 			break;

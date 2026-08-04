@@ -1,33 +1,6 @@
 #include "serialize.h"
 
-typedef struct
-{
-	u32 magic;
-	u16 version;
-	u16 type;
-	u32 size;
-}
-SerializeChunkHeader;
-
-enum
-{
-	SERIALIZE_MAGIC        = 0x31524553,
-	SERIALIZE_VERSION_1    = 1,
-	SERIALIZE_VERSION      = 2,
-	SERIALIZE_CHUNK_RECORD = 1,
-	SERIALIZE_CHUNK_HEADER_SIZE = 12,
-};
-
 STATIC_ASSERT(SERIALIZE_WIRE_COUNT <= 16);
-STATIC_ASSERT(SERIALIZE_CHUNK_HEADER_SIZE == sizeof(u32) + sizeof(u16) + sizeof(u16) + sizeof(u32));
-
-static void serialize_transfer_chunk_header(ByteStream *stream, SerializeChunkHeader *header)
-{
-	byte_transfer_u32(stream, &header->magic);
-	byte_transfer_u16(stream, &header->version);
-	byte_transfer_u16(stream, &header->type);
-	byte_transfer_u32(stream, &header->size);
-}
 
 b32 serialize_wire_type_is_integer(SerializeWireType type)
 {
@@ -102,8 +75,7 @@ static void serialize_write_record_body(ByteStream *writer, const SerializeRecor
 }
 
 static b32 serialize_read_record_body(ByteStream *reader,
-	const SerializeRecordMap *map, const SerializeRecord *expected, u8 *value,
-	u16 version)
+	const SerializeRecordMap *map, const SerializeRecord *expected, u8 *value)
 {
 	u16 record_id = 0;
 	u16 serialized_field_count = 0;
@@ -123,19 +95,8 @@ static b32 serialize_read_record_body(ByteStream *reader,
 		SerializeWireType wire_type = (SerializeWireType)(field_header & 15);
 		u32 field_key = field_header >> 4;
 		u32 field_index = 0;
-		const SerializeField *field = 0;
-		if (version == SERIALIZE_VERSION_1)
-		{
-			if (field_key >= record->field_count) return false;
-			field_index = field_key;
-			field = &record->fields[field_index];
-		}
-		else
-		{
-			field = serialize_record_field_from_id(record, field_key,
-				&field_index);
-			if (!field) return false;
-		}
+		const SerializeField *field = serialize_record_field_from_id(record, field_key, &field_index);
+		if (!field) return false;
 		u64 field_bit = (u64)1 << field_index;
 		if (seen_fields & field_bit) return false;
 		seen_fields |= field_bit;
@@ -148,9 +109,7 @@ static b32 serialize_read_record_body(ByteStream *reader,
 			if (reader->failed || !nested || count != field->count ||
 				nested->size * count != field->size) return false;
 			for (u32 index = 0; index < count; ++index) {
-				if (!serialize_read_record_body(reader, map, nested,
-					value + field->offset + index * nested->size,
-					version)) return false;
+				if (!serialize_read_record_body(reader, map, nested, value + field->offset + index * nested->size)) return false;
 			}
 		}
 		else
@@ -173,45 +132,20 @@ static b32 serialize_read_record_body(ByteStream *reader,
 	return seen_fields == required_fields;
 }
 
-u64 serialize_write_record(ByteSpan destination, const SerializeRecordMap *map, u16 record_id, const void *value)
+void serialize_write_record(ByteStream *writer, const SerializeRecordMap *map, u16 record_id, const void *value)
 {
+	Assert(writer && writer->mode == BYTE_STREAM_WRITE && !writer->failed && !writer->ended);
 	const SerializeRecord *record = serialize_record_from_id(map, record_id);
-	Assert(destination.data && record && value);
-	ByteStream writer = byte_stream_writer(destination);
-	ByteSpan header_bytes = byte_stream_take(&writer, SERIALIZE_CHUNK_HEADER_SIZE);
-	u64 start = writer.cursor;
-	serialize_write_record_body(&writer, map, record, value);
-	Assert(!writer.failed);
-	Assert(writer.cursor - start <= MAX_VALUE_U32);
-	SerializeChunkHeader header = {
-		.magic = SERIALIZE_MAGIC,
-		.version = SERIALIZE_VERSION,
-		.type = SERIALIZE_CHUNK_RECORD,
-		.size = (u32)(writer.cursor - start),
-	};
-	ByteStream header_writer = byte_stream_writer(header_bytes);
-	serialize_transfer_chunk_header(&header_writer, &header);
-	Assert(!header_writer.failed);
-	return writer.cursor;
+	Assert(record && value);
+	serialize_write_record_body(writer, map, record, value);
 }
 
-b32 serialize_read_record(ByteSpan source, const SerializeRecordMap *map, u16 record_id, void *value)
+b32 serialize_read_record(ByteStream *reader, const SerializeRecordMap *map, u16 record_id, void *value)
 {
+	Assert(reader && reader->mode == BYTE_STREAM_READ && !reader->failed && !reader->ended);
 	const SerializeRecord *record = serialize_record_from_id(map, record_id);
-	if (!source.data || source.size < SERIALIZE_CHUNK_HEADER_SIZE ||
-		!record || !value) return false;
-	ByteStream reader = byte_stream_reader(source);
-	SerializeChunkHeader header = {};
-	serialize_transfer_chunk_header(&reader, &header);
-	if (reader.failed || header.magic != SERIALIZE_MAGIC ||
-		(header.version != SERIALIZE_VERSION_1 &&
-		 header.version != SERIALIZE_VERSION) ||
-		header.type != SERIALIZE_CHUNK_RECORD ||
-		header.size != source.size - SERIALIZE_CHUNK_HEADER_SIZE) return false;
-	ByteSpan body_bytes = byte_stream_take(&reader, header.size);
-	if (reader.failed) return false;
-	ByteStream body = byte_stream_reader(body_bytes);
-	b32 success = serialize_read_record_body(&body, map, record,
-		value, header.version);
-	return success && !body.failed && body.cursor == body.size;
+	Assert(record && value);
+	b32 success = serialize_read_record_body(reader, map, record, value);
+	if (!success) reader->failed = true;
+	return success;
 }

@@ -105,7 +105,7 @@
 
 // typedef struct
 // {
-// 	Orb_GameMetadata metadata;
+// 	Orb_Game metadata;
 // 	Orb_Thumbnail thumbnail;
 // 	b32 has_thumbnail;
 // 	u64 state_size;

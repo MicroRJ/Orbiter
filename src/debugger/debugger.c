@@ -226,7 +226,7 @@ static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *de
 
 u32 debugger_step(Debugger *debugger)
 {
-	Assert(nes_emulator_has_cartridge(debugger->emulator));
+	Assert(nes_is_booted(debugger->emulator));
 	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	u32 cycles = nes_emulator_step(debugger->emulator);
@@ -236,7 +236,7 @@ u32 debugger_step(Debugger *debugger)
 
 NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer, u64 sample_capacity)
 {
-	Assert(nes_emulator_has_cartridge(debugger->emulator));
+	Assert(nes_is_booted(debugger->emulator));
 	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	NES_RunFrameResult result = nes_emulator_run_frame(debugger->emulator, sample_buffer, sample_capacity);

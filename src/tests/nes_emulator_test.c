@@ -39,7 +39,7 @@ static NES_SetupParams test_setup_params(NES_CartridgeDesc cartridge)
 {
 	return (NES_SetupParams) {
 		.mapper = cartridge.mapper,
-		.vmirror = cartridge.vertical_mirroring,
+		.vmirror = cartridge.vmirror,
 		.four_screen = cartridge.four_screen,
 		.has_trainer = cartridge.has_trainer,
 		.prg_rom = cartridge.prg_rom,
@@ -138,13 +138,13 @@ int main(int argc, char **argv)
 
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(core);
-	Assert(!nes_emulator_has_cartridge(core));
+	Assert(!nes_is_booted(core));
 	NES_CartridgeDesc oversized_nrom = parsed_cartridge;
 	oversized_nrom.prg_rom = byte_span(arena_push_zero(&arena, KiB(48)), KiB(48));
 	Assert(!nes_setup_emulator(core, test_setup_params(oversized_nrom)));
-	Assert(!nes_emulator_has_cartridge(core));
+	Assert(!nes_is_booted(core));
 	Assert(nes_setup_emulator(core, test_setup_params(parsed_cartridge)));
-	Assert(nes_emulator_has_cartridge(core));
+	Assert(nes_is_booted(core));
 	//	NES_CHRMap chr_map = {};
 	//	nes_emulator_capture_chr_map(core, &chr_map);
 	//	Assert(chr_map.tiles[0].pixels[0][0] == 1);
@@ -152,8 +152,8 @@ int main(int argc, char **argv)
 	//	Assert(chr_map.mappings[0].device == NES_DEVICE_CHR_ROM);
 	//	Assert(chr_map.mappings[0].address == 0);
 	u8 obsolete_state_header[12] = {};
-	Assert(!orb_nes_state_decode(core, byte_span(obsolete_state_header, sizeof(obsolete_state_header))));
-	Assert(nes_emulator_has_cartridge(core));
+	Assert(!orb_transfer_save_state_no_chunk(core, byte_span(obsolete_state_header, sizeof(obsolete_state_header))));
+	Assert(nes_is_booted(core));
 
 	NES_CPUState before = core->cpu;
 	Assert(before.PC != 0);
@@ -228,20 +228,20 @@ int main(int argc, char **argv)
 		};
 		for (u32 index = 0; index < ArrayCount(truncated_sizes); ++index)
 		{
-			Assert(!orb_nes_state_decode(core,
+			Assert(!orb_transfer_save_state_no_chunk(core,
 				byte_span(state.data, truncated_sizes[index])));
 			Assert(memory_match(core, before_failed_load, sizeof(*core)));
 		}
 		u8 *corrupt_state = arena_push_copy(&arena, state.size, state.data);
 		corrupt_state[8] ^= 0x80;
-		Assert(!orb_nes_state_decode(core,
+		Assert(!orb_transfer_save_state_no_chunk(core,
 			byte_span(corrupt_state, state.size)));
 		Assert(memory_match(core, before_failed_load, sizeof(*core)));
 		u32 valid_xtick = core->ppu.xtick;
 		core->ppu.xtick = 341;
 		ByteSpan invalid_state = orb_nes_state_encode(&arena, core);
 		core->ppu.xtick = valid_xtick;
-		Assert(!orb_nes_state_decode(core, invalid_state));
+		Assert(!orb_transfer_save_state_no_chunk(core, invalid_state));
 		Assert(memory_match(core, before_failed_load, sizeof(*core)));
 
 		const char *test_state_path = "build/nes_emulator_test_state.nesstate";
@@ -251,7 +251,7 @@ int main(int argc, char **argv)
 		Assert(memory_match(disk_state.text, state.data, state.size));
 		nes_emulator_step(core);
 		core->video[7][11] = 0;
-		Assert(orb_nes_state_decode(core, byte_span(disk_state.text, disk_state.size)));
+		Assert(orb_transfer_save_state_no_chunk(core, byte_span(disk_state.text, disk_state.size)));
 		state_after_load_ppu = core->ppu;
 	}
 	Assert(memory_match(&state_before_save_ppu, &state_after_load_ppu, sizeof(state_before_save_ppu)));
@@ -276,7 +276,7 @@ int main(int argc, char **argv)
 			Assert(external_state.text && external_state.size);
 			NES_Emulator *external_core = arena_push_zero(&arena, sizeof(NES_Emulator));
 			Assert(nes_setup_emulator(external_core, test_setup_params(parsed_cartridge)));
-			Assert(orb_nes_state_decode(external_core,
+			Assert(orb_transfer_save_state_no_chunk(external_core,
 				byte_span(external_state.text, external_state.size)));
 			Assert(external_core->cpu.PC != 0);
 			Assert(external_core->ppu.xtick < 341);

@@ -1,246 +1,215 @@
 #include "orb_runtime.h"
+#include "nes_serialize.h"
 
-static const u64 ORB_STORE_MAX_FILE_SIZE = MB(256);
+#define ORB_FOURCC(a, b, c, d) ((u32)(u8)(a) | (u32)(u8)(b) << 8 | (u32)(u8)(c) << 16 | (u32)(u8)(d) << 24)
 
-static Orb_StoreResult orb_store_result(Orb_StoreStatus status)
+enum
 {
-	return (Orb_StoreResult) { .status = status };
+	ORB_MAGIC = ORB_FOURCC('O', 'R', 'B', 'S'),
+	ORB_FILE_VERSION = 1,
+	ORB_MAX_SAVE_COUNT = 4096,
+
+	INES_HEADER_SIZE = 16,
+	INES_TRAINER_SIZE = 512,
+	INES_PRG_BANK_SIZE = KiB(16),
+	INES_CHR_BANK_SIZE = KiB(8),
+};
+
+typedef struct
+{
+	u32 magic;
+	u32 version;
+}
+Orb_FileHeader;
+
+static b32 orb_game_memory_is_valid(Orb_Game game)
+{
+	if (game.metadata.prg_rom_size && !game.prg_rom_data) return false;
+	if (game.metadata.chr_rom_size && !game.chr_rom_data) return false;
+	if (game.metadata.has_trainer && !game.trainer_data) return false;
+	return true;
 }
 
-static Orb_Save *orb_runtime_push_save(Arena *arena, Orb *orb)
+static void orb_hash_u32(SHA256_Context *context, u32 value)
 {
-	if (!arena || !arena->memory || !orb || arena->position > arena->reserved_size) return 0;
-	u64 address = (u64)(uintptr_t)arena->memory + arena->position;
-	u64 padding = (ARENA_DEFAULT_ALIGNMENT - (address & (ARENA_DEFAULT_ALIGNMENT - 1))) & (ARENA_DEFAULT_ALIGNMENT - 1);
+	u8 bytes[4];
+	for (u32 index = 0; index < sizeof(bytes); index ++) bytes[index] = (u8)(value >> (index * 8));
+	sha256_update(context, byte_span(bytes, sizeof(bytes)));
+}
+
+Hash256 orb_game_hash(Orb_Game game)
+{
+	Assert(orb_game_memory_is_valid(game));
+	static const u8 domain[] = "ORB_GAME_1";
+	SHA256_Context context;
+	sha256_init(&context);
+	sha256_update(&context, byte_span((void *)domain, sizeof(domain) - 1));
+	orb_hash_u32(&context, game.metadata.mapper);
+	orb_hash_u32(&context, !!game.metadata.vmirror);
+	orb_hash_u32(&context, !!game.metadata.has_trainer);
+	orb_hash_u32(&context, !!game.metadata.four_screen);
+	orb_hash_u32(&context, game.metadata.prg_rom_size);
+	orb_hash_u32(&context, game.metadata.chr_rom_size);
+	if (game.metadata.has_trainer) sha256_update(&context, byte_span(game.trainer_data, INES_TRAINER_SIZE));
+	sha256_update(&context, byte_span(game.prg_rom_data, game.metadata.prg_rom_size));
+	sha256_update(&context, byte_span(game.chr_rom_data, game.metadata.chr_rom_size));
+	return sha256_final(&context);
+}
+
+static void *orb_transfer_memory(ByteStream *stream, void *memory, u64 size)
+{
+	if (stream->mode == BYTE_STREAM_READ) return size ? byte_stream_take(stream, size).data : 0;
+	byte_transfer_bytes(stream, byte_span(memory, size));
+	return memory;
+}
+
+static void orb_transfer_bool(ByteStream *stream, b32 *value)
+{
+	u32 encoded = !!*value;
+	byte_transfer_u32(stream, &encoded);
+	if (stream->mode == BYTE_STREAM_READ)
+	{
+		if (encoded > 1) stream->failed = true;
+		*value = encoded == 1;
+	}
+}
+
+static void orb_transfer_string(ByteStream *stream, Str *string)
+{
+	byte_transfer_u32(stream, &string->size);
+	string->data = orb_transfer_memory(stream, string->data, string->size);
+}
+
+static void orb_transfer_file_header(ByteStream *stream, Orb_FileHeader *header)
+{
+	byte_transfer_u32(stream, &header->magic);
+	byte_transfer_u32(stream, &header->version);
+}
+
+static void orb_transfer_metadata(ByteStream *stream, Orb *orb)
+{
+	byte_transfer_u64(stream, &orb->first_played_unix_ms);
+	byte_transfer_u64(stream, &orb->last_played_unix_ms);
+	byte_transfer_u64(stream, &orb->play_time_ms);
+	orb_transfer_string(stream, &orb->title);
+}
+
+static void orb_transfer_game(ByteStream *stream, Orb_Game *game)
+{
+	byte_transfer_u32(stream, &game->metadata.mapper);
+	orb_transfer_bool(stream, &game->metadata.vmirror);
+	orb_transfer_bool(stream, &game->metadata.has_trainer);
+	orb_transfer_bool(stream, &game->metadata.four_screen);
+	byte_transfer_u32(stream, &game->metadata.prg_rom_size);
+	byte_transfer_u32(stream, &game->metadata.chr_rom_size);
+	if (game->metadata.has_trainer) game->trainer_data = orb_transfer_memory(stream, game->trainer_data, INES_TRAINER_SIZE);
+	game->prg_rom_data = orb_transfer_memory(stream, game->prg_rom_data, game->metadata.prg_rom_size);
+	game->chr_rom_data = orb_transfer_memory(stream, game->chr_rom_data, game->metadata.chr_rom_size);
+}
+
+static void orb_transfer_thumbnail(ByteStream *stream, Orb_Thumbnail *thumbnail)
+{
+	byte_transfer_u32(stream, &thumbnail->width);
+	byte_transfer_u32(stream, &thumbnail->height);
+	byte_transfer_u32(stream, &thumbnail->stride);
+	u32 format = thumbnail->format;
+	byte_transfer_u32(stream, &format);
+	thumbnail->format = format;
+	byte_transfer_u64(stream, &thumbnail->pixels.size);
+	thumbnail->pixels.data = orb_transfer_memory(stream, thumbnail->pixels.data, thumbnail->pixels.size);
+}
+
+static void orb_transfer_save_metadata(ByteStream *stream, Orb_SaveMetadata *metadata)
+{
+	byte_transfer_u64(stream, &metadata->kind);
+	byte_transfer_u64(stream, &metadata->flags);
+	byte_transfer_bytes(stream, byte_span(metadata->id.bytes, sizeof(metadata->id.bytes)));
+	byte_transfer_u64(stream, &metadata->created_unix_ms);
+	byte_transfer_u64(stream, &metadata->updated_unix_ms);
+	byte_transfer_u64(stream, &metadata->play_time_ms);
+}
+
+static void orb_transfer_save(ByteStream *stream, Orb_SaveNode *save)
+{
+	orb_transfer_save_metadata(stream, &save->metadata);
+	if (!stream->failed) orb_transfer_save_state(stream, &save->state);
+	u32 has_thumbnail = save->thumbnail.pixels.size != 0;
+	byte_transfer_u32(stream, &has_thumbnail);
+	if (stream->mode == BYTE_STREAM_READ && has_thumbnail > 1) stream->failed = true;
+	if (has_thumbnail == 1) orb_transfer_thumbnail(stream, &save->thumbnail);
+}
+
+static b32 orb_arena_can_push(Arena *arena, u64 size)
+{
+	if (!arena || !arena->memory || arena->position > arena->reserved_size) return false;
 	u64 remaining = arena->reserved_size - arena->position;
-	if (padding > remaining || sizeof(Orb_Save) > remaining - padding) return 0;
-	Orb_Save *save = arena_push_zero(arena, sizeof(*save));
-	if (orb->last_save) orb->last_save->next = save;
-	else                orb->first_save = save;
-	orb->last_save = save;
-	orb->save_count ++;
-	return save;
+	return size <= remaining && ARENA_DEFAULT_ALIGNMENT - 1 <= remaining - size;
 }
 
-static b32 orb_runtime_has_save_id(const Orb *orb, Orb_Id id)
+ByteSpan orb_write(Arena *arena, Orb *orb)
 {
-	for (const Orb_Save *save = orb->first_save; save; save = save->next) if (memory_match(save->id.bytes, id.bytes, sizeof(id.bytes))) return true;
-	return false;
-}
+	Assert(arena && orb);
+	Assert(orb_game_memory_is_valid(orb->game));
+	Assert(!orb->title.size || orb->title.data);
 
-static Orb_Result orb_runtime_decode_save(Arena *arena, Orb *orb, Orb_Decoder *parent, Orb_Chunk container)
-{
-	if (container.version != 1 || container.flags & ~ORB_CHUNK_KNOWN_FLAGS || container.codec != ORB_CODEC_NONE || container.data.size != container.unpacked_size) return (Orb_Result) { .status = ORB_STATUS_UNSUPPORTED_VERSION, .offset = container.offset };
-	Orb_Decoder decoder = {};
-	Orb_Result result = orb_begin_container_decoding(&decoder, parent, container);
-	if (result.status != ORB_STATUS_OK) return result;
-	Orb_SaveMetadata metadata = {};
-	Orb_Thumbnail thumbnail = {};
-	ByteSpan state = {};
-	b32 seen_metadata = false;
-	b32 seen_state = false;
-	b32 seen_thumbnail = false;
-	Orb_Chunk chunk = {};
-	while (orb_read_chunk(&decoder, &chunk))
+	ByteStream stream = byte_stream_arena_writer(arena);
+	Orb_FileHeader header = { .magic = ORB_MAGIC, .version = ORB_FILE_VERSION };
+	orb_transfer_file_header(&stream, &header);
+	orb_transfer_metadata(&stream, orb);
+	orb_transfer_game(&stream, &orb->game);
+
+	u32 save_count = 0;
+	for (Orb_SaveNode *save = orb->first_save; save; save = save->next)
 	{
-		if (chunk.type == ORB_CHUNK_SAVE_METADATA)
-		{
-			if (seen_metadata) result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = chunk.offset };
-			else
-			{
-				seen_metadata = true;
-				result = orb_decode_save_metadata_chunk(chunk, &metadata);
-			}
-		}
-		else if (chunk.type == ORB_CHUNK_STATE)
-		{
-			if (seen_state) result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = chunk.offset };
-			else
-			{
-				seen_state = true;
-				result = orb_decode_save_state_chunk(chunk, &state);
-			}
-		}
-		else if (chunk.type == ORB_CHUNK_THUMBNAIL)
-		{
-			if (seen_thumbnail) result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = chunk.offset };
-			else
-			{
-				seen_thumbnail = true;
-				result = orb_decode_thumbnail_chunk(chunk, &thumbnail);
-				if (result.status == ORB_STATUS_UNSUPPORTED_VERSION && !(chunk.flags & ORB_CHUNK_REQUIRED))
-				{
-					orb->has_unpreserved_chunks = true;
-					result = (Orb_Result) { .status = ORB_STATUS_OK };
-				}
-			}
-		}
-		else if (chunk.flags & ORB_CHUNK_REQUIRED) result = (Orb_Result) { .status = ORB_STATUS_UNSUPPORTED_CHUNK, .offset = chunk.offset };
-		else orb->has_unpreserved_chunks = true;
-		if (result.status != ORB_STATUS_OK)
-		{
-			decoder.result = result;
-			return orb_end_decoding(&decoder);
-		}
+		Assert(save_count < ORB_MAX_SAVE_COUNT);
+		save_count ++;
 	}
-	result = orb_end_decoding(&decoder);
-	if (result.status != ORB_STATUS_OK) return result;
-	if (!seen_metadata || !seen_state) return (Orb_Result) { .status = ORB_STATUS_MISSING_CHUNK, .offset = container.offset };
-	if (orb_runtime_has_save_id(orb, metadata.id)) return (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = container.offset };
-	Orb_Save *save = orb_runtime_push_save(arena, orb);
-	if (!save) return (Orb_Result) { .status = ORB_STATUS_OUTPUT_TOO_LARGE, .offset = container.offset };
-	*save = (Orb_Save) {
-		.id = metadata.id,
-		.kind = metadata.kind,
-		.created_unix_ms = metadata.created_unix_ms,
-		.updated_unix_ms = metadata.updated_unix_ms,
-		.play_time_ms = metadata.play_time_ms,
-		.thumbnail = thumbnail,
-		.state = state,
-	};
-	return (Orb_Result) { .status = ORB_STATUS_OK };
+	orb->save_count = save_count;
+	byte_transfer_u32(&stream, &save_count);
+	for (Orb_SaveNode *save = orb->first_save; save && !stream.failed; save = save->next) orb_transfer_save(&stream, save);
+	return byte_stream_written(&stream);
 }
 
-static Orb_Result orb_runtime_decode_root(Arena *arena, Orb_Decoder *decoder, Orb *orb)
+Orb *orb_read(Arena *arena, ByteSpan source)
 {
-	Orb_Metadata metadata = {};
-	Orb_CartridgeMetadata cartridge = {};
-	ByteSpan prg_rom = {};
-	ByteSpan chr_rom = {};
-	b32 seen_metadata = false;
-	b32 seen_cartridge = false;
-	b32 seen_prg_rom = false;
-	b32 seen_chr_rom = false;
-	Orb_Result result = { .status = ORB_STATUS_OK };
-	Orb_Chunk chunk = {};
-	while (orb_read_chunk(decoder, &chunk))
+	if (!arena || !arena->memory || (!source.data && source.size)) return 0;
+	u64 arena_start = arena->position;
+	ByteStream stream = byte_stream_reader(source);
+	Orb_FileHeader header = {};
+	orb_transfer_file_header(&stream, &header);
+	if (stream.failed || header.magic != ORB_MAGIC || header.version != ORB_FILE_VERSION || !orb_arena_can_push(arena, sizeof(Orb)))
 	{
-		if (chunk.type == ORB_CHUNK_METADATA)
-		{
-			if (seen_metadata) result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = chunk.offset };
-			else
-			{
-				seen_metadata = true;
-				result = orb_decode_metadata_chunk(chunk, &metadata);
-			}
-		}
-		else if (chunk.type == ORB_CHUNK_CARTRIDGE)
-		{
-			if (seen_cartridge) result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = chunk.offset };
-			else
-			{
-				seen_cartridge = true;
-				result = orb_decode_cartridge_chunk(chunk, &cartridge);
-			}
-		}
-		else if (chunk.type == ORB_CHUNK_PRG_ROM)
-		{
-			if (seen_prg_rom) result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = chunk.offset };
-			else
-			{
-				seen_prg_rom = true;
-				result = orb_decode_prg_rom_chunk(chunk, &prg_rom);
-			}
-		}
-		else if (chunk.type == ORB_CHUNK_CHR_ROM)
-		{
-			if (seen_chr_rom) result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = chunk.offset };
-			else
-			{
-				seen_chr_rom = true;
-				result = orb_decode_chr_rom_chunk(chunk, &chr_rom);
-			}
-		}
-		else if (chunk.type == ORB_CHUNK_SAVE) result = orb_runtime_decode_save(arena, orb, decoder, chunk);
-		else if (chunk.flags & ORB_CHUNK_REQUIRED) result = (Orb_Result) { .status = ORB_STATUS_UNSUPPORTED_CHUNK, .offset = chunk.offset };
-		else orb->has_unpreserved_chunks = true;
-		if (result.status != ORB_STATUS_OK) return result;
+		arena->position = arena_start;
+		return 0;
 	}
-	result = orb_end_decoding(decoder);
-	if (result.status != ORB_STATUS_OK) return result;
-	if (!seen_metadata || !seen_cartridge || !seen_prg_rom || !seen_chr_rom) return (Orb_Result) { .status = ORB_STATUS_MISSING_CHUNK, .offset = decoder->source.size };
-	if (prg_rom.size != cartridge.prg_rom_size || chr_rom.size != cartridge.chr_rom_size) return (Orb_Result) { .status = ORB_STATUS_INVALID_FORMAT, .offset = 0 };
-	orb->cartridge = (NES_CartridgeDesc) {
-		.prg_rom = prg_rom,
-		.chr_rom = chr_rom,
-		.mapper = cartridge.mapper,
-		.vertical_mirroring = cartridge.vertical_mirroring,
-		.four_screen = cartridge.four_screen,
-	};
-	if (!hash256_match(metadata.content_hash, orb_cartridge_hash(orb->cartridge))) return (Orb_Result) { .status = ORB_STATUS_CHECKSUM_MISMATCH, .offset = 0 };
-	orb->content_hash = metadata.content_hash;
-	orb->title = metadata.title;
-	orb->source_path = metadata.source_path;
-	orb->first_played_unix_ms = metadata.first_played_unix_ms;
-	orb->last_played_unix_ms = metadata.last_played_unix_ms;
-	orb->play_time_ms = metadata.play_time_ms;
-	return (Orb_Result) { .status = ORB_STATUS_OK };
-}
 
-Orb_Result orb_runtime_decode(Arena *runtime_arena, ByteSpan source, Orb *orb)
-{
-	if (orb) *orb = (Orb) {};
-	if (!runtime_arena || !orb) return (Orb_Result) { .status = ORB_STATUS_INVALID_ARGUMENT };
-	u64 arena_position = runtime_arena->position;
-	Orb_Decoder decoder = {};
-	Orb_Result result = orb_begin_decoding(&decoder, source);
-	if (result.status == ORB_STATUS_OK) result = orb_runtime_decode_root(runtime_arena, &decoder, orb);
-	if (result.status != ORB_STATUS_OK)
-	{
-		runtime_arena->position = arena_position;
-		*orb = (Orb) {};
-	}
-	return result;
-}
+	Orb *orb = arena_push_zero(arena, sizeof(*orb));
+	orb_transfer_metadata(&stream, orb);
+	orb_transfer_game(&stream, &orb->game);
+	byte_transfer_u32(&stream, &orb->save_count);
+	if (orb->save_count > ORB_MAX_SAVE_COUNT) stream.failed = true;
 
-Orb_Result orb_runtime_encode(Arena *output_arena, const Orb *orb, ByteSpan *output)
-{
-	if (output) *output = (ByteSpan) {};
-	if (!output_arena || !orb || !output) return (Orb_Result) { .status = ORB_STATUS_INVALID_ARGUMENT };
-	if (orb->has_unpreserved_chunks) return (Orb_Result) { .status = ORB_STATUS_UNSUPPORTED_CHUNK };
-	Hash256 content_hash = orb_cartridge_hash(orb->cartridge);
-	if (hash256_is_zero(content_hash)) return (Orb_Result) { .status = ORB_STATUS_INVALID_ARGUMENT };
-	if (!hash256_is_zero(orb->content_hash) && !hash256_match(orb->content_hash, content_hash)) return (Orb_Result) { .status = ORB_STATUS_CHECKSUM_MISMATCH };
-	Orb_Metadata metadata = {
-		.content_hash = content_hash,
-		.first_played_unix_ms = orb->first_played_unix_ms,
-		.last_played_unix_ms = orb->last_played_unix_ms,
-		.play_time_ms = orb->play_time_ms,
-		.title = orb->title,
-		.source_path = orb->source_path,
-	};
-	Orb_CartridgeMetadata cartridge = {
-		.mapper = orb->cartridge.mapper,
-		.prg_rom_size = (u32)orb->cartridge.prg_rom.size,
-		.chr_rom_size = (u32)orb->cartridge.chr_rom.size,
-		.vertical_mirroring = !!orb->cartridge.vertical_mirroring,
-		.four_screen = !!orb->cartridge.four_screen,
-	};
-	Orb_Encoder encoder = orb_begin_encoding(output_arena);
-	orb_write_metadata_chunk(&encoder, metadata);
-	orb_write_cartridge_chunk(&encoder, cartridge);
-	orb_write_prg_rom_chunk(&encoder, orb->cartridge.prg_rom);
-	orb_write_chr_rom_chunk(&encoder, orb->cartridge.chr_rom);
-	for (const Orb_Save *save = orb->first_save; save && encoder.result.status == ORB_STATUS_OK; save = save->next)
+	for (u32 index = 0; index < orb->save_count && !stream.failed; index ++)
 	{
-		if (orb_runtime_has_save_id(&(Orb) { .first_save = save->next }, save->id))
+		if (!orb_arena_can_push(arena, sizeof(Orb_SaveNode)))
 		{
-			encoder.result = (Orb_Result) { .status = ORB_STATUS_DUPLICATE_CHUNK, .offset = encoder.arena->position - encoder.start_position };
+			stream.failed = true;
 			break;
 		}
-		orb_begin_save_chunk(&encoder);
-		orb_write_save_metadata_chunk(&encoder, (Orb_SaveMetadata) {
-			.id = save->id,
-			.kind = save->kind,
-			.created_unix_ms = save->created_unix_ms,
-			.updated_unix_ms = save->updated_unix_ms,
-			.play_time_ms = save->play_time_ms,
-		});
-		orb_write_save_state_chunk(&encoder, save->state);
-		if (save->thumbnail.pixels.size) orb_write_save_thumbnail_chunk(&encoder, save->thumbnail);
-		orb_end_save_chunk(&encoder);
+		Orb_SaveNode *save = arena_push_zero(arena, sizeof(*save));
+		orb_transfer_save(&stream, save);
+		if (orb->last_save) orb->last_save->next = save;
+		else                orb->first_save = save;
+		orb->last_save = save;
 	}
-	return orb_end_encoding(&encoder, output);
+
+	if (stream.failed || byte_stream_remaining(&stream) || !orb_game_memory_is_valid(orb->game))
+	{
+		arena->position = arena_start;
+		return 0;
+	}
+	orb->game_hash = orb_game_hash(orb->game);
+	return orb;
 }
 
 void orb_store_init(Orb_Store *store)
@@ -256,85 +225,112 @@ void orb_store_destroy(Orb_Store *store)
 	*store = (Orb_Store) {};
 }
 
-Orb_StoreResult orb_store_load(Orb_Store *store, Str path)
+static b32 nes2_ram_layout_is_ines_compatible(u8 layout)
 {
-	if (!store || !store->arena.memory || !path.text || !path.size) return orb_store_result(ORB_STORE_STATUS_INVALID_ARGUMENT);
+	return layout == 0 || layout == 0x07 || layout == 0x70;
+}
+
+static b32 nes2_header_is_ines_compatible(const u8 *header)
+{
+	u8 timing = header[12] & 0x03;
+	return !(header[7] & 0x03) && !header[8] && !header[9] && nes2_ram_layout_is_ines_compatible(header[10]) && nes2_ram_layout_is_ines_compatible(header[11]) &&
+		!(header[12] & ~0x03) && (timing == 0 || timing == 2) && !header[13] && !header[14] && header[15] <= 1;
+}
+
+static b32 orb_game_from_ines(ByteStream *stream, Orb_Game *game)
+{
+	Assert(stream && stream->mode == BYTE_STREAM_READ && game);
+	*game = (Orb_Game) {};
+	const u8 magic[] = { 'N', 'E', 'S', 0x1A };
+	ByteSpan header_bytes = byte_stream_take(stream, INES_HEADER_SIZE);
+	if (stream->failed || !memory_match(header_bytes.data, magic, sizeof(magic))) return false;
+	const u8 *header = header_bytes.data;
+	if ((header[7] & 0x0C) == 0x08 && !nes2_header_is_ines_compatible(header)) return false;
+
+	Orb_Game result = {
+		.metadata = {
+			.mapper = (header[6] >> 4) | (header[7] & 0xF0),
+			.vmirror = !!(header[6] & 0x01),
+			.has_trainer = !!(header[6] & 0x04),
+			.four_screen = !!(header[6] & 0x08),
+			.prg_rom_size = (u32)header[4] * INES_PRG_BANK_SIZE,
+			.chr_rom_size = (u32)header[5] * INES_CHR_BANK_SIZE,
+		},
+	};
+	if (result.metadata.has_trainer) result.trainer_data = byte_stream_take(stream, INES_TRAINER_SIZE).data;
+	result.prg_rom_data = byte_stream_take(stream, result.metadata.prg_rom_size).data;
+	result.chr_rom_data = byte_stream_take(stream, result.metadata.chr_rom_size).data;
+	if (stream->failed) return false;
+	*game = result;
+	return true;
+}
+
+Orb *orb_from_game(Orb_Store *store, Orb_Game game)
+{
+	if (!store || !store->arena.memory || !orb_game_memory_is_valid(game) || !orb_arena_can_push(&store->arena, sizeof(Orb))) return 0;
+	Orb *orb = arena_push_zero(&store->arena, sizeof(*orb));
+	orb->game = game;
+	orb->game_hash = orb_game_hash(game);
+	store->orb = orb;
+	return orb;
+}
+
+static ByteSpan orb_read_entire_file(Arena *arena, const char *path)
+{
+	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
+	if (!platform_file_is_valid(file)) return (ByteSpan) {};
+	u64 file_size = 0;
+	u64 available = arena->reserved_size - arena->position;
+	b32 valid_size = platform_get_file_size(file, &file_size) && file_size && file_size <= available;
+	if (!valid_size)
+	{
+		platform_close_file(file);
+		return (ByteSpan) {};
+	}
+
+	u64 arena_start = arena->position;
+	u8 *data = arena_push_aligned(arena, file_size, 1);
+	u64 bytes_read = 0;
+	b32 success = platform_read_file(file, data, file_size, &bytes_read) && bytes_read == file_size;
+	platform_close_file(file);
+	if (!success)
+	{
+		arena->position = arena_start;
+		return (ByteSpan) {};
+	}
+	return byte_span(data, file_size);
+}
+
+Orb *orb_from_file(Orb_Store *store, Str path)
+{
+	if (!store || !store->arena.memory || !path.data || !path.size) return 0;
 	arena_reset(&store->arena);
 	store->path = str_push_copy(&store->arena, path);
-	store->source = (ByteSpan) {};
-	store->orb = (Orb) {};
-	store->loaded = false;
+	store->orb = 0;
+	ByteSpan source = orb_read_entire_file(&store->arena, store->path.data);
+	if (!source.size) goto failed;
 
-	Platform_File_Info info = {};
-	if (!platform_get_file_info(store->path.text, &info) || info.is_directory) return orb_store_result(ORB_STORE_STATUS_NOT_FOUND);
-	if (!info.size || info.size > ORB_STORE_MAX_FILE_SIZE || info.size > store->arena.reserved_size - store->arena.position) return orb_store_result(ORB_STORE_STATUS_FILE_TOO_LARGE);
-
-	Platform_File file = platform_access_file(store->path.text, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
-	if (!platform_file_is_valid(file)) return orb_store_result(ORB_STORE_STATUS_READ_FAILED);
-	u8 *data = arena_push_aligned(&store->arena, info.size, 1);
-	u64 bytes_read = 0;
-	b32 read = platform_read_file(file, data, info.size, &bytes_read) && bytes_read == info.size;
-	platform_close_file(file);
-	if (!read) return orb_store_result(ORB_STORE_STATUS_READ_FAILED);
-	store->source = byte_span(data, info.size);
-
-	Orb_Result parsed = orb_runtime_decode(&store->arena, store->source, &store->orb);
-	if (parsed.status != ORB_STATUS_OK)
-	{
-		Orb_StoreResult result = orb_store_result(ORB_STORE_STATUS_INVALID_ORB);
-		result.orb_result = parsed;
-		return result;
+	const u8 orb_magic[] = { 'O', 'R', 'B', 'S' };
+	const u8 ines_magic[] = { 'N', 'E', 'S', 0x1A };
+	Orb *orb = 0;
+	if (source.size >= sizeof(orb_magic) && memory_match(source.data, orb_magic, sizeof(orb_magic))) {
+		orb = orb_read(&store->arena, source);
 	}
-	store->loaded = true;
-	return orb_store_result(ORB_STORE_STATUS_OK);
-}
-
-static void orb_store_hex(char *output, const u8 *bytes, u32 size)
-{
-	static const char digits[] = "0123456789abcdef";
-	for (u32 index = 0; index < size; index ++)
+	else if (source.size >= sizeof(ines_magic) && memory_match(source.data, ines_magic, sizeof(ines_magic)))
 	{
-		output[index * 2 + 0] = digits[bytes[index] >> 4];
-		output[index * 2 + 1] = digits[bytes[index] & 15];
+		ByteStream stream = byte_stream_reader(source);
+		Orb_Game game;
+		if (orb_game_from_ines(&stream, &game)) orb = orb_from_game(store, game);
 	}
-	output[size * 2] = 0;
-}
+	if (!orb) goto failed;
 
-void orb_store_log_info(const Orb_Store *store)
-{
-	if (!store || !store->loaded) return;
-	const Orb *orb = &store->orb;
-	char hash[sizeof(orb->content_hash.bytes) * 2 + 1];
-	if (hash256_is_zero(orb->content_hash)) snprintf(hash, sizeof(hash), "unknown");
-	else orb_store_hex(hash, orb->content_hash.bytes, sizeof(orb->content_hash.bytes));
-	LOG_INFO("orb store loaded '%.*s'", store->path.size, store->path.text);
-	LOG_INFO("  source: ORB v%u container, %llu bytes", ORB_FILE_VERSION_CURRENT, store->source.size);
-	LOG_INFO("  title: %.*s", orb->title.size, orb->title.text ? orb->title.text : "");
-	LOG_INFO("  cartridge: mapper=%u prg=%llu bytes chr=%llu bytes vertical=%u four-screen=%u", orb->cartridge.mapper, orb->cartridge.prg_rom.size, orb->cartridge.chr_rom.size, !!orb->cartridge.vertical_mirroring, !!orb->cartridge.four_screen);
-	LOG_INFO("  content: %s", hash);
-	LOG_INFO("  played: first=%llu last=%llu total=%llu ms", orb->first_played_unix_ms, orb->last_played_unix_ms, orb->play_time_ms);
-	LOG_INFO("  saves: %u", orb->save_count);
-	u32 index = 0;
-	for (const Orb_Save *save = orb->first_save; save; save = save->next, index ++)
-	{
-		char id[sizeof(save->id.bytes) * 2 + 1];
-		orb_store_hex(id, save->id.bytes, sizeof(save->id.bytes));
-		const char *kind = save->kind == ORB_SAVE_RESUME ? "resume" : save->kind == ORB_SAVE_MANUAL ? "manual" : "unknown";
-		LOG_INFO("    [%u] %s id=%s state=%llu bytes created=%llu updated=%llu play=%llu ms", index, kind, id, save->state.size, save->created_unix_ms, save->updated_unix_ms, save->play_time_ms);
-		if (save->thumbnail.pixels.size) LOG_INFO("        thumbnail=%ux%u stride=%u bytes=%llu", save->thumbnail.width, save->thumbnail.height, save->thumbnail.stride, save->thumbnail.pixels.size);
-	}
-}
+	orb->disk_path = store->path;
+	store->orb = orb;
+	return orb;
 
-const char *orb_store_status_string(Orb_StoreStatus status)
-{
-	switch (status)
-	{
-		case ORB_STORE_STATUS_OK:               return "ok";
-		case ORB_STORE_STATUS_INVALID_ARGUMENT: return "invalid argument";
-		case ORB_STORE_STATUS_NOT_FOUND:        return "file not found";
-		case ORB_STORE_STATUS_FILE_TOO_LARGE:   return "file is empty or too large";
-		case ORB_STORE_STATUS_READ_FAILED:      return "file read failed";
-		case ORB_STORE_STATUS_INVALID_ORB:      return "invalid ORB";
-	}
-	return "unknown error";
+failed:
+	arena_reset(&store->arena);
+	store->path = (Str) {};
+	store->orb = 0;
+	return 0;
 }

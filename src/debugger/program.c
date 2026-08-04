@@ -725,7 +725,7 @@ static void program_add_next_bridge(Program *program, u32 source_offset, u32 des
 void program_refine(Debugger *debugger, u32 instruction_budget)
 {
 	Program *program = &debugger->program;
-	if (!nes_emulator_has_cartridge(debugger->emulator) || !instruction_budget) {
+	if (!nes_is_booted(debugger->emulator) || !instruction_budget) {
 		return;
 	}
 	ProgramIterator iterator = program_iterator(debugger, program->refinement_cpu_cursor);

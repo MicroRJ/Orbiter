@@ -93,20 +93,19 @@ b32 nes_bootup_emulator(NES_Emulator *emulator)
 b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 {
 	if (!nes_supports_setup_params(params)) return false;
+	// TODO(RJ) only zero the live state
 	memory_zero(emulator, sizeof(* emulator));
+
 	memory_copy(emulator->prg_rom, params.prg_rom.data, params.prg_rom.size);
 	memory_copy(emulator->chr_rom, params.chr_rom.data, params.chr_rom.size);
-
 	emulator->mapper_number = params.mapper;
 	emulator->prg_rom_size = params.prg_rom.size;
 	emulator->chr_rom_size = params.chr_rom.size;
 	emulator->vmirror = params.vmirror;
-
 	// TODO(RJ) remove these two
 	emulator->num_prg_banks = params.prg_rom.size / KiB(16);
 	emulator->num_chr_banks = params.chr_rom.size / KiB(8);
 	nes_bootup_emulator(emulator);
-
 	emulator->mapper.reset(emulator);
 	nes_ppu_reset(&emulator->ppu);
 	nes_apu_reset(&emulator->apu);
@@ -114,7 +113,7 @@ b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 	return true;
 }
 
-b32 nes_emulator_has_cartridge(const NES_Emulator *core)
+b32 nes_is_booted(const NES_Emulator *core)
 {
 	return core->mapper.reset != 0;
 }

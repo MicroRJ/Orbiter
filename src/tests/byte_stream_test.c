@@ -63,5 +63,40 @@ int main(void)
 	ByteStream empty = byte_stream_reader((ByteSpan) {});
 	byte_transfer_bytes(&empty, (ByteSpan) {});
 	Assert(!empty.failed && !empty.cursor);
+
+	Arena arena = arena_create(64, "arena byte stream test");
+	arena_push_byte(&arena, 0xCC);
+	u64 arena_position = arena.position;
+	ByteStream arena_writer = byte_stream_arena_writer(&arena);
+	value_u8 = 0xAB;
+	value_u16 = 0x1234;
+	value_u32 = 0x89ABCDEF;
+	value_u64 = 0x0123456789ABCDEF;
+	byte_transfer_u8(&arena_writer, &value_u8);
+	byte_transfer_u16(&arena_writer, &value_u16);
+	byte_transfer_u32(&arena_writer, &value_u32);
+	byte_transfer_u64(&arena_writer, &value_u64);
+	byte_transfer_bytes(&arena_writer, byte_span(raw, sizeof(raw)));
+	ByteSpan arena_written = byte_stream_written(&arena_writer);
+	Assert(!arena_writer.failed && arena_writer.ended);
+	Assert(arena_written.data == arena.memory + arena_position && arena_written.size == sizeof(expected));
+	Assert(arena.position == arena_position + sizeof(expected));
+	Assert(memory_match(arena_written.data, expected, sizeof(expected)));
+
+	u64 cancel_position = arena.position;
+	ByteStream cancelled = byte_stream_arena_writer(&arena);
+	byte_transfer_u32(&cancelled, &value_u32);
+	Assert(arena.position == cancel_position + sizeof(value_u32));
+	byte_stream_cancel(&cancelled);
+	Assert(cancelled.ended && arena.position == cancel_position);
+
+	arena_push_aligned(&arena, arena.reserved_size - arena.position - 1, 1);
+	u64 overflow_position = arena.position;
+	ByteStream arena_overflow = byte_stream_arena_writer(&arena);
+	byte_transfer_u16(&arena_overflow, &value_u16);
+	Assert(arena_overflow.failed && !arena_overflow.cursor && arena.position == overflow_position);
+	Assert(!byte_stream_written(&arena_overflow).size);
+	Assert(arena_overflow.ended && arena.position == overflow_position);
+	arena_destroy(&arena);
 	return 0;
 }

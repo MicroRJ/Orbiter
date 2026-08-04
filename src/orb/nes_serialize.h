@@ -1,10 +1,8 @@
 #ifndef ORB_NES_SERIALIZE_H
 #define ORB_NES_SERIALIZE_H
 
-#include "base.h"
-#include "nes/emulator.h"
+#include "orb_runtime.h"
 
-ByteSpan orb_nes_state_encode(Arena *arena, const NES_Emulator *emulator);
-b32 orb_nes_state_decode(NES_Emulator *emulator, ByteSpan state);
+b32 orb_transfer_save_state(ByteStream *stream, Orb_SaveState *state);
 
 #endif

@@ -251,7 +251,7 @@
 // 			}
 // 			if (result.status == ORB_STATUS_OK)
 // 			{
-// 				Orb_GameMetadata metadata = {
+// 				Orb_Game metadata = {
 // 					.system = orb.system,
 // 					.content_hash = orb.content_hash,
 // 					.first_played_unix_ms = orb.first_played_unix_ms,
@@ -262,9 +262,9 @@
 // 				};
 // 				metadata.title = str_push_copy(&builder->catalog->entry_arena, metadata.title);
 // 				metadata.source_path = str_push_copy(&builder->catalog->entry_arena, metadata.source_path);
-// 				const Orb_Save *latest = 0;
-// 				const Orb_Save *preview = 0;
-// 				for (const Orb_Save *save = orb.first_save; save; save = save->next)
+// 				const Orb_SaveNode *latest = 0;
+// 				const Orb_SaveNode *preview = 0;
+// 				for (const Orb_SaveNode *save = orb.first_save; save; save = save->next)
 // 				{
 // 					if (!latest || save->updated_unix_ms > latest->updated_unix_ms) latest = save;
 // 					if (save->thumbnail.pixels.size && (!preview || save->updated_unix_ms > preview->updated_unix_ms)) preview = save;

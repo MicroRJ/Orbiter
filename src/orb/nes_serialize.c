@@ -1,16 +1,10 @@
 #include "nes_serialize.h"
 #include "serialize.h"
-#include <stdlib.h>
-
-enum
-{
-	ORB_NES_STATE_MAX_ENCODED_SIZE = KiB(256),
-};
 
 typedef enum
 {
-	// These values are part of the STAT wire format. Append new IDs and bump
-	// ORB_STATE_VERSION before making an incompatible schema change.
+	// These values are persisted. Append new IDs; changing an existing ID
+	// requires a new ORB file version.
 	ORB_NES_RECORD_NONE = 0,
 	ORB_NES_RECORD_STATE,
 	ORB_NES_RECORD_CPU,
@@ -254,33 +248,33 @@ static const SerializeField orb_nes_apu_triangle_fields[] =
 
 static const SerializeField orb_nes_apu_fields[] =
 {
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_IRQ_PENDING, NES_APUState, irq_pending, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_IRQ_INHIBIT, NES_APUState, irq_inhibit, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_RESET_DELAY, NES_APUState, reset_delay, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_RESET_MODE, NES_APUState, reset_mode, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_MODE, NES_APUState, mode, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_STEP_INDEX, NES_APUState, step_index, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_CPU_CYCLE_COUNTER, NES_APUState, cpu_cycle_counter, SERIALIZE_WIRE_U16, 0),
-	ORB_NES_ARRAY(ORB_NES_FIELD_APU_PULSE, NES_APUState, pulse, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_APU_PULSE),
-	ORB_NES_SCALAR(ORB_NES_FIELD_APU_TRIANGLE, NES_APUState, triangle, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_APU_TRIANGLE),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_IRQ_PENDING,       NES_APUState, irq_pending,       SERIALIZE_WIRE_U8    , 0),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_IRQ_INHIBIT,       NES_APUState, irq_inhibit,       SERIALIZE_WIRE_U8    , 0),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_RESET_DELAY,       NES_APUState, reset_delay,       SERIALIZE_WIRE_U8    , 0),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_RESET_MODE,        NES_APUState, reset_mode,        SERIALIZE_WIRE_U8    , 0),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_MODE,              NES_APUState, mode,              SERIALIZE_WIRE_U8    , 0),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_STEP_INDEX,        NES_APUState, step_index,        SERIALIZE_WIRE_U8    , 0),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_CPU_CYCLE_COUNTER, NES_APUState, cpu_cycle_counter, SERIALIZE_WIRE_U16   , 0),
+	ORB_NES_ARRAY  (ORB_NES_FIELD_APU_PULSE,             NES_APUState, pulse,             SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_APU_PULSE   ),
+	ORB_NES_SCALAR (ORB_NES_FIELD_APU_TRIANGLE,          NES_APUState, triangle,          SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_APU_TRIANGLE),
 };
 
 static const SerializeField orb_nes_state_fields[] =
 {
-	ORB_NES_SCALAR(ORB_NES_FIELD_STATE_SCHEDULER_CLOCK, NES_Emulator, scheduler_clock, SERIALIZE_WIRE_U64, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_STATE_SAMPLE_PHASE, NES_Emulator, sample_phase, SERIALIZE_WIRE_U64, 0),
-	ORB_NES_ARRAY(ORB_NES_FIELD_STATE_VALUES, NES_Emulator, values, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_STATE_INPUT, NES_Emulator, input_state, SERIALIZE_WIRE_BYTES, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_STATE_CPU_STALL_CYCLES, NES_Emulator, cpu_stall_cycles, SERIALIZE_WIRE_U32, 0),
-	ORB_NES_SCALAR(ORB_NES_FIELD_STATE_CPU, NES_Emulator, cpu, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_CPU),
-	ORB_NES_SCALAR(ORB_NES_FIELD_STATE_PPU, NES_Emulator, ppu, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_PPU),
-	ORB_NES_SCALAR(ORB_NES_FIELD_STATE_APU, NES_Emulator, apu, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_APU),
-	ORB_NES_ARRAY(ORB_NES_FIELD_STATE_CONTROLLERS, NES_Emulator, controllers, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_ARRAY(ORB_NES_FIELD_STATE_WRAM, NES_Emulator, _wram, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_ARRAY(ORB_NES_FIELD_STATE_VRAM, NES_Emulator, _vram, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_ARRAY(ORB_NES_FIELD_STATE_CHR_RAM, NES_Emulator, chr_ram, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_ARRAY(ORB_NES_FIELD_STATE_PRG_RAM, NES_Emulator, prg_ram, SERIALIZE_WIRE_U8, 0),
-	ORB_NES_ARRAY(ORB_NES_FIELD_STATE_VIDEO, NES_Emulator, video, SERIALIZE_WIRE_U8, 0),
+	ORB_NES_SCALAR ( ORB_NES_FIELD_STATE_SCHEDULER_CLOCK, Orb_SaveState, scheduler_clock, SERIALIZE_WIRE_U64, 0),
+	ORB_NES_SCALAR ( ORB_NES_FIELD_STATE_SAMPLE_PHASE, Orb_SaveState, sample_phase, SERIALIZE_WIRE_U64, 0),
+	ORB_NES_ARRAY  ( ORB_NES_FIELD_STATE_VALUES, Orb_SaveState, values, SERIALIZE_WIRE_U8, 0),
+	ORB_NES_SCALAR ( ORB_NES_FIELD_STATE_INPUT, Orb_SaveState, input_state, SERIALIZE_WIRE_BYTES, 0),
+	ORB_NES_SCALAR ( ORB_NES_FIELD_STATE_CPU_STALL_CYCLES, Orb_SaveState, cpu_stall_cycles, SERIALIZE_WIRE_U32, 0),
+	ORB_NES_SCALAR ( ORB_NES_FIELD_STATE_CPU, Orb_SaveState, cpu, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_CPU),
+	ORB_NES_SCALAR ( ORB_NES_FIELD_STATE_PPU, Orb_SaveState, ppu, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_PPU),
+	ORB_NES_SCALAR ( ORB_NES_FIELD_STATE_APU, Orb_SaveState, apu, SERIALIZE_WIRE_RECORD, ORB_NES_RECORD_APU),
+	ORB_NES_ARRAY  ( ORB_NES_FIELD_STATE_CONTROLLERS, Orb_SaveState, controllers, SERIALIZE_WIRE_U8, 0),
+	ORB_NES_ARRAY  ( ORB_NES_FIELD_STATE_WRAM, Orb_SaveState, wram, SERIALIZE_WIRE_U8, 0),
+	ORB_NES_ARRAY  ( ORB_NES_FIELD_STATE_VRAM, Orb_SaveState, vram, SERIALIZE_WIRE_U8, 0),
+	ORB_NES_ARRAY  ( ORB_NES_FIELD_STATE_CHR_RAM, Orb_SaveState, chr_ram, SERIALIZE_WIRE_U8, 0),
+	ORB_NES_ARRAY  ( ORB_NES_FIELD_STATE_PRG_RAM, Orb_SaveState, prg_ram, SERIALIZE_WIRE_U8, 0),
+	ORB_NES_ARRAY  ( ORB_NES_FIELD_STATE_VIDEO, Orb_SaveState, video, SERIALIZE_WIRE_U8, 0),
 };
 
 #define ORB_NES_RECORD(id_, type_, fields_) \
@@ -294,16 +288,16 @@ static const SerializeField orb_nes_state_fields[] =
 
 static const SerializeRecord orb_nes_records[ORB_NES_RECORD_COUNT] =
 {
-	ORB_NES_RECORD(ORB_NES_RECORD_STATE, NES_Emulator, orb_nes_state_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_CPU, NES_CPUState, orb_nes_cpu_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_PPU, NES_PPUState, orb_nes_ppu_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_PPU_SPRITE, NES_PPUSprite, orb_nes_ppu_sprite_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_APU, NES_APUState, orb_nes_apu_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_APU_DIVIDER, NES_APUDivider, orb_nes_apu_divider_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_APU_SWEEP, NES_APUSweep, orb_nes_apu_sweep_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_APU_ENVELOPE, NES_APUEnvelope, orb_nes_apu_envelope_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_APU_PULSE, NES_APU_Pulse, orb_nes_apu_pulse_fields),
-	ORB_NES_RECORD(ORB_NES_RECORD_APU_TRIANGLE, NES_APU_Triangle, orb_nes_apu_triangle_fields),
+	ORB_NES_RECORD(ORB_NES_RECORD_STATE,            Orb_SaveState,    orb_nes_state_fields        ),
+	ORB_NES_RECORD(ORB_NES_RECORD_CPU,              NES_CPUState,     orb_nes_cpu_fields          ),
+	ORB_NES_RECORD(ORB_NES_RECORD_PPU,              NES_PPUState,     orb_nes_ppu_fields          ),
+	ORB_NES_RECORD(ORB_NES_RECORD_PPU_SPRITE,       NES_PPUSprite,    orb_nes_ppu_sprite_fields   ),
+	ORB_NES_RECORD(ORB_NES_RECORD_APU,              NES_APUState,     orb_nes_apu_fields          ),
+	ORB_NES_RECORD(ORB_NES_RECORD_APU_DIVIDER,      NES_APUDivider,   orb_nes_apu_divider_fields  ),
+	ORB_NES_RECORD(ORB_NES_RECORD_APU_SWEEP,        NES_APUSweep,     orb_nes_apu_sweep_fields    ),
+	ORB_NES_RECORD(ORB_NES_RECORD_APU_ENVELOPE,     NES_APUEnvelope,  orb_nes_apu_envelope_fields ),
+	ORB_NES_RECORD(ORB_NES_RECORD_APU_PULSE,        NES_APU_Pulse,    orb_nes_apu_pulse_fields    ),
+	ORB_NES_RECORD(ORB_NES_RECORD_APU_TRIANGLE,     NES_APU_Triangle, orb_nes_apu_triangle_fields ),
 };
 
 static const SerializeRecordMap orb_nes_record_map =
@@ -312,38 +306,13 @@ static const SerializeRecordMap orb_nes_record_map =
 	.record_count = ArrayCount(orb_nes_records),
 };
 
-ByteSpan orb_nes_state_encode(Arena *arena, const NES_Emulator *emulator)
+b32 orb_transfer_save_state(ByteStream *stream, Orb_SaveState *state)
 {
-	if (!arena || !arena->memory || !emulator) return (ByteSpan) {};
-	if (!nes_emulator_has_cartridge(emulator)) return (ByteSpan) {};
-	if (arena->position > arena->reserved_size || ORB_NES_STATE_MAX_ENCODED_SIZE > arena->reserved_size - arena->position) return (ByteSpan) {};
-	u8 *start = arena_top(arena);
-	arena_ensure_committed(arena, ORB_NES_STATE_MAX_ENCODED_SIZE);
-	u64 size = serialize_write_record(byte_span(start, ORB_NES_STATE_MAX_ENCODED_SIZE), &orb_nes_record_map, ORB_NES_RECORD_STATE, emulator);
-	Assert(size <= ORB_NES_STATE_MAX_ENCODED_SIZE);
-	arena->position += size;
-	return byte_span(start, size);
-}
-
-b32 orb_nes_state_decode(NES_Emulator *emulator, ByteSpan state)
-{
-	if (!emulator || !nes_emulator_has_cartridge(emulator)) return false;
-	NES_Emulator *decoded = calloc(1, sizeof(*decoded));
-	if (!decoded) return false;
-	b32 success = serialize_read_record(state, &orb_nes_record_map, ORB_NES_RECORD_STATE, decoded);
-	if (success) success = nes_emulator_valid(decoded);
-	if (success)
-	{
-		for (u32 index = 0; index < ArrayCount(orb_nes_state_fields); ++index)
-		{
-			const SerializeField *field = &orb_nes_state_fields[index];
-			memory_copy((u8 *)emulator + field->offset, (u8 *)decoded + field->offset, field->size);
-		}
-		emulator->cpu_bus_metrics = (NES_BusMetrics) {};
-		emulator->ppu_bus_metrics = (NES_BusMetrics) {};
-		emulator->scheduler_trace_index = 0;
-		memory_zero(emulator->scheduler_trace, sizeof(emulator->scheduler_trace));
+	Assert(stream && !stream->failed && !stream->ended);
+	Assert(state);
+	if (stream->mode == BYTE_STREAM_READ) {
+		return serialize_read_record(stream, &orb_nes_record_map, ORB_NES_RECORD_STATE, state);
 	}
-	free(decoded);
-	return success;
+	serialize_write_record(stream, &orb_nes_record_map, ORB_NES_RECORD_STATE, state);
+	return !stream->failed;
 }

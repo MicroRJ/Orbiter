@@ -103,7 +103,7 @@ struct OS_Window
 };
 
 // Events and any Str data they reference remain valid until the next
-// os_graphical_poll call. Persistent key and mouse state remains on the window.
+// os_poll_windows call. Persistent key and mouse state remains on the window.
 
 typedef struct
 {
@@ -148,7 +148,7 @@ b32 os_graphical_init(void);
 void os_graphical_shutdown(void);
 OS_Window *os_window_create(OS_WindowDesc desc);
 void os_window_destroy(OS_Window *window);
-void os_graphical_poll(void);
+void os_poll_windows(void);
 b32 os_window_is_open(const OS_Window *window);
 u32 os_window_event_count(const OS_Window *window);
 const OS_Event *os_window_event(const OS_Window *window, u32 index);

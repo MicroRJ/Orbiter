@@ -59,7 +59,7 @@ SerializeRecordMap;
 
 b32 serialize_wire_type_is_integer(SerializeWireType type);
 const SerializeRecord *serialize_record_from_id(const SerializeRecordMap *map, u16 record_id);
-u64 serialize_write_record(ByteSpan destination, const SerializeRecordMap *map, u16 record_id, const void *value);
-b32 serialize_read_record(ByteSpan source, const SerializeRecordMap *map, u16 record_id, void *value);
+void serialize_write_record(ByteStream *writer, const SerializeRecordMap *map, u16 record_id, const void *value);
+b32 serialize_read_record(ByteStream *reader, const SerializeRecordMap *map, u16 record_id, void *value);
 
 #endif

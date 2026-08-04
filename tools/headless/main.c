@@ -159,7 +159,7 @@ int main(int argc, char **argv)
 	}
 	NES_SetupParams setup = {
 		.mapper = cartridge.mapper,
-		.vmirror = cartridge.vertical_mirroring,
+		.vmirror = cartridge.vmirror,
 		.four_screen = cartridge.four_screen,
 		.has_trainer = cartridge.has_trainer,
 		.prg_rom = cartridge.prg_rom,
@@ -173,7 +173,7 @@ int main(int argc, char **argv)
 	if (positional_argc >= 4)
 	{
 		Str state = headless_read_file(&arena, argv[3]);
-		if (!state.text || !state.size || !orb_nes_state_decode(emulator, byte_span((void *)state.text, state.size)))
+		if (!state.text || !state.size || !orb_transfer_save_state_no_chunk(emulator, byte_span((void *)state.text, state.size)))
 		{
 			LOG_ERROR("could not restore state '%s'", argv[3]);
 			goto done;

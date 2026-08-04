@@ -2,7 +2,6 @@
 #define NES_EMULATOR_H
 
 #include "base.h"
-#include "nes/cartridge.h"
 
 enum
 {
@@ -131,42 +130,52 @@ typedef struct
 }
 NES_SetupParams;
 
+#define NES_STATE_FIELDS                                                       \
+	u64                   scheduler_clock;                                      \
+	NES_BusMetrics        cpu_bus_metrics;                                      \
+	NES_BusMetrics        ppu_bus_metrics;                                      \
+	u64                   scheduler_trace_index;                                \
+	u64                   sample_phase;                                         \
+	u32                   cpu_stall_cycles;                                     \
+	NES_CPUState          cpu;                                                  \
+	NES_PPUState          ppu;                                                  \
+	NES_APUState          apu;                                                  \
+	NES_InputState        input_state;                                          \
+	u8                    controllers[2];                                       \
+	u8                    values[32];                                           \
+	u8                    _wram[NES_WRAM_SIZE];                                 \
+	u8                    _vram[NES_VRAM_SIZE];                                 \
+	u8                    chr_ram[NES_MAX_CHR_RAM_SIZE];                        \
+	u8                    prg_ram[NES_MAX_PRG_RAM_SIZE];                        \
+	u8                    video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];             \
+	NES_PackedTraceEntry  scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2]
+
+typedef struct NES_State NES_State;
+struct NES_State
+{
+	NES_STATE_FIELDS;
+};
+
 typedef struct NES_Emulator NES_Emulator;
 struct NES_Emulator
 {
-	// TODO(RJ) a better name would be emulation step
-	u64                     scheduler_clock;
-	NES_BusMetrics          cpu_bus_metrics;
-	NES_BusMetrics          ppu_bus_metrics;
-	u64                     scheduler_trace_index;
-	u64                     sample_phase;
-	NES_MapperClass         mapper;
-
 	// TODO(RJ) not sure that keeping all the memory in one block is paying off
 	u32                     mapper_number;
 	u32                     prg_rom_size,  chr_rom_size;
 	// TODO(RJ) remove these two, they are duplicates
 	u32                     num_chr_banks, num_prg_banks;
-
 	b32                     vmirror;
-	u32                     cpu_stall_cycles;
-	NES_CPUState            cpu;
-	NES_PPUState            ppu;
-	NES_APUState            apu;
-
-	NES_InputState          input_state;
-	u8                      controllers[2];
-	u8                      values[32];
-	u8                      _wram[NES_WRAM_SIZE];
-	u8                      _vram[NES_VRAM_SIZE];
-	u8                      chr_ram[NES_MAX_CHR_RAM_SIZE];
-	u8                      prg_ram[NES_MAX_PRG_RAM_SIZE];
+	NES_MapperClass         mapper;
 	u8                      chr_rom[NES_MAX_CHR_ROM_SIZE];
 	u8                      prg_rom[NES_MAX_PRG_ROM_SIZE];
-	u8                      video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
-
-	// TODO(RJ) Just feed this in
-	NES_PackedTraceEntry    scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2];
+	union
+	{
+		NES_State state;
+		struct
+		{
+			NES_STATE_FIELDS;
+		};
+	};
 };
 
 
@@ -174,7 +183,7 @@ b32 nes_emulator_valid(const NES_Emulator *emulator);
 b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams data);
 b32 nes_bootup_emulator(NES_Emulator *emulator);
 
-b32 nes_emulator_has_cartridge(const NES_Emulator *core);
+b32 nes_is_booted(const NES_Emulator *core);
 u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
 u32 nes_emulator_step(NES_Emulator *core);
 

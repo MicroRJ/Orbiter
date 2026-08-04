@@ -105,9 +105,9 @@ typedef enum {
 
 #include "base_vectors.h"
 #include "base_rect.h"
-#include "base_stream.h"
 #include "base_hash.h"
 #include "base_arena.h"
+#include "base_stream.h"
 #include "base_string.h"
 #include "base_temp.h"
 #include "base_logger.h"

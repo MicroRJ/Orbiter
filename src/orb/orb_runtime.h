@@ -1,79 +1,129 @@
 #ifndef ORB_RUNTIME_H
 #define ORB_RUNTIME_H
 
-#include "orb.h"
-
-typedef struct Orb_Save Orb_Save;
-struct Orb_Save
-{
-	Orb_Save *next;
-	Orb_Id id;
-	Orb_SaveKind kind;
-	u64 created_unix_ms;
-	u64 updated_unix_ms;
-	u64 play_time_ms;
-	Orb_Thumbnail thumbnail;
-	ByteSpan state;
-};
-
-// TODO(RJ) we don't have to keep the orb loaded in memory
-typedef struct
-{
-	NES_CartridgeDesc cartridge;
-	Hash256 content_hash;
-	Str title;
-	Str source_path;
-	u64 first_played_unix_ms;
-	u64 last_played_unix_ms;
-	u64 play_time_ms;
-	b32 dirty;
-	// Decoding remains forward-compatible, but the current runtime cannot
-	// round-trip unknown optional chunks yet. Encoding refuses such an Orb
-	// instead of silently deleting extension data.
-	b32 has_unpreserved_chunks;
-	Orb_Save *first_save;
-	Orb_Save *last_save;
-	u32 save_count;
-}
-Orb;
+#include "nes/emulator.h"
 
 typedef enum
 {
-	ORB_STORE_STATUS_OK,
-	ORB_STORE_STATUS_INVALID_ARGUMENT,
-	ORB_STORE_STATUS_NOT_FOUND,
-	ORB_STORE_STATUS_FILE_TOO_LARGE,
-	ORB_STORE_STATUS_READ_FAILED,
-	ORB_STORE_STATUS_INVALID_ORB,
+	ORB_SAVE_RESUME = 1,
+	ORB_SAVE_MANUAL,
 }
-Orb_StoreStatus;
+Orb_SaveKind;
+
+typedef enum
+{
+	ORB_PIXEL_FORMAT_RGBA8 = 1,
+}
+Orb_PixelFormat;
 
 typedef struct
 {
-	Orb_StoreStatus status;
-	Orb_Result orb_result;
+	u8 bytes[16];
 }
-Orb_StoreResult;
+Orb_Id;
+
+typedef struct
+{
+	u32 width;
+	u32 height;
+	u32 stride;
+	Orb_PixelFormat format;
+	ByteSpan pixels;
+}
+Orb_Thumbnail;
+
+typedef struct
+{
+	u64 scheduler_clock;
+	u64 sample_phase;
+	u8 values[32];
+	NES_InputState input_state;
+	u32 cpu_stall_cycles;
+	NES_CPUState cpu;
+	NES_PPUState ppu;
+	NES_APUState apu;
+	u8 controllers[2];
+	u8 wram[NES_WRAM_SIZE];
+	u8 vram[NES_VRAM_SIZE];
+	u8 chr_ram[NES_MAX_CHR_RAM_SIZE];
+	u8 prg_ram[NES_MAX_PRG_RAM_SIZE];
+	u8 video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+}
+Orb_SaveState;
+
+typedef struct
+{
+	u64 kind;
+	u64 flags;
+	Orb_Id id;
+	u64 created_unix_ms;
+	u64 updated_unix_ms;
+	u64 play_time_ms;
+}
+Orb_SaveMetadata;
+
+typedef struct Orb_SaveNode Orb_SaveNode;
+struct Orb_SaveNode
+{
+	Orb_SaveNode *next;
+	Orb_SaveMetadata metadata;
+	Orb_Thumbnail thumbnail;
+	Orb_SaveState state;
+};
+
+typedef struct
+{
+	u32 mapper;
+	b32 vmirror;
+	b32 has_trainer;
+	b32 four_screen;
+	u32 prg_rom_size;
+	u32 chr_rom_size;
+}
+Orb_GameMetadata;
+
+typedef struct
+{
+	Orb_GameMetadata metadata;
+	u8 *prg_rom_data;
+	u8 *chr_rom_data;
+	u8 *trainer_data;
+}
+Orb_Game;
+
+typedef struct
+{
+	Str disk_path;
+	Orb_Game game;
+	Hash256 game_hash;
+	Str title;
+	u64 first_played_unix_ms;
+	u64 last_played_unix_ms;
+	u64 play_time_ms;
+	Orb_SaveNode *first_save;
+	Orb_SaveNode *last_save;
+	u32 save_count;
+}
+Orb;
 
 typedef struct
 {
 	Arena arena;
 	Str path;
-	ByteSpan source;
-	Orb orb;
-	b32 loaded;
+	Orb *orb;
 }
 Orb_Store;
 
-// Runtime objects borrow strings, cartridge ROMs, state, and thumbnails from source.
-// Save nodes are allocated from runtime_arena.
-Orb_Result orb_runtime_decode(Arena *runtime_arena, ByteSpan source, Orb *orb);
-Orb_Result orb_runtime_encode(Arena *output_arena, const Orb *orb, ByteSpan *output);
+ByteSpan orb_write(Arena *arena, Orb *orb);
+// Variable-sized data points into source; source must outlive the returned Orb.
+Orb *orb_read(Arena *arena, ByteSpan source);
+// Game data is borrowed and must outlive the returned Orb.
+Orb *orb_from_game(Orb_Store *store, Orb_Game game);
+// Replaces the store's current contents; failure leaves it empty. The store owns the loaded file data.
+Orb *orb_from_file(Orb_Store *store, Str path);
+Hash256 orb_game_hash(Orb_Game game);
 
 void orb_store_init(Orb_Store *store);
 void orb_store_destroy(Orb_Store *store);
-Orb_StoreResult orb_store_load(Orb_Store *store, Str path);
-void orb_store_log_info(const Orb_Store *store);
-const char *orb_store_status_string(Orb_StoreStatus status);
 
 #endif
