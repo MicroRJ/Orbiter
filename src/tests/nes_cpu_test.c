@@ -193,10 +193,32 @@ static void cpu_test_reset_vector(CPU_TestFixture *fixture)
 	cpu_test_prepare(fixture);
 	fixture->core->prg_rom[0x3FFC] = 0x23;
 	fixture->core->prg_rom[0x3FFD] = 0x81;
+	NES_CPUState *cpu = cpu_test_state(fixture);
+	cpu->A = 0x11;
+	cpu->X = 0x22;
+	cpu->Y = 0x33;
+	cpu->S = 0x44;
+	cpu->P = cpu_status_mask(CPU_STAT_C);
+	nes_cpu_power_on(fixture->core);
+	CPU_EXPECT_EQUAL(0, cpu->A);
+	CPU_EXPECT_EQUAL(0, cpu->X);
+	CPU_EXPECT_EQUAL(0, cpu->Y);
+	CPU_EXPECT_EQUAL(0x8123, cpu->PC);
+	CPU_EXPECT_EQUAL(0xFD, cpu->S);
+	CPU_EXPECT_EQUAL(0x24, cpu->P);
+
+	cpu->A = 0x11;
+	cpu->X = 0x22;
+	cpu->Y = 0x33;
+	cpu->S = 0x80;
+	cpu->P = cpu_status_mask(CPU_STAT_C) | cpu_status_mask(CPU_STAT_V) | cpu_status_mask(CPU_STAT_1);
 	nes_cpu_reset(fixture->core);
-	CPU_EXPECT_EQUAL(0x8123, cpu_test_state(fixture)->PC);
-	CPU_EXPECT_EQUAL(0xFD, cpu_test_state(fixture)->S);
-	CPU_EXPECT_EQUAL(0x24, cpu_test_state(fixture)->P);
+	CPU_EXPECT_EQUAL(0x11, cpu->A);
+	CPU_EXPECT_EQUAL(0x22, cpu->X);
+	CPU_EXPECT_EQUAL(0x33, cpu->Y);
+	CPU_EXPECT_EQUAL(0x8123, cpu->PC);
+	CPU_EXPECT_EQUAL(0x7D, cpu->S);
+	CPU_EXPECT_EQUAL(0x65, cpu->P);
 }
 
 static void cpu_test_load_flags(CPU_TestFixture *fixture)

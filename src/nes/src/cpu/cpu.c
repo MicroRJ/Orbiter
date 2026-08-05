@@ -381,15 +381,18 @@ void nes_cpu_nmi(NES_Emulator *core)
 
 
 
+void nes_cpu_power_on(NES_Emulator *core)
+{
+	memory_zero(&core->cpu, sizeof(core->cpu));
+	nes_cpu_reset(core);
+}
+
 void nes_cpu_reset(NES_Emulator *core)
 {
 	NES_CPUState *cpu = &core->cpu;
-	core->cpu.A = (u8)(0);
-	core->cpu.X = (u8)(0);
-	core->cpu.Y = (u8)(0);
-	core->cpu.S = (u8)(0xFD);
-	core->cpu.P = (u8)(cpu_status_mask(CPU_STAT_I) | cpu_status_mask(CPU_STAT_1));
-	core->cpu.PC = (u16)(cpu_read_word(core, RESET_VECTOR));
+	cpu->S -= 3;
+	cpu->P |= cpu_status_mask(CPU_STAT_I) | cpu_status_mask(CPU_STAT_1);
+	cpu->PC = cpu_read_word(core, RESET_VECTOR);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

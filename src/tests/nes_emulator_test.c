@@ -90,10 +90,20 @@ int main(void)
 	// communicate across the reset, then reloads PC from the reset vector.
 	core->_wram[5] = 0xA5;
 	core->prg_ram[7] = 0x5A;
+	core->cpu.A = 0x11;
+	core->cpu.X = 0x22;
+	core->cpu.Y = 0x33;
+	core->cpu.S = 0x80;
+	core->cpu.P = 0x61;
 	core->cpu.PC = 0x8123;
 	nes_reset_emulator(core);
 	Assert(core->_wram[5] == 0xA5);
 	Assert(core->prg_ram[7] == 0x5A);
+	Assert(core->cpu.A == 0x11);
+	Assert(core->cpu.X == 0x22);
+	Assert(core->cpu.Y == 0x33);
+	Assert(core->cpu.S == 0x7D);
+	Assert(core->cpu.P == 0x65);
 	Assert(core->cpu.PC == 0x8000);
 
 	arena_destroy(&arena);

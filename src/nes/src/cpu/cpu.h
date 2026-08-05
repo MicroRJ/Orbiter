@@ -36,6 +36,7 @@ enum
 
 void nes_cpu_nmi(NES_Emulator *core);
 u32 nes_cpu_irq(NES_Emulator *core);
+void nes_cpu_power_on(NES_Emulator *core);
 void nes_cpu_reset(NES_Emulator *core);
 u32 nes_cpu_step(NES_Emulator *core);
 

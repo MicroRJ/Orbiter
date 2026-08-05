@@ -109,7 +109,7 @@ b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 	Assert(emulator->mapper.reset(emulator));
 	nes_ppu_reset(&emulator->ppu);
 	nes_apu_reset(&emulator->apu);
-	nes_cpu_reset(emulator);
+	nes_cpu_power_on(emulator);
 	return true;
 }
 
