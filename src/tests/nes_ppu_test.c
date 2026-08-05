@@ -41,7 +41,7 @@ static PPU_TestFixture ppu_test_fixture_create(void)
 
 	fixture.core = arena_push_zero(&fixture.arena, sizeof(NES_Emulator));
 	Assert(fixture.core);
-	Assert(nes_emulator_load_cartridge(fixture.core, (NES_CartridgeDesc) {
+	Assert(nes_setup_emulator(fixture.core, (NES_SetupParams) {
 		.prg_rom = byte_span(prg_rom, KiB(16)),
 		.chr_rom = byte_span(chr_rom, KiB(8)),
 	}));

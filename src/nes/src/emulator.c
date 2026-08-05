@@ -106,11 +106,21 @@ b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 	emulator->num_prg_banks = params.prg_rom.size / KiB(16);
 	emulator->num_chr_banks = params.chr_rom.size / KiB(8);
 	nes_bootup_emulator(emulator);
-	emulator->mapper.reset(emulator);
+	Assert(emulator->mapper.reset(emulator));
 	nes_ppu_reset(&emulator->ppu);
 	nes_apu_reset(&emulator->apu);
 	nes_cpu_reset(emulator);
 	return true;
+}
+
+void nes_reset_emulator(NES_Emulator *emulator)
+{
+	Assert(nes_emulator_ready_to_run(emulator));
+	emulator->cpu_stall_cycles = 0;
+	Assert(emulator->mapper.reset(emulator));
+	nes_ppu_reset(&emulator->ppu);
+	nes_apu_reset(&emulator->apu);
+	nes_cpu_reset(emulator);
 }
 
 b32 nes_emulator_ready_to_run(const NES_Emulator *core)

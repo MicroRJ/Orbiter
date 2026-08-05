@@ -65,6 +65,7 @@ struct DF_PanelViewData
 	};
 };
 
+// Todo, remove this entirely
 struct ViewFrameData
 {
 	DF_PanelViewData *view;

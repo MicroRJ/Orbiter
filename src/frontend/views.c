@@ -82,3 +82,19 @@ void view_build_ui(ViewFrameData *frame)
 	Assert(frame->view->desc->build_ui);
 	frame->view->desc->build_ui(frame);
 }
+
+// if (!frame->publication->valid || !nes_emulator_ready_to_run(frame->emulator))
+// {
+// 	UI_TextStyle style = frame->ui->theme.code;
+// 	style.color = frame->ui->theme.text_subtle;
+// 	ui_clean(frame->ui);
+// 	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
+// 	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
+// 	ui_begin_flat(frame->ui, 1);
+// 	ui_clean(frame->ui);
+// 	ui_align(frame->ui, AXIS_X, 0.5f);
+// 	ui_align(frame->ui, AXIS_Y, 0.5f);
+// 	ui_text(frame->ui, 1, style, LIT("No Game Loaded"));
+// 	ui_box_end(frame->ui);
+// 	return;
+// }

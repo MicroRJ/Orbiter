@@ -178,6 +178,8 @@ struct NES_Emulator
 b32 nes_emulator_valid(const NES_Emulator *emulator);
 b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams data);
 b32 nes_bootup_emulator(NES_Emulator *emulator);
+// Reset live devices while preserving cartridge and RAM storage.
+void nes_reset_emulator(NES_Emulator *emulator);
 
 b32 nes_emulator_ready_to_run(const NES_Emulator *core);
 u64 nes_emulator_scheduler_clock(const NES_Emulator *core);

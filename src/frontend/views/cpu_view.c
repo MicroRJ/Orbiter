@@ -69,16 +69,6 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 static void cpu_view_content(ViewFrameData *frame)
 {
 	Assert(frame->emulator);
-	if (!frame->publication->valid || !nes_emulator_ready_to_run(frame->emulator))
-	{
-		UI_TextStyle style = frame->ui->theme.code;
-		style.color = frame->ui->theme.text_subtle;
-		ui_clean(frame->ui);
-		ui_size(frame->ui, AXIS_X, ui_grow(1.f));
-		ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
-		ui_text(frame->ui, 1, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
-		return;
-	}
 
 	// Published state is observational. A future editable CPU view must send a
 	// debugger command instead of modifying this copy or the core directly.

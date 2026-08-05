@@ -125,22 +125,39 @@ objects := {
 }
 
 tests := {
-	// { name = "tabula_test",         input = "tabula/tests/tabula_test.c" },
-	// { name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
-	// { name = "sha256_test",         input = "src/tests/sha256_test.c" },
-	// { name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
-	// { name = "orb_test",             input = "src/tests/orb_test.c" },
-	// { name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
-	// { name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
-	// { name = "nes_ppu_test",        input = "src/tests/nes_ppu_test.c" },
-	// { name = "nes_mapper_test",     input = "src/tests/nes_mapper_test.c" },
-	// { name = "nes_apu_test",        input = "src/tests/nes_apu_test.c" },
-	// { name = "nes_audio_test",      input = "src/tests/nes_audio_test.c" },
+	{ name = "tabula_test",         input = "tabula/tests/tabula_test.c" },
+	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
+	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
+	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
+	{ name = "orb_test",            input = "src/tests/orb_test.c" },
+	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
+	{ name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
+	{ name = "nes_ppu_test",        input = "src/tests/nes_ppu_test.c" },
+	{ name = "nes_mapper_test",     input = "src/tests/nes_mapper_test.c" },
+	{ name = "nes_apu_test",        input = "src/tests/nes_apu_test.c" },
+	{ name = "nes_audio_test",      input = "src/tests/nes_audio_test.c" },
+}
+
+conformance_tests := {
+	"instr_test-v5/official_only.nes",
+	"cpu_interrupts_v2/cpu_interrupts.nes",
+	"cpu_reset/ram_after_reset.nes",
+	"cpu_reset/registers.nes",
+	"ppu_vbl_nmi/ppu_vbl_nmi.nes",
+	"ppu_open_bus/ppu_open_bus.nes",
+	"apu_test/apu_test.nes",
+	"apu_reset/4015_cleared.nes",
+	"apu_reset/4017_timing.nes",
+	"apu_reset/4017_written.nes",
+	"apu_reset/irq_flag_cleared.nes",
+	"apu_reset/len_ctrs_enabled.nes",
+	"apu_reset/works_immediately.nes",
 }
 
 executables := tests:clone():extend({
 	// { name = "nes_headless",    input = "tools/headless/main.c" },
 	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
+	{ name = "nes_conformance", input = "tools/conformance/main.c" },
 	// { name = "ui_playground",   input = "tools/ui_playground/main.c" },
 	{ name = "main",            input = "src/main.c" },
 })
@@ -150,6 +167,7 @@ object_tasks := {}
 object_outputs := {}
 executable_tasks := {}
 test_executable_tasks := {}
+conformance_executable_tasks := {}
 object_files := ""
 
 join_prefixed := fun(values, prefix) {
@@ -281,6 +299,9 @@ for executable := executables[...] ? {
 		if executable.name == test.name ? {
 			test_executable_tasks:add(link_task)
 		}
+	}
+	if executable.name == "nes_conformance" ? {
+		conformance_executable_tasks:add(link_task)
 	}
 }
 
@@ -430,6 +451,11 @@ entries.build = fun() {
 }
 
 entries.test = fun() {
+	if tests:length() == 0 ? {
+		elf.printl("Test suite is empty")
+		elf.process.exit(1)
+		ret false
+	}
 	success := bob.build({targets=test_executable_tasks,workers=8})
 	if success == 0 ? {
 		ret false
@@ -460,6 +486,39 @@ entries.test = fun() {
 	elf.printl(f"Test suite failed: ${failures} of ${tests:length()} test executables failed")
 	elf.process.exit(1)
 	ret false
+}
+
+entries.conformance = fun() {
+	if conformance_tests:length() == 0 ? {
+		elf.printl("Conformance suite is empty")
+		elf.process.exit(1)
+		ret false
+	}
+	success := bob.build({targets=conformance_executable_tasks,workers=8})
+	if success == 0 ? {
+		ret false
+	}
+
+	failures := 0
+	for test := conformance_tests[...] ? {
+		result := elf.process.run(f"build\\nes_conformance.exe ${test}")
+		elf.print(result.stdout)
+		elf.print(result.stderr)
+		if result.exit_code == 2 ? {
+			elf.process.exit(result.exit_code)
+			ret false
+		}
+		if result.success == 0 ? {
+			failures += 1
+		}
+	}
+	if failures != 0 ? {
+		elf.printl(f"Conformance suite failed: ${failures} of ${conformance_tests:length()} ROMs failed")
+		elf.process.exit(1)
+		ret false
+	}
+	elf.printl(f"Conformance suite passed: all ${conformance_tests:length()} ROMs passed")
+	ret true
 }
 
 entries.package = fun() {

@@ -1,4 +1,12 @@
 [CHANGED]
+	---
+	Introduced app windows, these take care of building and representing the UI state for an
+	entire window, including drawing contexts and presenting to graphics window.
+
+	App is becomes more of a central information whole-seller and state manager.
+	Data trickles in layers, starting at the emulator -> introspection -> publication -> windows -> views.
+
+	---
 	The emulator module no longer dictates serialization nor cartridge loading.
 	It is now a pure executioner.
 	It has a single setup procedure, that merely all it does is copy memory and reset its devices.
@@ -14,7 +22,7 @@
 	The entire bookkeeping system is gone now.
 	Now the debugger simply passes a trace buffer to the run function, the emulator fills it with trace entries.
 	Entries no longer store the scheduler step, instead each trace corresponds to one scheduler step.
-	Traces are now unpacked, since packing didn't seem to make much of a difference last time, thought we could
+	Traces are now unpacked, since packing didn't seem to make much of a difference last time, though we could
 	revisit later.
 
 [TODO]
@@ -78,8 +86,6 @@ In summary:
 END
 ---
 
-
----
 We still have this proxy model:
 
 debugger -> emulator

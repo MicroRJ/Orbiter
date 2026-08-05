@@ -1,16 +1,5 @@
 #include "orb.h"
 
-static void orb_test_write_u16(u8 *data, u16 value)
-{
-	data[0] = (u8)value;
-	data[1] = (u8)(value >> 8);
-}
-
-static void orb_test_write_u32(u8 *data, u32 value)
-{
-	for (u32 index = 0; index < 4; index ++) data[index] = (u8)(value >> (index * 8));
-}
-
 static b32 orb_test_write_file(const char *path, ByteSpan data)
 {
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
@@ -21,54 +10,73 @@ static b32 orb_test_write_file(const char *path, ByteSpan data)
 	return success;
 }
 
+static Orb_Game orb_test_game(Arena *arena)
+{
+	u8 *prg_rom = arena_push_zero(arena, KiB(16));
+	u8 *chr_rom = arena_push_zero(arena, KiB(8));
+	prg_rom[0] = 0xEA;
+	prg_rom[0x3FFC] = 0x00;
+	prg_rom[0x3FFD] = 0x80;
+	chr_rom[0] = 0x80;
+	return (Orb_Game) {
+		.metadata = {
+			.mapper = 0,
+			.vmirror = true,
+			.prg_rom_size = KiB(16),
+			.chr_rom_size = KiB(8),
+		},
+		.prg_rom_data = prg_rom,
+		.chr_rom_data = chr_rom,
+	};
+}
+
 int main(void)
 {
-	Arena encoded_arena = arena_create(MB(8), "ORB encoded test");
-	Arena runtime_arena = arena_create(MB(8), "ORB runtime test");
-	Arena roundtrip_arena = arena_create(MB(8), "ORB roundtrip test");
-	u8 prg_rom[] = { 0x10, 0x20, 0x30, 0x40 };
-	u8 chr_rom[] = { 0x50, 0x60, 0x70 };
-	u8 first_state[] = { 1, 2, 3, 4, 5 };
-	u8 second_state[] = { 9, 8, 7 };
+	Arena source_arena = arena_create(0, "ORB source test");
+	Arena encoded_arena = arena_create(0, "ORB encoded test");
+	Arena decoded_arena = arena_create(0, "ORB decoded test");
+	Arena roundtrip_arena = arena_create(0, "ORB roundtrip test");
+
+	Orb_Game game = orb_test_game(&source_arena);
 	u8 thumbnail_pixels[] = {
 		255, 0, 0, 255, 0, 255, 0, 255,
 		0, 0, 255, 255, 255, 255, 255, 255,
 	};
-	NES_CartridgeDesc cartridge = {
-		.prg_rom = byte_span(prg_rom, sizeof(prg_rom)),
-		.chr_rom = byte_span(chr_rom, sizeof(chr_rom)),
-		.mapper = 9,
-		.vmirror = true,
-	};
-	Orb_Metadata metadata = {
-		.content_hash = orb_cartridge_hash(cartridge),
-		.first_played_unix_ms = 100,
-		.last_played_unix_ms = 500,
-		.play_time_ms = 400,
-		.title = LIT("Incremental ORB"),
-		.source_path = LIT("games/incremental.nes"),
-	};
-	Orb_Game cartridge_metadata = {
-		.mapper = cartridge.mapper,
-		.prg_rom_size = sizeof(prg_rom),
-		.chr_rom_size = sizeof(chr_rom),
-		.vmirror = cartridge.vmirror,
-	};
-	Orb_SaveMetadata first_save = {
-		.id = { .bytes = { 1 } },
+
+	Orb *source = arena_push_zero(&source_arena, sizeof(*source));
+	Orb_SaveNode *first_save = arena_push_zero(&source_arena, sizeof(*first_save));
+	Orb_SaveNode *second_save = arena_push_zero(&source_arena, sizeof(*second_save));
+	source->game = game;
+	source->game_hash = orb_game_hash(game);
+	source->title = LIT("Roundtrip ORB");
+	source->first_played_unix_ms = 100;
+	source->last_played_unix_ms = 500;
+	source->play_time_ms = 400;
+	source->first_save = first_save;
+	source->last_save = second_save;
+	first_save->next = second_save;
+	first_save->orb = source;
+	second_save->orb = source;
+	first_save->metadata = (Orb_SaveMetadata) {
 		.kind = ORB_SAVE_RESUME,
+		.id = { .bytes = { 1 } },
 		.created_unix_ms = 100,
 		.updated_unix_ms = 300,
 		.play_time_ms = 200,
 	};
-	Orb_SaveMetadata second_save = {
-		.id = { .bytes = { 2 } },
+	second_save->metadata = (Orb_SaveMetadata) {
 		.kind = ORB_SAVE_MANUAL,
+		.id = { .bytes = { 2 } },
 		.created_unix_ms = 400,
 		.updated_unix_ms = 500,
 		.play_time_ms = 400,
 	};
-	Orb_Thumbnail thumbnail = {
+	first_save->state.cpu.PC = 0x8123;
+	first_save->state.ppu.xtick = 123;
+	first_save->state.video[7][11] = 0x2A;
+	second_save->state.cpu.PC = 0x9234;
+	second_save->state.scheduler_clock = 123456;
+	first_save->thumbnail = (Orb_Thumbnail) {
 		.width = 2,
 		.height = 2,
 		.stride = 8,
@@ -76,174 +84,80 @@ int main(void)
 		.pixels = byte_span(thumbnail_pixels, sizeof(thumbnail_pixels)),
 	};
 
-	Orb_Encoder encoder = orb_begin_encoding(&encoded_arena);
-	Assert(orb_write_metadata_chunk(&encoder, metadata));
-	Assert(orb_write_cartridge_chunk(&encoder, cartridge_metadata));
-	Assert(orb_write_prg_rom_chunk(&encoder, cartridge.prg_rom));
-	Assert(orb_write_chr_rom_chunk(&encoder, cartridge.chr_rom));
-	Assert(orb_begin_save_chunk(&encoder));
-	Assert(orb_write_save_metadata_chunk(&encoder, first_save));
-	Assert(orb_write_save_state_chunk(&encoder, byte_span(first_state, sizeof(first_state))));
-	Assert(orb_write_save_thumbnail_chunk(&encoder, thumbnail));
-	Assert(orb_end_save_chunk(&encoder));
-	Assert(orb_begin_save_chunk(&encoder));
-	Assert(orb_write_save_metadata_chunk(&encoder, second_save));
-	Assert(orb_write_save_state_chunk(&encoder, byte_span(second_state, sizeof(second_state))));
-	Assert(orb_end_save_chunk(&encoder));
-	ByteSpan encoded = {};
-	Orb_Result result = orb_end_encoding(&encoder, &encoded);
-	Assert(result.status == ORB_STATUS_OK && encoded.size);
+	ByteSpan encoded = orb_write(&encoded_arena, source);
+	Assert(encoded.data && encoded.size);
+	Assert(source->save_count == 2);
 
-	Orb_Decoder decoder = {};
-	result = orb_begin_decoding(&decoder, encoded);
-	Assert(result.status == ORB_STATUS_OK && decoder.version == ORB_FILE_VERSION_CURRENT);
-	u32 root_chunk_count = 0;
-	u32 save_count = 0;
-	u64 first_state_payload_offset = 0;
-	Orb_Chunk chunk = {};
-	while (orb_read_chunk(&decoder, &chunk))
-	{
-		root_chunk_count ++;
-		if (chunk.type == ORB_CHUNK_METADATA)
-		{
-			Orb_Metadata decoded = {};
-			Assert(orb_decode_metadata_chunk(chunk, &decoded).status == ORB_STATUS_OK);
-			Assert(hash256_match(decoded.content_hash, metadata.content_hash));
-			Assert(str_match(decoded.title, metadata.title) && str_match(decoded.source_path, metadata.source_path));
-		}
-		else if (chunk.type == ORB_CHUNK_CARTRIDGE)
-		{
-			Orb_Game decoded = {};
-			Assert(orb_decode_cartridge_chunk(chunk, &decoded).status == ORB_STATUS_OK);
-			Assert(decoded.mapper == cartridge_metadata.mapper && decoded.prg_rom_size == sizeof(prg_rom) && decoded.chr_rom_size == sizeof(chr_rom));
-		}
-		else if (chunk.type == ORB_CHUNK_PRG_ROM)
-		{
-			ByteSpan decoded = {};
-			Assert(orb_decode_prg_rom_chunk(chunk, &decoded).status == ORB_STATUS_OK);
-			Assert(decoded.size == sizeof(prg_rom) && memory_match(decoded.data, prg_rom, sizeof(prg_rom)));
-		}
-		else if (chunk.type == ORB_CHUNK_CHR_ROM)
-		{
-			ByteSpan decoded = {};
-			Assert(orb_decode_chr_rom_chunk(chunk, &decoded).status == ORB_STATUS_OK);
-			Assert(decoded.size == sizeof(chr_rom) && memory_match(decoded.data, chr_rom, sizeof(chr_rom)));
-		}
-		else if (chunk.type == ORB_CHUNK_SAVE)
-		{
-			Orb_Decoder save_decoder = {};
-			Assert(orb_begin_container_decoding(&save_decoder, &decoder, chunk).status == ORB_STATUS_OK);
-			Assert(decoder.child_active);
-			u32 save_child_count = 0;
-			Orb_Chunk save_chunk = {};
-			while (orb_read_chunk(&save_decoder, &save_chunk))
-			{
-				save_child_count ++;
-				if (!save_count && save_chunk.type == ORB_CHUNK_STATE) first_state_payload_offset = save_chunk.payload_offset;
-			}
-			Assert(orb_end_decoding(&save_decoder).status == ORB_STATUS_OK);
-			Assert(!decoder.child_active);
-			Assert(save_child_count == (save_count ? 2 : 3));
-			save_count ++;
-		}
-	}
-	Assert(orb_end_decoding(&decoder).status == ORB_STATUS_OK);
-	Assert(root_chunk_count == 6 && save_count == 2 && first_state_payload_offset < encoded.size);
+	Orb *decoded = orb_read(&decoded_arena, encoded);
+	Assert(decoded);
+	Assert(str_match(decoded->title, source->title));
+	Assert(decoded->first_played_unix_ms == 100);
+	Assert(decoded->last_played_unix_ms == 500);
+	Assert(decoded->play_time_ms == 400);
+	Assert(hash256_match(decoded->game_hash, source->game_hash));
+	Assert(decoded->game.metadata.mapper == game.metadata.mapper);
+	Assert(decoded->game.metadata.vmirror == game.metadata.vmirror);
+	Assert(decoded->game.metadata.prg_rom_size == KiB(16));
+	Assert(decoded->game.metadata.chr_rom_size == KiB(8));
+	Assert(memory_match(decoded->game.prg_rom_data, game.prg_rom_data, KiB(16)));
+	Assert(memory_match(decoded->game.chr_rom_data, game.chr_rom_data, KiB(8)));
+	Assert(decoded->save_count == 2);
+	Assert(decoded->first_save && decoded->last_save && decoded->first_save != decoded->last_save);
+	Assert(decoded->first_save->orb == decoded);
+	Assert(decoded->last_save->orb == decoded);
+	Assert(decoded->first_save->state.cpu.PC == 0x8123);
+	Assert(decoded->first_save->state.ppu.xtick == 123);
+	Assert(decoded->first_save->state.video[7][11] == 0x2A);
+	Assert(decoded->last_save->state.cpu.PC == 0x9234);
+	Assert(decoded->last_save->state.scheduler_clock == 123456);
+	Assert(decoded->first_save->thumbnail.width == 2);
+	Assert(decoded->first_save->thumbnail.height == 2);
+	Assert(decoded->first_save->thumbnail.pixels.size == sizeof(thumbnail_pixels));
+	Assert(memory_match(decoded->first_save->thumbnail.pixels.data, thumbnail_pixels, sizeof(thumbnail_pixels)));
 
-	Orb_Decoder blocked_parent = {};
-	Assert(orb_begin_decoding(&blocked_parent, encoded).status == ORB_STATUS_OK);
-	Orb_Chunk blocked_container = {};
-	while (orb_read_chunk(&blocked_parent, &blocked_container) && blocked_container.type != ORB_CHUNK_SAVE) {}
-	Assert(blocked_container.type == ORB_CHUNK_SAVE);
-	Orb_Decoder active_child = {};
-	Assert(orb_begin_container_decoding(&active_child, &blocked_parent, blocked_container).status == ORB_STATUS_OK);
-	Assert(blocked_parent.child_active);
-	Orb_Chunk blocked_chunk = {};
-	Assert(!orb_read_chunk(&blocked_parent, &blocked_chunk));
-	Assert(blocked_parent.result.status == ORB_STATUS_INVALID_SEQUENCE);
-	while (orb_read_chunk(&active_child, &blocked_chunk)) {}
-	Assert(orb_end_decoding(&active_child).status == ORB_STATUS_OK);
-	Assert(!blocked_parent.child_active);
-	Assert(orb_end_decoding(&blocked_parent).status == ORB_STATUS_INVALID_SEQUENCE);
+	ByteSpan roundtrip = orb_write(&roundtrip_arena, decoded);
+	Assert(roundtrip.size == encoded.size);
+	Assert(memory_match(roundtrip.data, encoded.data, encoded.size));
 
-	Orb orb = {};
-	result = orb_runtime_decode(&runtime_arena, encoded, &orb);
-	Assert(result.status == ORB_STATUS_OK);
-	Assert(orb.cartridge.mapper == cartridge.mapper && orb.cartridge.vmirror == cartridge.vmirror);
-	Assert(orb.cartridge.prg_rom.size == sizeof(prg_rom) && memory_match(orb.cartridge.prg_rom.data, prg_rom, sizeof(prg_rom)));
-	Assert(orb.cartridge.chr_rom.size == sizeof(chr_rom) && memory_match(orb.cartridge.chr_rom.data, chr_rom, sizeof(chr_rom)));
-	Assert(orb.save_count == 2 && orb.first_save && orb.last_save && orb.first_save != orb.last_save);
-	Assert(orb.first_save->state.size == sizeof(first_state) && memory_match(orb.first_save->state.data, first_state, sizeof(first_state)));
-	Assert(orb.first_save->thumbnail.pixels.size == sizeof(thumbnail_pixels));
-	Assert(orb.last_save->state.size == sizeof(second_state) && memory_match(orb.last_save->state.data, second_state, sizeof(second_state)));
+	for (u64 size = 0; size < 8; size ++) Assert(!orb_read(&decoded_arena, byte_span(encoded.data, size)));
+	u8 *invalid_magic = arena_push_copy(&source_arena, encoded.size, encoded.data);
+	invalid_magic[0] ^= 0x80;
+	Assert(!orb_read(&decoded_arena, byte_span(invalid_magic, encoded.size)));
 
-	Orb_Encoder empty_encoder = orb_begin_encoding(&encoded_arena);
-	Assert(orb_write_metadata_chunk(&empty_encoder, metadata));
-	Assert(orb_write_cartridge_chunk(&empty_encoder, cartridge_metadata));
-	Assert(orb_write_prg_rom_chunk(&empty_encoder, cartridge.prg_rom));
-	Assert(orb_write_chr_rom_chunk(&empty_encoder, cartridge.chr_rom));
-	ByteSpan empty_encoded = {};
-	Assert(orb_end_encoding(&empty_encoder, &empty_encoded).status == ORB_STATUS_OK);
-	Orb empty_orb = {};
-	Assert(orb_runtime_decode(&runtime_arena, empty_encoded, &empty_orb).status == ORB_STATUS_OK);
-	Assert(empty_orb.save_count == 0 && !empty_orb.first_save && !empty_orb.last_save);
-
-	ByteSpan roundtrip = {};
-	result = orb_runtime_encode(&roundtrip_arena, &orb, &roundtrip);
-	Assert(result.status == ORB_STATUS_OK && roundtrip.size == encoded.size && memory_match(roundtrip.data, encoded.data, encoded.size));
-
-	// Unknown optional chunks remain readable, but the runtime refuses to
-	// rewrite them until it can preserve their payloads.
-	u8 *extended_data = arena_push_aligned(&roundtrip_arena, encoded.size + 32, 1);
-	memory_copy(extended_data, encoded.data, encoded.size);
-	memory_zero(extended_data + encoded.size, 32);
-	orb_test_write_u32(extended_data + encoded.size, ORB_FOURCC('E', 'X', 'T', 'N'));
-	orb_test_write_u16(extended_data + encoded.size + 4, 1);
-	orb_test_write_u16(extended_data + encoded.size + 30, 32);
-	Orb extended_orb = {};
-	Assert(orb_runtime_decode(&runtime_arena, byte_span(extended_data, encoded.size + 32), &extended_orb).status == ORB_STATUS_OK);
-	Assert(extended_orb.has_unpreserved_chunks);
-	ByteSpan unsupported_output = {};
-	Assert(orb_runtime_encode(&roundtrip_arena, &extended_orb, &unsupported_output).status == ORB_STATUS_UNSUPPORTED_CHUNK);
-	Assert(!unsupported_output.data && !unsupported_output.size);
-
-	u64 rollback_position = encoded_arena.position;
-	Orb_Encoder invalid = orb_begin_encoding(&encoded_arena);
-	Assert(!orb_write_prg_rom_chunk(&invalid, cartridge.prg_rom));
-	ByteSpan invalid_output = {};
-	Assert(orb_end_encoding(&invalid, &invalid_output).status == ORB_STATUS_INVALID_SEQUENCE);
-	Assert(!invalid_output.data && !invalid_output.size && encoded_arena.position == rollback_position);
-
-	Arena small_arena = arena_create(64, "ORB small arena test");
-	arena_push_aligned(&small_arena, 49, 1);
-	u64 small_rollback_position = small_arena.position;
-	Orb_Encoder too_small = orb_begin_encoding(&small_arena);
-	Assert(too_small.result.status == ORB_STATUS_OUTPUT_TOO_LARGE);
-	ByteSpan too_small_output = {};
-	Assert(orb_end_encoding(&too_small, &too_small_output).status == ORB_STATUS_OUTPUT_TOO_LARGE);
-	Assert(!too_small_output.data && !too_small_output.size && small_arena.position == small_rollback_position);
-	arena_destroy(&small_arena);
-
-	u8 *corrupt = arena_push_copy(&roundtrip_arena, encoded.size, encoded.data);
-	corrupt[first_state_payload_offset] ^= 0x80;
-	u64 corrupt_position = runtime_arena.position;
-	Orb corrupt_orb = {};
-	result = orb_runtime_decode(&runtime_arena, byte_span(corrupt, encoded.size), &corrupt_orb);
-	Assert(result.status == ORB_STATUS_CHECKSUM_MISMATCH && runtime_arena.position == corrupt_position);
-
-	const char store_path[] = "orb_store_test.orb";
-	Assert(orb_test_write_file(store_path, encoded));
+	const char orb_path[] = "orb_store_test.orb";
+	Assert(orb_test_write_file(orb_path, encoded));
 	Orb_Store store = {};
 	orb_store_init(&store);
-	Orb_StoreResult store_result = orb_store_load(&store, str_from_cstr(store_path));
-	Assert(store_result.status == ORB_STORE_STATUS_OK);
-	Assert(store.orb.save_count == 2);
-	Assert(store.orb.cartridge.prg_rom.size == sizeof(prg_rom));
+	Orb *loaded = orb_from_file(&store, str_from_cstr(orb_path));
+	Assert(loaded && loaded == store.orb);
+	Assert(loaded->save_count == 2);
+	Assert(str_match(loaded->title, source->title));
 	orb_store_destroy(&store);
-	Assert(platform_remove_file(store_path));
+	Assert(platform_remove_file(orb_path));
+
+	u32 ines_size = 16 + KiB(16) + KiB(8);
+	u8 *ines = arena_push_zero(&source_arena, ines_size);
+	ines[0] = 'N'; ines[1] = 'E'; ines[2] = 'S'; ines[3] = 0x1A;
+	ines[4] = 1;
+	ines[5] = 1;
+	ines[6] = 1; // Vertical mirroring.
+	ines[16] = 0xEA;
+	const char ines_path[] = "orb_store_test.nes";
+	Assert(orb_test_write_file(ines_path, byte_span(ines, ines_size)));
+	orb_store_init(&store);
+	loaded = orb_from_file(&store, str_from_cstr(ines_path));
+	Assert(loaded && loaded->save_count == 0);
+	Assert(loaded->game.metadata.mapper == 0);
+	Assert(loaded->game.metadata.vmirror == true);
+	Assert(loaded->game.metadata.prg_rom_size == KiB(16));
+	Assert(loaded->game.metadata.chr_rom_size == KiB(8));
+	Assert(str_match(loaded->title, LIT("orb_store_test")));
+	orb_store_destroy(&store);
+	Assert(platform_remove_file(ines_path));
 
 	arena_destroy(&roundtrip_arena);
-	arena_destroy(&runtime_arena);
+	arena_destroy(&decoded_arena);
 	arena_destroy(&encoded_arena);
+	arena_destroy(&source_arena);
 	return 0;
 }

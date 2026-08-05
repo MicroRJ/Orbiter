@@ -63,7 +63,7 @@ static void test_audio_stream(void)
 	arena_destroy(&arena);
 }
 
-static NES_CartridgeDesc make_looping_cartridge(Arena *arena)
+static NES_SetupParams make_looping_cartridge(Arena *arena)
 {
 	u8 *prg = arena_push_zero(arena, KiB(16));
 	u8 *chr = arena_push_zero(arena, KiB(8));
@@ -73,7 +73,7 @@ static NES_CartridgeDesc make_looping_cartridge(Arena *arena)
 	prg[2] = 0x80;
 	prg[0x3FFC] = 0x00;
 	prg[0x3FFD] = 0x80;
-	return (NES_CartridgeDesc) {
+	return (NES_SetupParams) {
 		.prg_rom = byte_span(prg, KiB(16)),
 		.chr_rom = byte_span(chr, KiB(8)),
 	};
@@ -83,7 +83,7 @@ static void test_step_advances_audio_phase(void)
 {
 	Arena arena = arena_create(0, "NES step audio phase test");
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
-	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
+	Assert(nes_setup_emulator(core, make_looping_cartridge(&arena)));
 	u64 expected_phase = 0;
 	for (u32 index = 0; index < 20; index ++)
 	{
@@ -99,7 +99,7 @@ static void test_run_frame_audio_contract(void)
 	enum { FRAME_COUNT = 120 };
 	Arena arena = arena_create(0, "NES frame audio contract test");
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
-	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
+	Assert(nes_setup_emulator(core, make_looping_cartridge(&arena)));
 
 	u64 sample_capacity = nes_required_sample_capacity();
 	f32 *guarded_samples = arena_push_zero(&arena, sizeof(*guarded_samples) * (sample_capacity + 2));
@@ -130,7 +130,7 @@ static void test_run_frame_audio_contract(void)
 	Assert(core->sample_phase == generated_phase % NES_CPU_HZ);
 
 	NES_Emulator *discarding = arena_push_zero(&arena, sizeof(NES_Emulator));
-	Assert(nes_emulator_load_cartridge(discarding, make_looping_cartridge(&arena)));
+	Assert(nes_setup_emulator(discarding, make_looping_cartridge(&arena)));
 	Assert(nes_emulator_run_frame(discarding, (NES_RunParams) {}).samples > 0);
 	arena_destroy(&arena);
 }
@@ -138,7 +138,7 @@ static void test_run_frame_audio_contract(void)
 static void test_dma_cycles_cross_the_same_boundary(void)
 {
 	Arena arena = arena_create(0, "Orbiter DMA scheduler test");
-	NES_CartridgeDesc cartridge = make_looping_cartridge(&arena);
+	NES_SetupParams cartridge = make_looping_cartridge(&arena);
 	u8 *prg = cartridge.prg_rom.data;
 	prg[0] = 0xA9; // LDA #$02
 	prg[1] = 0x02;
@@ -147,7 +147,7 @@ static void test_dma_cycles_cross_the_same_boundary(void)
 	prg[4] = 0x40;
 
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
-	Assert(nes_emulator_load_cartridge(core, cartridge));
+	Assert(nes_setup_emulator(core, cartridge));
 
 	u32 first_cycles = nes_emulator_step(core, 0);
 	Assert(first_cycles == 2);
@@ -166,7 +166,7 @@ static void test_step_trace(void)
 {
 	Arena arena = arena_create(0, "NES step trace test");
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
-	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
+	Assert(nes_setup_emulator(core, make_looping_cartridge(&arena)));
 	NES_TraceEntry trace[4];
 	for (u32 index = 0; index < ArrayCount(trace); ++index) nes_emulator_step(core, &trace[index]);
 	for (u32 index = 0; index < ArrayCount(trace); ++index)

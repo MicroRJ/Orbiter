@@ -422,7 +422,7 @@ static const UI_BoxHooks prg_activity_box_hooks = {
 
 void prg_activity_view_build_ui(ViewFrameData *frame)
 {
-	ViewFrameData content = view_begin_frame(frame, LIT("PRG ACTIVITY - EXECUTION FLOW"));
+	ViewFrameData content = view_begin_frame(frame, LIT("EXECUTION FLOW"));
 	PRGActivityBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
 	data->frame = content;
 	data->clip = frame->rect;

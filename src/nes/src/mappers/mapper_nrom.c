@@ -56,11 +56,25 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 	return access;
 }
 
+// """
+// CPU $6000-$7FFF: Unbanked PRG-RAM, mirrored as necessary to fill entire 8 KiB window, write protectable with an external switch. (Family BASIC only)
+// CPU $8000-$BFFF: First 16 KiB of PRG-ROM.
+// CPU $C000-$FFFF: Last 16 KiB of PRG-ROM (NROM-256) or mirror of $8000-$BFFF (NROM-128).
+// """
 NES_BusAccess nrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
-	if ((access.address >> 15) == 1) {
-		if (nes->num_prg_banks == 1) access.address &= KiB(16) - 1;
-		else                              access.address &= KiB(32) - 1;
-		access = nes_prg_rom_access(nes, access);
+	switch (access.address >> 13)
+	{
+		case 3: {
+			access.address &= KiB(8) - 1;
+			access = nes_prg_ram_access(nes, access);
+		}
+		break;
+		case 4: case 5: case 6: case 7: {
+			Assert(nes->prg_rom_size == KiB(16) || nes->prg_rom_size == KiB(32));
+			access.address &= nes->prg_rom_size - 1;
+			access = nes_prg_rom_access(nes, access);
+		}
+		break;
 	}
 	return access;
 }

@@ -107,6 +107,12 @@ static void mapper_test_nrom(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(0x40, mapper_read(core, nrom_cpu, 0xC000));
 	MAPPER_EXPECT_EQUAL(NES_DEVICE_PRG_ROM, mapper_map(core, nrom_cpu, 0xC123).device);
 	MAPPER_EXPECT_EQUAL(0x0123, mapper_map(core, nrom_cpu, 0xC123).offset);
+	mapper_write(core, nrom_cpu, 0x6000, 0xA5);
+	mapper_write(core, nrom_cpu, 0x7FFF, 0x5A);
+	MAPPER_EXPECT_EQUAL(0xA5, mapper_read(core, nrom_cpu, 0x6000));
+	MAPPER_EXPECT_EQUAL(0x5A, mapper_peek(core, nrom_cpu, 0x7FFF));
+	MAPPER_EXPECT_EQUAL(NES_DEVICE_PRG_RAM, mapper_map(core, nrom_cpu, 0x6123).device);
+	MAPPER_EXPECT_EQUAL(0x0123, mapper_map(core, nrom_cpu, 0x6123).offset);
 
 	mapper_test_prepare(fixture, KiB(32), KiB(8));
 	mapper_mark_prg_banks(core, KiB(16));
