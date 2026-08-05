@@ -33,12 +33,12 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, title, LIT("SCROLL HISTORY LAB"));
+	ui_text(ui, 1, title, LIT("SCROLL HISTORY LAB"));
 	ui_box_end(ui);
 	playground_frame_slot_begin(ui, 2, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, subtle, LIT("|  ONE VIRTUAL LIST + ONE BOX SCROLLBAR"));
+	ui_text(ui, 1, subtle, LIT("|  ONE VIRTUAL LIST + ONE BOX SCROLLBAR"));
 	ui_box_end(ui);
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -49,7 +49,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	playground_frame_slot_begin(ui, 4, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, status, LIT("CONTEXT-OWNED STATE"));
+	ui_text(ui, 1, status, LIT("CONTEXT-OWNED STATE"));
 	ui_box_end(ui);
 	ui_clean(ui);
 	UI_Response reset_button = ui_button(ui, UI_KEY("reset scroll"), LIT("RESET"));
@@ -109,47 +109,47 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 1, title, LIT("PERSISTENT STATE"));
+	ui_text(ui, 1, title, LIT("PERSISTENT STATE"));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 2, input_ready ? title : accent, input_ready ? LIT("input source: previous frame") : LIT("input source: unavailable"));
+	ui_text(ui, 2, input_ready ? title : accent, input_ready ? LIT("input source: previous frame") : LIT("input source: unavailable"));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 3, text, str_push_copy_f(arena, "offset          %9.2f", scroll->offset));
+	ui_text(ui, 3, text, str_push_copy_f(arena, "offset          %9.2f", scroll->offset));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 4, text, str_push_copy_f(arena, "target          %9.2f", scroll->target));
+	ui_text(ui, 4, text, str_push_copy_f(arena, "target          %9.2f", scroll->target));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 5, subtle, str_push_copy_f(arena, "generation      %9llu", ui->layout_generation));
+	ui_text(ui, 5, subtle, str_push_copy_f(arena, "generation      %9llu", ui->layout_generation));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 6, subtle, str_push_copy_f(arena, "cached gen      %9llu", viewport_previous->layout_generation));
+	ui_text(ui, 6, subtle, str_push_copy_f(arena, "cached gen      %9llu", viewport_previous->layout_generation));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 7, text, str_push_copy_f(arena, "viewport h      %9.2f", viewport_previous->viewport.h));
+	ui_text(ui, 7, text, str_push_copy_f(arena, "viewport h      %9.2f", viewport_previous->viewport.h));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 8, text, str_push_copy_f(arena, "content h       %9.2f", viewport_previous->content_size.y));
+	ui_text(ui, 8, text, str_push_copy_f(arena, "content h       %9.2f", viewport_previous->content_size.y));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 9, text, str_push_copy_f(arena, "scroll range    %9.2f", Max(viewport_previous->content_size.y - viewport_previous->viewport.h, 0.f)));
+	ui_text(ui, 9, text, str_push_copy_f(arena, "scroll range    %9.2f", Max(viewport_previous->content_size.y - viewport_previous->viewport.h, 0.f)));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 10, text, str_push_copy_f(arena, "track y / h  %7.2f / %7.2f", track_previous->rect.y, track_previous->rect.h));
+	ui_text(ui, 10, text, str_push_copy_f(arena, "track y / h  %7.2f / %7.2f", track_previous->rect.y, track_previous->rect.h));
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 11, text, str_push_copy_f(arena, "thumb y / h  %7.2f / %7.2f", thumb_previous->rect.y, thumb_previous->rect.h));
+	ui_text(ui, 11, text, str_push_copy_f(arena, "thumb y / h  %7.2f / %7.2f", thumb_previous->rect.y, thumb_previous->rect.h));
 
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -158,7 +158,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(22.f));
-	ui_text_box_string(ui, 13, title, LIT("FRAME PIPELINE"));
+	ui_text(ui, 13, title, LIT("FRAME PIPELINE"));
 
 	static const Str pipeline[] = {
 		LIT("1  boxes recover context-owned state"),
@@ -170,7 +170,7 @@ static PlaygroundScene playground_build_scroll_history(Arena *arena, UI_Context 
 		ui_clean(ui);
 		ui_size(ui, AXIS_X, ui_grow(1.f));
 		ui_size(ui, AXIS_Y, ui_fixed(22.f));
-		ui_text_box_string(ui, 14 + pipeline_index, pipeline_index == 2 ? accent : subtle, pipeline[pipeline_index]);
+		ui_text(ui, 14 + pipeline_index, pipeline_index == 2 ? accent : subtle, pipeline[pipeline_index]);
 	}
 	ui_box_end(ui);
 	ui_box_end(ui);

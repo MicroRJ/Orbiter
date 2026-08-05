@@ -31,17 +31,17 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, vibrant, LIT("ORBITER"));
+	ui_text(ui, 1, vibrant, LIT("ORBITER"));
 	ui_box_end(ui);
 	playground_frame_slot_begin(ui, 2, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, subtle, LIT("|  UI BOX PLAYGROUND  |"));
+	ui_text(ui, 1, subtle, LIT("|  UI BOX PLAYGROUND  |"));
 	ui_box_end(ui);
 	playground_frame_slot_begin(ui, 3, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, running, LIT("RUNNING"));
+	ui_text(ui, 1, running, LIT("RUNNING"));
 	ui_box_end(ui);
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -51,7 +51,7 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 	playground_frame_slot_begin(ui, 5, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_sized_string(ui, 1, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
+	ui_text_sized(ui, 1, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
 	ui_box_end(ui);
 	ui_box_end(ui);
 
@@ -94,9 +94,9 @@ static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Fon
 			tooltip_body.align = v2(0.f, 0.f);
 			ui_push_box_z(ui, UI_Z_OVERLAY);
 			ui_clean(ui);
-			ui_text_box_string(ui, 1, tooltip_title, LIT("OVERVIEW"));
+			ui_text(ui, 1, tooltip_title, LIT("OVERVIEW"));
 			ui_clean(ui);
-			ui_text_box_string(ui, 2, tooltip_body, LIT("This tooltip is an ordinary box subtree."));
+			ui_text(ui, 2, tooltip_body, LIT("This tooltip is an ordinary box subtree."));
 			ui_clean(ui);
 			ui_pop_box_z(ui);
 			ui_tooltip_end(ui);

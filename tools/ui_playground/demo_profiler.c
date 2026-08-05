@@ -21,11 +21,11 @@ static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, 
 	ui_align(table->ui, AXIS_X, align);
 	if (sizing_text.size)
 	{
-		ui_text_box_sized_string(table->ui, 1, style, sizing_text, text);
+		ui_text_sized(table->ui, 1, style, sizing_text, text);
 	}
 	else
 	{
-		ui_text_box_string(table->ui, 1, style, text);
+		ui_text(table->ui, 1, style, text);
 	}
 	ui_box_table_cell_end(table);
 }
@@ -126,12 +126,12 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, title, LIT("ORBITER PROFILER"));
+	ui_text(ui, 1, title, LIT("ORBITER PROFILER"));
 	ui_box_end(ui);
 	playground_frame_slot_begin(ui, 2, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, subtle, LIT("|  BOX TABLE PROTOTYPE"));
+	ui_text(ui, 1, subtle, LIT("|  BOX TABLE PROTOTYPE"));
 	ui_box_end(ui);
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -141,7 +141,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	playground_frame_slot_begin(ui, 4, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
+	ui_text(ui, 1, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
 	ui_box_end(ui);
 	ui_box_end(ui);
 
@@ -162,7 +162,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	playground_frame_slot_begin(ui, 1, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, profiler->value_style, LIT("SELECTED FRAME 123456  /  16.667 MS"));
+	ui_text(ui, 1, profiler->value_style, LIT("SELECTED FRAME 123456  /  16.667 MS"));
 	ui_box_end(ui);
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -174,7 +174,7 @@ static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context 
 	playground_frame_slot_begin(ui, 3, AXIS_Y);
 	ui_clean(ui);
 	ui_align(ui, AXIS_Y, 0.5f);
-	ui_text_box_string(ui, 1, live, LIT("LIVE"));
+	ui_text(ui, 1, live, LIT("LIVE"));
 	ui_box_end(ui);
 	ui_box_end(ui);
 

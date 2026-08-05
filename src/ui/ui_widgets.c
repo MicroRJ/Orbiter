@@ -96,9 +96,12 @@ void ui_box_paint(UI_Box *box)
 	}
 	if (paint->flags & UI_BOX_DRAW_BACKGROUND)
 	{
-		Draw_Command *command = ui_draw_rect(ui, box->rect, paint->background);
-		command->rect.corner_radii = draw_corner_radii_all(paint->roundness);
-		command->rect.edge_softness = paint->edge_softness;
+		ui_draw_rect(ui, (Draw_RectParams) {
+			.rect = box->rect,
+			.color = paint->background,
+			.corner_radii = draw_corner_radii_all(paint->roundness),
+			.edge_softness = paint->edge_softness,
+		});
 	}
 	if (paint->flags & UI_BOX_DRAW_INSET_SHADOW && paint->inset_shadow > 0.f) {
 		ui_draw_inset_shadow(ui, box->rect, paint->inset_shadow);
@@ -140,7 +143,7 @@ UI_Box *ui_text_box(UI_Context *ui, UI_Key key, UI_TextStyle style, const char *
 	return ui_box__make_text(ui, key, style, (Str) {}, string);
 }
 
-UI_Box *ui_text_box_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_string, const char *format, ...)
+UI_Box *ui_text_sized_f(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_string, const char *format, ...)
 {
 	Assert(ui);
 	Assert(ui->builder);
@@ -151,12 +154,12 @@ UI_Box *ui_text_box_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str si
 	return ui_box__make_text(ui, key, style, sizing_string, string);
 }
 
-UI_Box *ui_text_box_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str string)
+UI_Box *ui_text(UI_Context *ui, UI_Key key, UI_TextStyle style, Str string)
 {
 	return ui_box__make_text(ui, key, style, (Str) {}, string);
 }
 
-UI_Box *ui_text_box_sized_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_string, Str string)
+UI_Box *ui_text_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_string, Str string)
 {
 	return ui_box__make_text(ui, key, style, sizing_string, string);
 }
@@ -183,25 +186,40 @@ static void ui_box__paint_image(UI_Box *box)
 	if (box->viewport.w <= 0.f || box->viewport.h <= 0.f || image->region.w <= 0 || image->region.h <= 0) return;
 
 	rect_f32 image_rect = box->viewport;
-	if (image->style.fit != UI_IMAGE_FIT_STRETCH)
+	rect_f32 source_region = rect_f32_from_i32(image->region);
+	vec2 align = v2(CLAMP(image->style.align.x, 0.f, 1.f), CLAMP(image->style.align.y, 0.f, 1.f));
+	if (image->style.fit == UI_IMAGE_FIT_CONTAIN)
 	{
-		vec2 source_size = v2((f32)image->region.w, (f32)image->region.h);
-		f32 scale_x = box->viewport.w / source_size.x;
-		f32 scale_y = box->viewport.h / source_size.y;
-		f32 scale = image->style.fit == UI_IMAGE_FIT_COVER ? Max(scale_x, scale_y) : Min(scale_x, scale_y);
-		vec2 align = v2(Max(0.f, Min(image->style.align.x, 1.f)), Max(0.f, Min(image->style.align.y, 1.f)));
-		image_rect = rect_f32_align(box->viewport, v2_mul(source_size, v2(scale, scale)), align);
+		f32 scale = Min(box->viewport.w / source_region.w, box->viewport.h / source_region.h);
+		image_rect = rect_f32_align(box->viewport, v2_mul(source_region.size, v2(scale, scale)), align);
+	}
+	else if (image->style.fit == UI_IMAGE_FIT_COVER)
+	{
+		f32 source_aspect = source_region.w / source_region.h;
+		f32 destination_aspect = box->viewport.w / box->viewport.h;
+		if (source_aspect > destination_aspect)
+		{
+			f32 width = source_region.w * destination_aspect / source_aspect;
+			source_region.x += (source_region.w - width) * align.x;
+			source_region.w = width;
+		}
+		else if (source_aspect < destination_aspect)
+		{
+			f32 height = source_region.h * source_aspect / destination_aspect;
+			source_region.y += (source_region.h - height) * align.y;
+			source_region.h = height;
+		}
 	}
 
-	ui_push_clip(box->ui, box->viewport);
-	ui_draw_image(box->ui, (Draw_TextureParams) {
+	ui_draw_rect(box->ui, (Draw_RectParams) {
 		.rect = image_rect,
 		.texture = image->texture,
-		.region = image->region,
-		.tint = image->style.tint,
+		.texture_region = source_region,
+		.color = image->style.tint,
 		.sampler = image->style.sampler,
+		.corner_radii = draw_corner_radii_all(box->paint.roundness),
+		.edge_softness = box->paint.edge_softness,
 	});
-	ui_pop_clip(box->ui);
 }
 
 static const UI_BoxHooks ui_box__image_ops = {
@@ -213,9 +231,9 @@ static UI_Box *ui_box__make_image(UI_Context *ui, UI_Key key, UI_ImageStyle styl
 {
 	Assert(ui);
 	Assert(ui->builder);
-	Assert(texture);
-	vec2i texture_size = gfx_texture_size(texture);
-	rect_i32 region = style.region;
+	// Assert(texture);
+	vec2i texture_size = texture ? gfx_texture_size(texture) : v2i(1, 1);
+	rect_i32 region = texture ? style.region : (rect_i32) { 0, 0, 1, 1 };
 	if (!region.w) region.w = texture_size.x - region.x;
 	if (!region.h) region.h = texture_size.y - region.y;
 	Assert(region.x >= 0 && region.w > 0 && region.x + region.w <= texture_size.x);
@@ -247,7 +265,7 @@ UI_Response ui_button(UI_Context *ui, UI_Key key, Str text)
 
 	ui_padd(ui, AXIS_X, 10.f, 10.f);
 	ui_padd(ui, AXIS_Y, 6.f, 6.f);
-	UI_Box *box = ui_text_box_string(ui, key, style, text);
+	UI_Box *box = ui_text(ui, key, style, text);
 	UI_Response response = ui_signal_from_box(box);
 	if (response.pressed) ui_feedback_emit(ui, UI_FEEDBACK_PRESS);
 

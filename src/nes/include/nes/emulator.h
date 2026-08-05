@@ -18,9 +18,6 @@ enum
 	NES_VIDEO_WIDTH                   = 256      ,
 	NES_VIDEO_HEIGHT                  = 240      ,
 	NES_PPU_FRAME_CYCLES              = 262 * 341,
-
-	NES_SCHEDULER_TRACE_CAPACITY_POW2 = 1 << 16,
-	NES_SCHEDULER_TRACE_CAPACITY_MASK = NES_SCHEDULER_TRACE_CAPACITY_POW2 - 1,
 };
 
 #include "nes_state.h"
@@ -134,7 +131,6 @@ NES_SetupParams;
 	u64                   scheduler_clock;                                      \
 	NES_BusMetrics        cpu_bus_metrics;                                      \
 	NES_BusMetrics        ppu_bus_metrics;                                      \
-	u64                   scheduler_trace_index;                                \
 	u64                   sample_phase;                                         \
 	u32                   cpu_stall_cycles;                                     \
 	NES_CPUState          cpu;                                                  \
@@ -147,8 +143,7 @@ NES_SetupParams;
 	u8                    _vram[NES_VRAM_SIZE];                                 \
 	u8                    chr_ram[NES_MAX_CHR_RAM_SIZE];                        \
 	u8                    prg_ram[NES_MAX_PRG_RAM_SIZE];                        \
-	u8                    video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];             \
-	NES_PackedTraceEntry  scheduler_trace[NES_SCHEDULER_TRACE_CAPACITY_POW2]
+	u8                    video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH]
 
 typedef struct NES_State NES_State;
 struct NES_State
@@ -156,16 +151,17 @@ struct NES_State
 	NES_STATE_FIELDS;
 };
 
+// TODO(RJ) not sure whether keeping all the memory in one block will pay off
 typedef struct NES_Emulator NES_Emulator;
 struct NES_Emulator
 {
-	// TODO(RJ) not sure that keeping all the memory in one block is paying off
 	u32                     mapper_number;
 	u32                     prg_rom_size,  chr_rom_size;
 	// TODO(RJ) remove these two, they are duplicates
 	u32                     num_chr_banks, num_prg_banks;
 	b32                     vmirror;
 	NES_MapperClass         mapper;
+
 	u8                      chr_rom[NES_MAX_CHR_ROM_SIZE];
 	u8                      prg_rom[NES_MAX_PRG_ROM_SIZE];
 	union
@@ -183,9 +179,18 @@ b32 nes_emulator_valid(const NES_Emulator *emulator);
 b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams data);
 b32 nes_bootup_emulator(NES_Emulator *emulator);
 
-b32 nes_is_booted(const NES_Emulator *core);
+b32 nes_emulator_ready_to_run(const NES_Emulator *core);
 u64 nes_emulator_scheduler_clock(const NES_Emulator *core);
-u32 nes_emulator_step(NES_Emulator *core);
+u32 nes_emulator_step(NES_Emulator *core, NES_TraceEntry *trace);
+
+typedef struct
+{
+	f32 *samples;
+	u64 sample_capacity;
+	NES_TraceEntry *trace;
+	u64 trace_capacity;
+}
+NES_RunParams;
 
 typedef struct
 {
@@ -194,10 +199,7 @@ typedef struct
 }
 NES_RunFrameResult;
 
-// TODO(RJ) Just feed this in
-NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core);
-
-NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer, u64 sample_capacity);
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, NES_RunParams params);
 void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
 
 

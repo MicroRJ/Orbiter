@@ -87,7 +87,7 @@ static void test_step_advances_audio_phase(void)
 	u64 expected_phase = 0;
 	for (u32 index = 0; index < 20; index ++)
 	{
-		u32 cycles = nes_emulator_step(core);
+		u32 cycles = nes_emulator_step(core, 0);
 		expected_phase = (expected_phase + cycles * nes_sample_rate(core)) % NES_CPU_HZ;
 		Assert(core->sample_phase == expected_phase);
 	}
@@ -110,7 +110,10 @@ static void test_run_frame_audio_contract(void)
 
 	for (u32 frame_index = 0; frame_index < FRAME_COUNT; frame_index ++)
 	{
-		NES_RunFrameResult frame = nes_emulator_run_frame(core, guarded_samples + 1, sample_capacity);
+		NES_RunFrameResult frame = nes_emulator_run_frame(core, (NES_RunParams) {
+			.samples = guarded_samples + 1,
+			.sample_capacity = sample_capacity,
+		});
 		Assert(frame.steps > 0);
 		Assert(frame.samples > 0 && frame.samples <= sample_capacity);
 		Assert(guarded_samples[0] == -1234.5f);
@@ -128,7 +131,7 @@ static void test_run_frame_audio_contract(void)
 
 	NES_Emulator *discarding = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(discarding, make_looping_cartridge(&arena)));
-	Assert(nes_emulator_run_frame(discarding, 0, 0).samples > 0);
+	Assert(nes_emulator_run_frame(discarding, (NES_RunParams) {}).samples > 0);
 	arena_destroy(&arena);
 }
 
@@ -146,32 +149,32 @@ static void test_dma_cycles_cross_the_same_boundary(void)
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(core, cartridge));
 
-	u32 first_cycles = nes_emulator_step(core);
+	u32 first_cycles = nes_emulator_step(core, 0);
 	Assert(first_cycles == 2);
 
 	// DMA is still instruction-atomic and included in the cycle count returned
 	// by STA. However large that returned batch is, every one of those cycles
 	// must pass through the exact same PPU/APU/audio scheduler boundary.
 	u64 phase_before = core->sample_phase;
-	u32 dma_cycles = nes_emulator_step(core);
+	u32 dma_cycles = nes_emulator_step(core, 0);
 	Assert(dma_cycles > 4);
 	Assert(core->sample_phase == (phase_before + dma_cycles * nes_sample_rate(core)) % NES_CPU_HZ);
 	arena_destroy(&arena);
 }
 
-static void test_instruction_boundary_clocks(void)
+static void test_step_trace(void)
 {
-	Arena arena = arena_create(0, "NES instruction boundary clock test");
+	Arena arena = arena_create(0, "NES step trace test");
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(nes_emulator_load_cartridge(core, make_looping_cartridge(&arena)));
-	for (u32 index = 0; index < 4; ++index) nes_emulator_step(core);
-	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(core);
-	Assert(!nes_scheduler_trace_dropped_since(boundaries, 0));
-	Assert(boundaries.index > 0);
-	for (u64 index = 1; index < boundaries.index; index ++) {
-		NES_TraceEntry current = nes_scheduler_trace_at(boundaries, index);
-		NES_TraceEntry previous = nes_scheduler_trace_at(boundaries, index - 1);
-		Assert(current.scheduler_clock > previous.scheduler_clock);
+	NES_TraceEntry trace[4];
+	for (u32 index = 0; index < ArrayCount(trace); ++index) nes_emulator_step(core, &trace[index]);
+	for (u32 index = 0; index < ArrayCount(trace); ++index)
+	{
+		Assert(trace[index].cpu_address == 0x8000);
+		Assert(trace[index].cpu_mapped.device == NES_DEVICE_PRG_ROM);
+		Assert(trace[index].cpu_mapped.offset == 0);
+		Assert(trace[index].cpu_byte == 0x4C);
 	}
 	arena_destroy(&arena);
 }
@@ -182,6 +185,6 @@ int main(void)
 	test_step_advances_audio_phase();
 	test_run_frame_audio_contract();
 	test_dma_cycles_cross_the_same_boundary();
-	test_instruction_boundary_clocks();
+	test_step_trace();
 	return 0;
 }

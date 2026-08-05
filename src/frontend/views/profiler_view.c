@@ -16,14 +16,20 @@ static void profiler_graph_box_paint(UI_Box *box)
 	for (u64 index = first_visible_frame; index < first_visible_frame + visible_frame_count; index ++)
 	{
 		const Prof_Frame *frame = prof_timeline_frame(index);
-		f32 h = rect.h * (f32)(frame->time.seconds * 1000.0 / scale_ms);
+		f32 h = rect.h * (f32)(frame->time * 1000.0 / scale_ms);
 		f32 y = rect.y + rect.h - h;
-		ui_draw_rect(ui, (rect_f32) { x, y, state->bar_width - 1.f, h }, ui->theme.text_neutral);
+		ui_draw_rect(ui, (Draw_RectParams) {
+			.rect = { x, y, state->bar_width - 1.f, h },
+			.color = ui->theme.text_neutral,
+		});
 		x += state->bar_width;
 	}
 
 	f32 budget_y = rect.y + rect.h - rect.h * (16.f / scale_ms);
-	ui_draw_rect(ui, (rect_f32) { rect.x, budget_y, rect.w, 1.f }, ui->theme.text_neutral);
+	ui_draw_rect(ui, (Draw_RectParams) {
+		.rect = { rect.x, budget_y, rect.w, 1.f },
+		.color = ui->theme.text_neutral,
+	});
 
 	UI_TextStyle label_style = ui->theme.code;
 	label_style.color = ui->theme.text_neutral;
@@ -143,9 +149,9 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 			UI_TextStyle style = ui->theme.code;
 			style.color = ui->theme.text_neutral;
 			ui_clean(ui);
-			ui_text_box_string(ui, UI_KEY("1"), style, str_push_copy_f(&ui->frame_arena, "Frame %llu", selected_frame));
+			ui_text(ui, UI_KEY("1"), style, str_push_copy_f(&ui->frame_arena, "Frame %llu", selected_frame));
 			ui_clean(ui);
-			ui_text_box_string(ui, UI_KEY("2"), style, str_push_copy_f(&ui->frame_arena, "%.2f MS", frame->time.seconds * 1000));
+			ui_text(ui, UI_KEY("2"), style, str_push_copy_f(&ui->frame_arena, "%.2f MS", frame->time * 1000));
 
 			ui_box_end(ui);
 
@@ -169,8 +175,8 @@ static void profiler_table_cell(UI_BoxTable *table, UI_TextStyle style, Str sizi
 	cell->desc.layout = &UI_FlatLayoutHooks;
 	ui_clean(table->ui);
 	ui_align(table->ui, AXIS_X, align);
-	if (sizing_text.size) ui_text_box_sized_string(table->ui, 1, style, sizing_text, text);
-	else ui_text_box_string(table->ui, 1, style, text);
+	if (sizing_text.size) ui_text_sized(table->ui, 1, style, sizing_text, text);
+	else ui_text(table->ui, 1, style, text);
 	ui_box_table_cell_end(table);
 }
 
@@ -180,13 +186,16 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 	header_style.color = ui->theme.text_neutral;
 	UI_TextStyle value_style = ui->theme.code;
 	value_style.color = ui->theme.text_subtle;
-	f64 frame_seconds = snapshot->time.seconds;
+	f64 frame_seconds = snapshot->time;
 	UI_BoxTableColumn columns[] = {
 		ui_box_table_flex(1.f),
 		ui_box_table_content(),
+#if 0
 		ui_box_table_content(),
 		ui_box_table_content(),
 		ui_box_table_content(),
+		ui_box_table_content(),
+#endif
 	};
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
@@ -201,26 +210,37 @@ static UI_Box *profiler_build_time_table(UI_Context *ui, const Prof_Frame *snaps
 	});
 
 	ui_box_table_row_begin(&table, 1);
-	profiler_table_cell(&table, header_style, (Str) {}, LIT("SCOPE"), 0.f);
-	profiler_table_cell(&table, header_style, LIT("999.999"), LIT("MS"), 1.f);
+	profiler_table_cell(&table, header_style, (Str) {}      , LIT("SCOPE")       , 0.f);
+	profiler_table_cell(&table, header_style, LIT("999.999"), LIT("MS")          , 1.f);
+#if 0
+	profiler_table_cell(&table, header_style, LIT("999.999"), LIT("AVG DELTA MS"), 1.f);
 	profiler_table_cell(&table, header_style, LIT("100.0"), LIT("FRAME %"), 1.f);
 	profiler_table_cell(&table, header_style, LIT("999999"), LIT("CALLS"), 1.f);
 	profiler_table_cell(&table, header_style, LIT("99999.99"), LIT("US/CALL"), 1.f);
+#endif
 	ui_box_table_row_end(&table);
 
 	for (u32 index = 0; index < snapshot->nfields; ++index)
 	{
 		const Prof_Field *field = &snapshot->fields[index];
-		f64 frame_pct = frame_seconds > 0.0 ? field->time.seconds / frame_seconds : 0.0;
-		f64 microseconds_per_call = field->freq ? field->time.seconds * 1000000.0 / field->freq : 0.0;
+		Prof_Field totals_field = prof_get_total(index);
+
+		f64 time_seconds = field->time;
+		f64 average_delta_seconds = time_seconds - totals_field.time / totals_field.freq;
+
+		f64 frame_pct = frame_seconds > 0.0 ? field->time / frame_seconds : 0.0;
+		f64 microseconds_per_call = field->freq ? field->time * 1000000.0 / field->freq : 0.0;
 		UI_TextStyle row_style = value_style;
 		row_style.color = profiler_color_for_frame_pct(&ui->theme, value_style.color, frame_pct);
 		ui_box_table_row_begin(&table, index + 2);
-		profiler_table_cell(&table, row_style, (Str) {}, field->name, 0.f);
-		profiler_table_cell(&table, row_style, LIT("999.999"), str_push_copy_f(&ui->frame_arena, "%.3f", field->time.seconds * 1000.0), 1.f);
+		profiler_table_cell(&table, row_style, (Str) {}, prof_get_field_name(index), 0.f);
+		profiler_table_cell(&table, row_style, LIT("999.999"), str_push_copy_f(&ui->frame_arena, "%.3f", time_seconds * 1000.0), 1.f);
+#if 0
+		profiler_table_cell(&table, row_style, LIT("999.999"), str_push_copy_f(&ui->frame_arena, "%.3f", average_delta_seconds * 1000.0), 1.f);
 		profiler_table_cell(&table, row_style, LIT("100.0"), str_push_copy_f(&ui->frame_arena, "%.1f", frame_pct * 100.0), 1.f);
 		profiler_table_cell(&table, row_style, LIT("999999"), str_push_copy_f(&ui->frame_arena, "%u", field->freq), 1.f);
 		profiler_table_cell(&table, row_style, LIT("99999.99"), str_push_copy_f(&ui->frame_arena, "%.2f", microseconds_per_call), 1.f);
+#endif
 		ui_box_table_row_end(&table);
 	}
 	return ui_box_table_end(&table);
@@ -292,7 +312,7 @@ static void profiler_view_content(ViewFrameData *frame)
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(row_height));
-	ui_text_box_string(ui, 2, selection_style, str_push_copy_f(&ui->frame_arena, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time.seconds * 1000.0));
+	ui_text(ui, 2, selection_style, str_push_copy_f(&ui->frame_arena, "SELECTED FRAME %llu  /  %.3f MS", snapshot->id, snapshot->time * 1000.0));
 
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));

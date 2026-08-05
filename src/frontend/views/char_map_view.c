@@ -143,20 +143,20 @@ static void chr_map_build_tooltip(ViewFrameData *frame, CHRMapSelection selectio
 		u32 table = selection.index / NES_PATTERN_TABLE_TILE_COUNT;
 		NES_MapAddr mapped = frame->publication->chr_map.mappings[selection.index];
 		ui_clean(ui);
-		ui_text_box_sized(ui, 1, style, LIT("TABLE 1  TILE $FF  PPU $1FF0"), "TABLE %u  TILE $%02X  PPU $%04X", table, selection.index & 0xFF, selection.index << 4);
+		ui_text_sized_f(ui, 1, style, LIT("TABLE 1  TILE $FF  PPU $1FF0"), "TABLE %u  TILE $%02X  PPU $%04X", table, selection.index & 0xFF, selection.index << 4);
 		ui_clean(ui);
-		ui_text_box_sized(ui, 2, style, LIT("CHR ROM $FFFFFFFF"), "%s $%05X", chr_map_device_name(mapped.device), mapped.address);
+		ui_text_sized_f(ui, 2, style, LIT("CHR ROM $FFFFFFFF"), "%s $%05X", chr_map_device_name(mapped.device), mapped.address);
 	}
 	else
 	{
 		Assert(selection.index < ArrayCount(frame->publication->sprites));
 		const NES_TargetSprite *sprite = &frame->publication->sprites[selection.index];
 		ui_clean(ui);
-		ui_text_box_sized(ui, 1, style, LIT("OAM $FF  X 255  Y 255  TILE $FF"), "OAM $%02X  X %u  Y %u  TILE $%02X", (u32)sprite->oam_index, (u32)sprite->x, (u32)sprite->y, (u32)sprite->tile);
+		ui_text_sized_f(ui, 1, style, LIT("OAM $FF  X 255  Y 255  TILE $FF"), "OAM $%02X  X %u  Y %u  TILE $%02X", (u32)sprite->oam_index, (u32)sprite->x, (u32)sprite->y, (u32)sprite->tile);
 		ui_clean(ui);
-		ui_text_box_sized(ui, 2, style, LIT("PAL 3  BEHIND BG  FLIP HV"), "PAL %u  %s  FLIP %c%c", (u32)sprite->palette, sprite->behind_background ? "BEHIND BG" : "IN FRONT", sprite->flip_horizontal ? 'H' : '-', sprite->flip_vertical ? 'V' : '-');
+		ui_text_sized_f(ui, 2, style, LIT("PAL 3  BEHIND BG  FLIP HV"), "PAL %u  %s  FLIP %c%c", (u32)sprite->palette, sprite->behind_background ? "BEHIND BG" : "IN FRONT", sprite->flip_horizontal ? 'H' : '-', sprite->flip_vertical ? 'V' : '-');
 		ui_clean(ui);
-		ui_text_box_sized(ui, 3, style, LIT("PPU $FFFF -> CHR ROM $FFFFFFFF"), "PPU $%04X -> %s $%05X", (u32)sprite->ppu_address, chr_map_device_name(sprite->pattern_mapping.device), sprite->pattern_mapping.address);
+		ui_text_sized_f(ui, 3, style, LIT("PPU $FFFF -> CHR ROM $FFFFFFFF"), "PPU $%04X -> %s $%05X", (u32)sprite->ppu_address, chr_map_device_name(sprite->pattern_mapping.device), sprite->pattern_mapping.address);
 	}
 
 	ui_tooltip_end(ui);
@@ -180,7 +180,10 @@ static void chr_map_draw_palettes(UI_Context *ui, const NES_TargetPublication *p
 			for (u32 slot = 0; slot < ArrayCount(palette->colors); ++slot)
 			{
 				rect_f32 swatch = { x, line.y, swatch_size, swatch_size };
-				ui_draw_rect(ui, swatch, chr_map_color(palette->colors[slot].color));
+				ui_draw_rect(ui, (Draw_RectParams) {
+					.rect = swatch,
+					.color = chr_map_color(palette->colors[slot].color),
+				});
 				ui_draw_rect_outline(ui, swatch, 1.f, ui->theme.panel_outline);
 				x += swatch_size + 1.f;
 			}
@@ -211,18 +214,21 @@ static void chr_map_box_paint(UI_Box *box)
 		ui_pop_clip(ui);
 		return;
 	}
-	ui_draw_image(ui, (Draw_TextureParams) {
+	ui_draw_rect(ui, (Draw_RectParams) {
 		.rect = rect_f32_round_out(layout.patterns),
 		.texture = data->texture,
-		.region = { 0, 0, NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_PATTERN_HEIGHT },
-		.tint = COLOR_WHITE,
+		.texture_region = { 0, 0, NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_PATTERN_HEIGHT },
+		.color = COLOR_WHITE,
 	});
-	ui_draw_rect(ui, rect_f32_round_out(layout.sprites), ui->theme.slider_track);
-	ui_draw_image(ui, (Draw_TextureParams) {
+	ui_draw_rect(ui, (Draw_RectParams) {
+		.rect = rect_f32_round_out(layout.sprites),
+		.color = ui->theme.slider_track,
+	});
+	ui_draw_rect(ui, (Draw_RectParams) {
 		.rect = rect_f32_round_out(layout.sprites),
 		.texture = data->texture,
-		.region = { 0, NES_TARGET_CHR_PATTERN_HEIGHT, NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_SPRITE_HEIGHT },
-		.tint = COLOR_WHITE,
+		.texture_region = { 0, NES_TARGET_CHR_PATTERN_HEIGHT, NES_TARGET_CHR_WIDTH, NES_TARGET_CHR_SPRITE_HEIGHT },
+		.color = COLOR_WHITE,
 	});
 	ui_draw_rect_outline(ui, rect_f32_round_out(layout.patterns), 1.f, ui->theme.panel_outline);
 	ui_draw_rect_outline(ui, rect_f32_round_out(layout.sprites), 1.f, ui->theme.panel_outline);
@@ -256,7 +262,7 @@ void chr_map_view_build_ui(ViewFrameData *frame)
 	CHRMapBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
 	data->publication = frame->publication;
 	data->texture = frame->chr_texture;
-	data->available = frame->publication->valid && nes_is_booted(frame->emulator);
+	data->available = frame->publication->valid && nes_emulator_ready_to_run(frame->emulator);
 	if (data->available && content.content_box->has_previous) {
 		data->selection = chr_map_selection_from_mouse(frame->ui, frame->publication, chr_map_layout(content.content_box->state->viewport));
 	}

@@ -113,7 +113,7 @@ b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 	return true;
 }
 
-b32 nes_is_booted(const NES_Emulator *core)
+b32 nes_emulator_ready_to_run(const NES_Emulator *core)
 {
 	return core->mapper.reset != 0;
 }
@@ -152,14 +152,21 @@ NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address)
 	return nes_cpu_bus_map(core, address);
 }
 
-NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core)
-{
-	return (NES_SchedulerTraceView) { .trace = core->scheduler_trace, .index = core->scheduler_trace_index, .scheduler_clock = core->scheduler_clock };
-}
-
-static inline u32 cpu_step(NES_Emulator *emulator)
+static inline u32 cpu_step(NES_Emulator *emulator, NES_TraceEntry *trace)
 {
 	NES_CPUState *cpu = & emulator->cpu;
+	// One PC sample is emitted per scheduler step. An interrupt-only step may
+	// sample a PC whose instruction does not execute; this is intentional because
+	// trace indices correspond exactly to scheduler-step indices.
+	if (trace)
+	{
+		NES_BusAccess access = nes_cpu_bus_peek_mapped(emulator, cpu->PC);
+		*trace = (NES_TraceEntry) {
+			.cpu_address = cpu->PC,
+			.cpu_mapped = access.mapped,
+			.cpu_byte = access.value,
+		};
+	}
 
 	// """
 	// If the CPU's /IRQ input is 0 at the end of an instruction, then the CPU pushes the program counter
@@ -170,19 +177,6 @@ static inline u32 cpu_step(NES_Emulator *emulator)
 	if (irq_line && (~ cpu->P & cpu_status_mask(CPU_STAT_I))) {
 		return nes_cpu_irq(emulator);
 	}
-	//
-	// Note, this is introspection stuff:
-	// Has to be done here because the debugger doesn't have fine grain control over the CPU's execution
-	//
-	NES_BusAccess access = nes_cpu_bus_peek_mapped(emulator, cpu->PC);
-	u64 trace_index = emulator->scheduler_trace_index;
-	emulator->scheduler_trace[trace_index & NES_SCHEDULER_TRACE_CAPACITY_MASK] = nes_scheduler_trace_pack((NES_TraceEntry) {
-		.scheduler_clock = emulator->scheduler_clock,
-		.cpu_address = cpu->PC,
-		.cpu_mapped = access.mapped,
-		.cpu_byte = access.value,
-	});
-	emulator->scheduler_trace_index = trace_index + 1;
 	return nes_cpu_step(emulator);
 }
 
@@ -219,10 +213,10 @@ static inline void nes_audio_output_sample(NES_Emulator *emulator, NES_AudioOutp
 	output->sample_count ++;
 }
 
-static NES_InstructionStep nes_emulator_step_internal(NES_Emulator *emulator, NES_AudioOutput *output)
+static NES_InstructionStep nes_emulator_step_internal(NES_Emulator *emulator, NES_AudioOutput *output, NES_TraceEntry *trace)
 {
 	u32 ppu_events = 0;
-	u32 cpu_cycles = cpu_step(emulator);
+	u32 cpu_cycles = cpu_step(emulator, trace);
 	for (u32 cycle = 0; cycle < cpu_cycles; ++cycle)
 	{
 		for (u32 ppu_cycle = 0; ppu_cycle < 3; ++ppu_cycle) {
@@ -240,23 +234,30 @@ static NES_InstructionStep nes_emulator_step_internal(NES_Emulator *emulator, NE
 	return (NES_InstructionStep) { .cpu_cycles = cpu_cycles, .ppu_events = ppu_events };
 }
 
-u32 nes_emulator_step(NES_Emulator *emulator)
+u32 nes_emulator_step(NES_Emulator *emulator, NES_TraceEntry *trace)
 {
-	return nes_emulator_step_internal(emulator, 0).cpu_cycles;
+	return nes_emulator_step_internal(emulator, 0, trace).cpu_cycles;
 }
 
-NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, f32 *sample_buffer, u64 sample_capacity)
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, NES_RunParams params)
 {
-	Assert(sample_buffer || !sample_capacity);
+	Assert(params.samples || !params.sample_capacity);
+	Assert(params.trace || !params.trace_capacity);
 	NES_AudioOutput output = {
-		.samples = sample_buffer,
-		.sample_capacity = sample_capacity,
+		.samples = params.samples,
+		.sample_capacity = params.sample_capacity,
 	};
 	b32 frame_event = false;
 	u64 steps = 0;
 	while (!frame_event)
 	{
-		NES_InstructionStep step = nes_emulator_step_internal(emulator, &output);
+		NES_TraceEntry *trace = 0;
+		if (params.trace)
+		{
+			Assert(steps < params.trace_capacity);
+			trace = params.trace + steps;
+		}
+		NES_InstructionStep step = nes_emulator_step_internal(emulator, &output, trace);
 		frame_event = !!(step.ppu_events & NES_PPU_EVENT_FRAME);
 		steps ++;
 	}

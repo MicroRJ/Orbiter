@@ -21,21 +21,18 @@ static void ui_assert_paint_phase(UI_Context *ui)
 	Assert(ui->draw);
 }
 
-Draw_Command *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
+void ui_draw_rect(UI_Context *ui, Draw_RectParams params)
 {
 	ui_assert_paint_phase(ui);
-	return draw_list_rect(ui->draw, (Draw_RectParams) {
-		.rect = rect,
-		.color = color,
-	});
+	draw_list_rect(ui->draw, params);
 }
 
 void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SRGBA color)
 {
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_X, thickness), color);
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_X, -thickness), color);
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_Y, thickness), color);
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_Y, -thickness), color);
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_X, thickness), .color = color });
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_X, -thickness), .color = color });
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_Y, thickness), .color = color });
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_Y, -thickness), .color = color });
 }
 
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength)
@@ -139,6 +136,7 @@ void ui_invalidate_layout(UI_Context *ui)
 {
 	Assert(ui);
 	ui->layout_generation++;
+	ui->hot = UI_ID_NONE;
 	ui->active = UI_ID_NONE;
 }
 
@@ -146,16 +144,24 @@ void ui_begin_frame(UI_Context *ui)
 {
 	Assert(ui);
 	Assert(!ui->builder);
+	UI_Box *previous_root = ui->root;
 	Seconds frame_time = seconds_now();
 	ui->frame_elapsed = (f32)Max(frame_time.seconds - ui->previous_frame_time.seconds, 0.0);
 	ui->previous_frame_time = frame_time;
 	ui->frame_index++;
 	ui->mouse_wheel_consumed = false;
 	ui->feedback = UI_FEEDBACK_NONE;
+	ui->mouse = v2_from_v2i(ui->window->mouse_position);
 	if (ui->window->size.x != ui->previous_window_size.x || ui->window->size.y != ui->previous_window_size.y)
 	{
 		ui->previous_window_size = ui->window->size;
 		ui_invalidate_layout(ui);
+	}
+	ui->hot = UI_ID_NONE;
+	if (previous_root && previous_root->state && previous_root->state->last_layout_frame + 1 == ui->frame_index && previous_root->state->layout_generation == ui->layout_generation)
+	{
+		UI_Box *hit = ui_box_find_deepest(previous_root, ui->mouse);
+		if (hit) ui->hot = hit->id;
 	}
 	arena_reset(&ui->frame_arena);
 	ui->root = 0;
@@ -163,8 +169,6 @@ void ui_begin_frame(UI_Context *ui)
 	ui->overlay_root = 0;
 	ui->tooltip_box = 0;
 	ui->tooltip_open = false;
-	ui->mouse = v2_from_v2i(ui->window->mouse_position);
-	ui->hot = UI_ID_NONE;
 }
 
 UI_BoxState *ui_box_state_get(UI_Context *ui, UI_Id id)
@@ -360,33 +364,25 @@ UI_Response ui_signal_from_box(UI_Box *box)
 {
 	Assert(box);
 	Assert(box->ui);
+	box->hit_intercept = true;
 	if (!box->state || !box->has_previous) return (UI_Response) {};
 
 	UI_Context *ui = box->ui;
-
 	UI_Response response = {};
-
-	if (ui_id_equal(ui->hot, box->id))
+	response.hovered = ui_id_equal(ui->hot, box->id);
+	OS_KeyState left_mouse_button = ui->window->keys[OS_Key_MouseLeft];
+	if (!ui->active.value && response.hovered && (left_mouse_button & OS_KEY_PRESSED))
 	{
-		response.hovered = true;
-
-		OS_KeyState left_mouse_button = ui->window->keys[OS_Key_MouseLeft];
-		if (!ui->active.value && (left_mouse_button & OS_KEY_PRESSED))
-		{
-			ui->active = box->id;
-			ui->active_press_mouse = ui->mouse;
-			response.pressed = true;
-		}
-		if (ui_id_equal(ui->active, box->id))
-		{
-			response.held = !!(left_mouse_button & OS_KEY_DOWN);
-			response.released = !!(left_mouse_button & OS_KEY_RELEASED);
-			response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
-		}
+		ui->active = box->id;
+		ui->active_press_mouse = ui->mouse;
+		response.pressed = true;
 	}
-
-	box->hit_intercept = true;
-	// return ui_interact(box->ui, box->id, box->state->hit_rect);
+	if (ui_id_equal(ui->active, box->id))
+	{
+		response.held = !!(left_mouse_button & OS_KEY_DOWN);
+		response.released = !!(left_mouse_button & OS_KEY_RELEASED);
+		response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
+	}
 	return response;
 }
 
@@ -424,12 +420,6 @@ void ui_pop_emission(UI_Context *ui)
 {
 	ui_assert_paint_phase(ui);
 	draw_list_pop_emission(ui->draw);
-}
-
-void ui_draw_image(UI_Context *ui, Draw_TextureParams params)
-{
-	ui_assert_paint_phase(ui);
-	draw_list_image(ui->draw, params);
 }
 
 vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, Str text)
@@ -502,11 +492,17 @@ UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_
 		thumb.y = thumb_track.y + travel * position_ratio;
 	}
 
-	Draw_Command *cmd = ui_draw_rect(ui, track, ui->theme.slider_track);
-	cmd->rect.corner_radii = draw_corner_radii_all(track.w * 0.10f);
-	cmd->rect.edge_softness = 0.5f;
-	cmd = ui_draw_rect(ui, thumb, ui->theme.slider_thumb);
-	cmd->rect.corner_radii = draw_corner_radii_all(thumb.w * 0.10f);
-	cmd->rect.edge_softness = 0.5f;
+	ui_draw_rect(ui, (Draw_RectParams) {
+		.rect = track,
+		.color = ui->theme.slider_track,
+		.corner_radii = draw_corner_radii_all(track.w * 0.10f),
+		.edge_softness = 0.5f,
+	});
+	ui_draw_rect(ui, (Draw_RectParams) {
+		.rect = thumb,
+		.color = ui->theme.slider_thumb,
+		.corner_radii = draw_corner_radii_all(thumb.w * 0.10f),
+		.edge_softness = 0.5f,
+	});
 	return response;
 }

@@ -21,8 +21,8 @@ static void cpu_view_field(UI_Context *ui, u64 key, UI_TextStyle label_style, UI
 	va_end(arguments);
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
-	if (sizing_text.size) ui_text_box_sized_string(ui, 2, value_style, sizing_text, value);
-	else ui_text_box_string(ui, 2, value_style, value);
+	if (sizing_text.size) ui_text_sized(ui, 2, value_style, sizing_text, value);
+	else ui_text(ui, 2, value_style, value);
 
 	ui_box_end(ui);
 	ui_box_pop_id(ui);
@@ -69,14 +69,14 @@ static UI_Box *build_flag_box(UI_Context *ui, u64 key, UI_TextStyle label_style,
 static void cpu_view_content(ViewFrameData *frame)
 {
 	Assert(frame->emulator);
-	if (!frame->publication->valid || !nes_is_booted(frame->emulator))
+	if (!frame->publication->valid || !nes_emulator_ready_to_run(frame->emulator))
 	{
 		UI_TextStyle style = frame->ui->theme.code;
 		style.color = frame->ui->theme.text_subtle;
 		ui_clean(frame->ui);
 		ui_size(frame->ui, AXIS_X, ui_grow(1.f));
 		ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
-		ui_text_box_string(frame->ui, 1, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
+		ui_text(frame->ui, 1, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
 	}
 
@@ -127,7 +127,7 @@ static void cpu_view_content(ViewFrameData *frame)
 
 	ui_clean(frame->ui);
 	ui_padd(frame->ui, AXIS_Y, 4.f, 4.f);
-	ui_text_box_string(frame->ui, 4, section_style, LIT("STATUS FLAGS"));
+	ui_text(frame->ui, 4, section_style, LIT("STATUS FLAGS"));
 
 	ui_clean(frame->ui);
 	ui_axis(frame->ui, AXIS_X);

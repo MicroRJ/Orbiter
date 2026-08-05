@@ -34,6 +34,30 @@ Draw_BatchMetrics;
 
 typedef struct Draw_Run Draw_Run;
 
+typedef enum
+{
+	DRAW_COMMAND_RECT,
+	DRAW_COMMAND_TEXT,
+	DRAW_COMMAND_INSET_SHADOW,
+	DRAW_COMMAND_BACKDROP,
+}
+Draw_CommandKind;
+
+typedef struct Draw_Command Draw_Command;
+struct Draw_Command
+{
+	Draw_Command *next;
+	Draw_CommandKind kind;
+	f32 emission;
+	union
+	{
+		Draw_RectParams rect;
+		Draw_TextParams text;
+		Draw_InsetShadowParams inset_shadow;
+		Draw_BackdropParams backdrop;
+	};
+};
+
 typedef struct
 {
 	rect_i32 clip;
@@ -187,24 +211,34 @@ static GFX_BatchDesc draw__batch_desc(Draw_Context *draw, GFX_Texture *texture, 
 	};
 }
 
-static UV_Coords draw__uv_from_region(GFX_Texture *texture, rect_i32 region)
+static UV_Coords draw__uv_from_region(GFX_Texture *texture, rect_f32 region)
 {
 	vec2i size = gfx_texture_size(texture);
-	if (region.w == 0)
+	if (region.w == 0.f)
 	{
 		region.w = size.x - region.x;
 	}
-	if (region.h == 0)
+	if (region.h == 0.f)
 	{
 		region.h = size.y - region.y;
 	}
-	Assert(region.x >= 0 && region.w >= 0 && region.x + region.w <= size.x);
-	Assert(region.y >= 0 && region.h >= 0 && region.y + region.h <= size.y);
+	f32 x0 = region.x;
+	f32 y0 = region.y;
+	f32 x1 = region.x + region.w;
+	f32 y1 = region.y + region.h;
+	f32 epsilon = 0.001f;
+	Assert(region.w >= 0.f && region.h >= 0.f);
+	Assert(x0 >= -epsilon && y0 >= -epsilon);
+	Assert(x1 <= size.x + epsilon && y1 <= size.y + epsilon);
+	x0 = CLAMP(x0, 0.f, (f32)size.x);
+	y0 = CLAMP(y0, 0.f, (f32)size.y);
+	x1 = CLAMP(x1, 0.f, (f32)size.x);
+	y1 = CLAMP(y1, 0.f, (f32)size.y);
 	return (UV_Coords) {
-		.u0 = (f32)region.x / size.x,
-		.v0 = (f32)region.y / size.y,
-		.u1 = (f32)(region.x + region.w) / size.x,
-		.v1 = (f32)(region.y + region.h) / size.y,
+		.u0 = x0 / size.x,
+		.v0 = y0 / size.y,
+		.u1 = x1 / size.x,
+		.v1 = y1 / size.y,
 	};
 }
 
@@ -229,12 +263,11 @@ Draw_Context *draw_create(Arena *owner, GFX_Renderer *renderer)
 	return draw;
 }
 
-void gfx_begin_frame(Draw_Context *draw)
+void draw_begin_frame(Draw_Context *draw)
 {
 	Assert(draw);
 	Assert(!draw->frame_active);
 	Assert(!draw->pass_active);
-	gfx_renderer_begin_frame(draw->renderer);
 	arena_reset(&draw->pass_arena);
 	arena_reset(&draw->batch_arena);
 	arena_reset(&draw->instance_arena);
@@ -258,7 +291,7 @@ void gfx_begin_frame(Draw_Context *draw)
 	draw->frame_active = true;
 }
 
-void gfx_begin_pass(Draw_Context *draw, GFX_PassDesc desc)
+void draw_begin_pass(Draw_Context *draw, GFX_PassDesc desc)
 {
 	Assert(draw);
 	Assert(draw->frame_active);
@@ -280,7 +313,7 @@ void gfx_begin_pass(Draw_Context *draw, GFX_PassDesc desc)
 	draw->pass_active = true;
 }
 
-void gfx_end_pass(Draw_Context *draw)
+void draw_end_pass(Draw_Context *draw)
 {
 	Assert(draw);
 	Assert(draw->pass_active);
@@ -298,7 +331,7 @@ void gfx_end_pass(Draw_Context *draw)
 	draw->pass_active = false;
 }
 
-void gfx_end_frame(Draw_Context *draw)
+void draw_end_frame(Draw_Context *draw)
 {
 	Assert(draw);
 	Assert(draw->frame_active);
@@ -365,17 +398,30 @@ void draw_pop_clip(Draw_Context *draw)
 
 void draw_rect(Draw_Context *draw, Draw_RectParams params)
 {
-	GFX_Texture *texture = draw->active_batch.texture ? draw->active_batch.texture : gfx_get_fallback_texture(draw->renderer);
-	GFX_Sampler sampler = draw->active_batch.sampler ? draw->active_batch.sampler : GRAPHICS_SAMPLER_LINEAR;
-	GFX_BatchDesc desc = draw__batch_desc(draw, texture, sampler, GFX_BLENDER_ALPHA_BLEND, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
+	b32 textured = params.texture != 0;
+	GFX_Texture *texture = params.texture;
+	GFX_Sampler sampler = params.sampler;
+	if (textured)
+	{
+		if (sampler == GRAPHICS_SAMPLER_NONE) sampler = texture->sampler;
+		if (sampler == GRAPHICS_SAMPLER_NONE) sampler = GRAPHICS_SAMPLER_LINEAR;
+	}
+	else
+	{
+		texture = draw->active_batch.texture ? draw->active_batch.texture : gfx_get_fallback_texture(draw->renderer);
+		if (sampler == GRAPHICS_SAMPLER_NONE) sampler = draw->active_batch.sampler;
+		if (sampler == GRAPHICS_SAMPLER_NONE) sampler = GRAPHICS_SAMPLER_LINEAR;
+	}
+	GFX_Blender blender = params.blender != GFX_BLENDER_NONE ? params.blender : GFX_BLENDER_ALPHA_BLEND;
+	GFX_BatchDesc desc = draw__batch_desc(draw, texture, sampler, blender, GFX_SHADER_SDF_RECT, GRAPHICS_TEXTURE_RGBA);
 	draw__set_batch_desc(draw, desc);
 	GFX_Inst instance = {
 		.dst = params.rect,
-		.src = { 0, 0, 1, 1 },
+		.src = textured ? draw__uv_from_region(texture, params.texture_region) : (UV_Coords) { 0, 0, 1, 1 },
 		.corner_radii = params.corner_radii,
 		.border_thickness = params.border_thickness,
 		.edge_softness = params.edge_softness,
-		.disable_texture = 1.f,
+		.disable_texture = textured ? 0.f : 1.f,
 	};
 	draw__set_all_colors(&instance, color_linear_from_srgba(params.color));
 	draw__push_instance(draw, instance);
@@ -407,39 +453,6 @@ void draw_gradient(Draw_Context *draw, Draw_GradientParams params)
 		instance.colors[CORNER_BOT_L] = end;
 		instance.colors[CORNER_BOT_R] = end;
 	}
-	draw__push_instance(draw, instance);
-}
-
-void draw_image(Draw_Context *draw, Draw_TextureParams params)
-{
-	Assert(params.texture);
-	GFX_Sampler sampler = params.sampler;
-	if (sampler == GRAPHICS_SAMPLER_NONE)
-	{
-		sampler = params.texture->sampler;
-	}
-	if (sampler == GRAPHICS_SAMPLER_NONE)
-	{
-		sampler = GRAPHICS_SAMPLER_LINEAR;
-	}
-	GFX_Blender blender = params.blender;
-	if (blender == GFX_BLENDER_NONE)
-	{
-		blender = GFX_BLENDER_ALPHA_BLEND;
-	}
-	GFX_Shader shader = params.shader;
-	if (shader == GFX_SHADER_NONE)
-	{
-		shader = GFX_SHADER_SDF_RECT;
-	}
-	GFX_BatchDesc desc = draw__batch_desc(draw, params.texture, sampler,
-		blender, shader, GRAPHICS_TEXTURE_RGBA);
-	draw__set_batch_desc(draw, desc);
-	GFX_Inst instance = {
-		.dst = params.rect,
-		.src = draw__uv_from_region(params.texture, params.region),
-	};
-	draw__set_all_colors(&instance, color_linear_from_srgba(params.tint));
 	draw__push_instance(draw, instance);
 }
 
@@ -755,7 +768,6 @@ static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kin
 	switch (kind)
 	{
 		case DRAW_COMMAND_RECT:         prof_add_metric(PROF_METRIC_DRAW_RECT_COMMANDS, 1); command->emission = draw->emission; break;
-		case DRAW_COMMAND_IMAGE:        prof_add_metric(PROF_METRIC_DRAW_IMAGE_COMMANDS, 1); command->emission = draw->emission; break;
 		case DRAW_COMMAND_TEXT:         prof_add_metric(PROF_METRIC_DRAW_TEXT_COMMANDS, 1); command->emission = draw->emission; break;
 		case DRAW_COMMAND_INSET_SHADOW:
 		case DRAW_COMMAND_BACKDROP:     prof_add_metric(PROF_METRIC_DRAW_EFFECT_COMMANDS, 1); break;
@@ -852,17 +864,10 @@ void draw_list_pop_emission(Draw_Context *draw)
 	draw->emission = draw->emission_stack[--draw->emission_stack_count];
 }
 
-Draw_Command *draw_list_rect(Draw_Context *draw, Draw_RectParams params)
+void draw_list_rect(Draw_Context *draw, Draw_RectParams params)
 {
 	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_RECT, true);
 	command->rect = params;
-	return command;
-}
-
-void draw_list_image(Draw_Context *draw, Draw_TextureParams params)
-{
-	Draw_Command *command = draw__push_command(draw, DRAW_COMMAND_IMAGE, true);
-	command->image = params;
 }
 
 void draw_list_text(Draw_Context *draw, Draw_TextParams params)
@@ -900,18 +905,18 @@ static GFX_Texture *draw__acquire_pass_output(Draw_Context *draw, vec2i size, GF
 static GFX_Texture *draw__copy_pass(Draw_Context *draw, GFX_Texture *input, vec2i output_size, const char *label)
 {
 	GFX_Texture *output = draw__acquire_pass_output(draw, output_size, GRAPHICS_SAMPLER_LINEAR, label);
-	gfx_begin_pass(draw, (GFX_PassDesc) { .output = output });
+	draw_begin_pass(draw, (GFX_PassDesc) { .output = output });
 	draw_texture_copy(draw, input);
-	gfx_end_pass(draw);
+	draw_end_pass(draw);
 	return output;
 }
 
 static GFX_Texture *draw__gaussian_blur_pass(Draw_Context *draw, GFX_Texture *input, vec2 direction, f32 sigma, const char *label)
 {
 	GFX_Texture *output = draw__acquire_pass_output(draw, gfx_texture_size(input), GRAPHICS_SAMPLER_LINEAR, label);
-	gfx_begin_pass(draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
+	draw_begin_pass(draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
 	draw_gaussian_blur(draw, (Draw_GaussianBlurParams) { .texture = input, .direction = direction, .sigma = sigma });
-	gfx_end_pass(draw);
+	draw_end_pass(draw);
 	return output;
 }
 
@@ -978,14 +983,8 @@ static void draw__replay_runs(Draw_Context *draw, Text_GFX *text_gfx, Draw_Run *
 				case DRAW_COMMAND_RECT:
 				{
 					Draw_RectParams params = command->rect;
-					if (emission_only) params.color = draw__emission_color(params.color, command->emission);
+					if (emission_only) params.color = draw__emission_color(params.texture ? COLOR_WHITE : params.color, command->emission);
 					draw_rect(draw, params);
-				} break;
-				case DRAW_COMMAND_IMAGE:
-				{
-					Draw_TextureParams params = command->image;
-					if (emission_only) params.tint = draw__emission_color(COLOR_WHITE, command->emission);
-					draw_image(draw, params);
 				} break;
 				case DRAW_COMMAND_TEXT:
 				{
@@ -1035,24 +1034,24 @@ static void draw__bloom_pass(Draw_Context *draw, Text_GFX *text_gfx, Draw_Run **
 	vec2i size = gfx_texture_size(frame_texture);
 	vec2i blur_size = v2i(Max(2, (size.x + 1) / 2), Max(2, (size.y + 1) / 2));
 	GFX_Texture *emission = draw__acquire_pass_output(draw, size, GRAPHICS_SAMPLER_LINEAR, "draw emission");
-	gfx_begin_pass(draw, (GFX_PassDesc) { .output = emission, .clear = true, .clear_color = COLOR_TRANSPARENT });
+	draw_begin_pass(draw, (GFX_PassDesc) { .output = emission, .clear = true, .clear_color = COLOR_TRANSPARENT });
 	draw__replay_runs(draw, text_gfx, runs, run_count, 0, true);
-	gfx_end_pass(draw);
+	draw_end_pass(draw);
 
 	GFX_Texture *bloom = draw__copy_pass(draw, emission, blur_size, "draw emission downsample");
 	bloom = draw__gaussian_blur_pass(draw, bloom, v2(1.f, 0.f), 5.f, "draw bloom horizontal");
 	bloom = draw__gaussian_blur_pass(draw, bloom, v2(0.f, 1.f), 5.f, "draw bloom vertical");
 
-	gfx_begin_pass(draw, (GFX_PassDesc) { .output = frame_texture });
-	draw_image(draw, (Draw_TextureParams) {
+	draw_begin_pass(draw, (GFX_PassDesc) { .output = frame_texture });
+	draw_rect(draw, (Draw_RectParams) {
 		.rect = output_rect,
 		.texture = bloom,
-		.region = rect_i32_from_size(gfx_texture_size(bloom)),
-		.tint = color_srgba(0xB8B8B8),
+		.texture_region = rect_f32_from_i32(rect_i32_from_size(gfx_texture_size(bloom))),
+		.color = color_srgba(0xB8B8B8),
 		.sampler = GRAPHICS_SAMPLER_LINEAR,
 		.blender = GFX_BLENDER_ADDITIVE,
 	});
-	gfx_end_pass(draw);
+	draw_end_pass(draw);
 }
 
 void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, rect_f32 output_rect)
@@ -1093,9 +1092,9 @@ void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, r
 
 			u32 slice_run_count = slice_end - slice_begin;
 			GFX_Texture *backdrop = has_backdrops ? draw__backdrop_blur_pass(draw, output) : 0;
-			gfx_begin_pass(draw, (GFX_PassDesc) { .output = output });
+			draw_begin_pass(draw, (GFX_PassDesc) { .output = output });
 			draw__replay_runs(draw, text_gfx, runs + slice_begin, slice_run_count, backdrop, false);
-			gfx_end_pass(draw);
+			draw_end_pass(draw);
 			draw__bloom_pass(draw, text_gfx, runs + slice_begin, slice_run_count, has_emission, output, output_rect);
 			slice_begin = slice_end;
 		}

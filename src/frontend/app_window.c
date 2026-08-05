@@ -1,0 +1,914 @@
+#include "app_window.h"
+#include "app.h"
+#include "debugger.h"
+#include "gif_recorder.h"
+#include "panels.h"
+#include "text_gfx.h"
+#include "ui_box.h"
+#include "ui_widgets.h"
+#include "views.h"
+
+#define TABULA_USE_EXTERNAL_TYPES
+#include "tabula/tabula.h"
+#undef TABULA_USE_EXTERNAL_TYPES
+
+enum { APP_WINDOW_ACTION_CAPACITY = 64 };
+
+struct App_Window
+{
+	App *app;
+	OS_Window *os;
+	GFX_Window *gfx;
+	Draw_Context *draw;
+	UI_Context *ui;
+	Panels *panels;
+	GFX_Renderer *renderer;
+	Text_GFX *text_gfx;
+	App_Action output_actions[APP_WINDOW_ACTION_CAPACITY];
+	App_Action pending_actions[APP_WINDOW_ACTION_CAPACITY];
+	u32 output_action_count;
+	u32 pending_action_count;
+	b32 library_overlay_on;
+	b32 exclusive_ppu;
+	b32 crt_enabled;
+	f32 volume_animation;
+	f32 frames_per_second;
+	Seconds previous_draw_time;
+	GifRecorder capture;
+	b32 screenshot_requested;
+};
+
+static void app_window_route_action(App_Window *window, App_Action action);
+
+App_Window *app_window_create(Arena *owner, App *app, App_WindowDesc desc)
+{
+	Assert(owner);
+	Assert(app);
+	Assert(desc.title);
+	Assert(app->renderer);
+	Assert(app->text);
+	Assert(app->text_gfx);
+
+	App_Window *window = arena_push_zero(owner, sizeof(*window));
+	window->app = app;
+	window->renderer = app->renderer;
+	window->text_gfx = app->text_gfx;
+	window->os = os_window_create((OS_WindowDesc) {
+		.title = desc.title,
+		.title_bar = {
+			.enabled = true,
+			.dark = true,
+			.background_rgb = 0x050A0C,
+			.text_rgb = 0x718783,
+			.border_rgb = 0x718783,
+		},
+	});
+	Assert(window->os);
+	window->gfx = gfx_create_window(owner, window->renderer, window->os);
+	window->draw = draw_create(owner, window->renderer);
+	window->ui = ui_create(owner, window->os, app->text, window->draw, desc.theme);
+	window->panels = panels_create(owner);
+	window->library_overlay_on = true;
+	window->crt_enabled = true;
+	return window;
+}
+
+void app_window_destroy(App_Window *window)
+{
+	Assert(window);
+	if (window->capture.recording) gif_recorder_end(&window->capture);
+	os_window_destroy(window->os);
+}
+
+b32 app_window_is_open(const App_Window *window)
+{
+	Assert(window);
+	return os_window_is_open(window->os);
+}
+
+void app_window_set_library_visible(App_Window *window, b32 visible)
+{
+	Assert(window);
+	window->library_overlay_on = visible;
+}
+
+Tabula_Table *app_window_state_to_table(const App_Window *window, Tabula_Context *context)
+{
+	Assert(window);
+	Assert(context);
+
+	Tabula_Table *table = tabula_table_create(context);
+	Assert(table);
+	Assert(tabula_table_set(table, TABULA_STRING_LITERAL("version"), tabula_value_integer(1)));
+	Assert(tabula_table_set(table, TABULA_STRING_LITERAL("panels"), (Tabula_Value) {
+		.type = TABULA_VALUE_TABLE,
+		.as.table = panels_layout_to_table(window->panels, context),
+	}));
+	return table;
+}
+
+b32 app_window_state_from_table(App_Window *window, const Tabula_Table *table)
+{
+	Assert(window);
+	Assert(table);
+
+	const Tabula_Value *version = tabula_table_get(table, TABULA_STRING_LITERAL("version"));
+	const Tabula_Value *panels = tabula_table_get(table, TABULA_STRING_LITERAL("panels"));
+	if (!version || version->type != TABULA_VALUE_INTEGER || version->as.integer != 1 || !panels || panels->type != TABULA_VALUE_TABLE) return false;
+	return panels_layout_from_table(window->panels, panels->as.table);
+}
+
+void app_window_emit_action(App_Window *window, App_Action action)
+{
+	Assert(window);
+	Assert(action.kind != APP_ACTION_NONE);
+	Assert(window->pending_action_count < ArrayCount(window->pending_actions));
+	window->pending_actions[window->pending_action_count++] = action;
+}
+
+static u32 app_window_modifiers(const App_Window *window)
+{
+	const OS_KeyState *keys = window->os->keys;
+	u32 modifiers = 0;
+	if ((keys[OS_Key_LeftShift]   | keys[OS_Key_RightShift])   & OS_KEY_DOWN) modifiers |= OS_MODIFIER_SHIFT;
+	if ((keys[OS_Key_LeftControl] | keys[OS_Key_RightControl]) & OS_KEY_DOWN) modifiers |= OS_MODIFIER_CONTROL;
+	if ((keys[OS_Key_LeftAlt]     | keys[OS_Key_RightAlt])     & OS_KEY_DOWN) modifiers |= OS_MODIFIER_ALT;
+	return modifiers;
+}
+
+static b32 app_window_handle_local_action(App_Window *window, App_Action action)
+{
+	switch (action.kind)
+	{
+		case APP_ACTION_TOGGLE_LIBRARY_OVERLAY:
+		{
+			window->library_overlay_on = !window->library_overlay_on;
+		} break;
+		case APP_ACTION_SPLIT_PANEL:
+		{
+			Assert(window->panels->focused);
+			panel_split(window->panels, window->panels->focused, action.split_panel.axis, 0.5f);
+		} break;
+		case APP_ACTION_CLOSE_PANEL:
+		{
+			Assert(window->panels->focused);
+			panel_close(window->panels, window->panels->focused);
+		} break;
+		case APP_ACTION_OPEN_VIEW:
+		{
+			if (action.open_view.index < view_desc_count) panel_open_view(window->panels, window->panels->focused, &view_descs[action.open_view.index]);
+		} break;
+		case APP_ACTION_TOGGLE_FULLSCREEN:
+		{
+			os_window_set_fullscreen(window->os, !os_window_is_fullscreen(window->os));
+		} break;
+		case APP_ACTION_TOGGLE_PPU_FULLSCREEN:
+		{
+			window->exclusive_ppu = !window->exclusive_ppu;
+			os_window_set_fullscreen(window->os, window->exclusive_ppu);
+		} break;
+		case APP_ACTION_EXIT_PPU_FULLSCREEN:
+		{
+			if (window->exclusive_ppu)
+			{
+				window->exclusive_ppu = false;
+				os_window_set_fullscreen(window->os, false);
+			}
+		} break;
+		case APP_ACTION_TAKE_APP_SCREENSHOT:
+		{
+			window->screenshot_requested = true;
+		} break;
+		case APP_ACTION_TOGGLE_APP_CAPTURE:
+		{
+			if (window->capture.recording) gif_recorder_end(&window->capture);
+			else if (!gif_recorder_begin(&window->capture, window->os->size, "orbiter_capture")) LOG_ERROR("failed to begin application GIF capture");
+		} break;
+		case APP_ACTION_TOGGLE_CRT:
+		{
+			window->crt_enabled = !window->crt_enabled;
+		} break;
+		case APP_ACTION_ADJUST_UI_FONT_SIZE:
+		{
+			i32 font_size = CLAMP(window->ui->theme.code.size + action.ui_font.pixels, UI_CODE_FONT_SIZE_MIN, UI_CODE_FONT_SIZE_MAX);
+			if (font_size != window->ui->theme.code.size)
+			{
+				window->ui->theme.code.size = font_size;
+				LOG_INFO("UI font size %d px", font_size);
+			}
+		} break;
+		case APP_ACTION_RESET_UI_FONT_SIZE:
+		{
+			window->ui->theme.code.size = UI_CODE_FONT_SIZE_DEFAULT;
+			LOG_INFO("UI font size %d px", UI_CODE_FONT_SIZE_DEFAULT);
+		} break;
+		default: return false;
+	}
+	return true;
+}
+
+static void app_window_route_action(App_Window *window, App_Action action)
+{
+	if (action.kind == APP_ACTION_NONE) return;
+	if (action.kind == APP_ACTION_ADJUST_VOLUME || action.kind == APP_ACTION_MUTE) window->volume_animation = 1.f;
+	if (app_window_handle_local_action(window, action)) return;
+	Assert(window->output_action_count < ArrayCount(window->output_actions));
+	window->output_actions[window->output_action_count++] = action;
+}
+
+static App_GameInput app_window_keyboard_input(const App_Window *window, u32 player)
+{
+	if (player != 0) return 0;
+	const OS_KeyState *keys = window->os->keys;
+	App_GameInput input = 0;
+	if (keys[OS_Key_Up]    & OS_KEY_DOWN) input |= APP_GAME_INPUT_UP;
+	if (keys[OS_Key_Down]  & OS_KEY_DOWN) input |= APP_GAME_INPUT_DOWN;
+	if (keys[OS_Key_Left]  & OS_KEY_DOWN) input |= APP_GAME_INPUT_LEFT;
+	if (keys[OS_Key_Right] & OS_KEY_DOWN) input |= APP_GAME_INPUT_RIGHT;
+	if (keys[OS_Key_W] & OS_KEY_DOWN) input |= APP_GAME_INPUT_UP;
+	if (keys[OS_Key_S] & OS_KEY_DOWN) input |= APP_GAME_INPUT_DOWN;
+	if (keys[OS_Key_A] & OS_KEY_DOWN) input |= APP_GAME_INPUT_LEFT;
+	if (keys[OS_Key_D] & OS_KEY_DOWN) input |= APP_GAME_INPUT_RIGHT;
+	if (keys[OS_Key_Z] & OS_KEY_DOWN) input |= APP_GAME_INPUT_A;
+	if (keys[OS_Key_X] & OS_KEY_DOWN) input |= APP_GAME_INPUT_B;
+	if (keys[OS_Key_C] & OS_KEY_DOWN) input |= APP_GAME_INPUT_START;
+	if (keys[OS_Key_V] & OS_KEY_DOWN) input |= APP_GAME_INPUT_SELECT;
+	return input;
+}
+
+App_WindowOutput app_window_begin_frame(App_Window *window, App_KeyMap key_map)
+{
+	Assert(window);
+	Assert(!key_map.count || key_map.bindings);
+
+	App_WindowOutput result = { .feedback = ui_feedback_take(window->ui) };
+	window->output_action_count = 0;
+	for (u32 index = 0; index < window->pending_action_count; index++) app_window_route_action(window, window->pending_actions[index]);
+	window->pending_action_count = 0;
+
+	for (u32 event_index = 0; event_index < os_window_event_count(window->os); event_index++)
+	{
+		const OS_Event *event = os_window_event(window->os, event_index);
+		App_KeyChordActivation activation;
+		if (event->type == OS_EVENT_KEY_PRESS) activation = APP_KEY_CHORD_ON_PRESS;
+		else if (event->type == OS_EVENT_KEY_RELEASE) activation = APP_KEY_CHORD_ON_RELEASE;
+		else continue;
+
+		for (u32 bind_index = 0; bind_index < key_map.count; bind_index++)
+		{
+			const App_KeyBinding *binding = &key_map.bindings[bind_index];
+			if (binding->key_chord.activation != activation || binding->key_chord.key != event->key || binding->key_chord.modifiers != event->modifiers) continue;
+			if (event->repeat && !binding->allow_repeat) continue;
+			app_window_route_action(window, binding->action);
+		}
+	}
+
+	u32 modifiers = app_window_modifiers(window);
+	for (u32 bind_index = 0; bind_index < key_map.count; bind_index++)
+	{
+		const App_KeyBinding *binding = &key_map.bindings[bind_index];
+		if (binding->key_chord.activation != APP_KEY_CHORD_WHILE_DOWN || binding->key_chord.modifiers != modifiers) continue;
+		if (window->os->keys[binding->key_chord.key] & OS_KEY_DOWN) app_window_route_action(window, binding->action);
+	}
+
+	result.actions = window->output_actions;
+	result.action_count = window->output_action_count;
+	result.keyboard_captured = !!(modifiers & (OS_MODIFIER_CONTROL | OS_MODIFIER_ALT));
+	if (!result.keyboard_captured)
+	{
+		for (u32 player = 0; player < ArrayCount(result.keyboard_input); player++) result.keyboard_input[player] = app_window_keyboard_input(window, player);
+	}
+	ui_begin_frame(window->ui);
+	return result;
+}
+
+static void app_resize_graphics_outputs(App_Window *window, vec2i size)
+{
+	Assert(size.x > 1 && size.y > 1);
+	gfx_resize_window(window->gfx, size);
+}
+
+// Render passes
+
+// TODO(RJ) we need to free intermediate textures!
+static GFX_Texture *app_acquire_pass_output(App_Window *window, vec2i size, GFX_Sampler sampler, const char *label)
+{
+	return gfx_acquire_transient_texture(window->renderer, (GFX_TextureDesc) {
+		.usage = GRAPHICS_TEXTURE_USAGE_RARE_UPDATES,
+		.bind_flags = GFX_TEXTURE_BIND_INPUT | GFX_TEXTURE_BIND_OUTPUT,
+		.format = GRAPHICS_FORMAT_RGBA_F32,
+		.size = size,
+		.sampler = sampler,
+		.label = label,
+	});
+}
+
+static GFX_Texture *app_acquire_hdr_pass_output(App_Window *window, GFX_Texture *input, const char *label)
+{
+	return app_acquire_pass_output(window, gfx_texture_size(input), GRAPHICS_SAMPLER_POINT, label);
+}
+
+static GFX_Texture *app_crt_barrel_pass(App_Window *window, GFX_Texture *input)
+{
+	GFX_Texture *output = app_acquire_hdr_pass_output(window, input, "barrel pass output");
+	draw_begin_pass(window->draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
+	draw_barrel(window->draw, (Draw_BarrelParams) { .texture = input, .strength = 1.f });
+	draw_end_pass(window->draw);
+	return output;
+}
+
+static GFX_Texture *app_rewind_pass(App_Window *window, GFX_Texture *input)
+{
+	GFX_Texture *output = app_acquire_hdr_pass_output(window, input, "rewind pass output");
+	draw_begin_pass(window->draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
+	draw_rewind(window->draw, (Draw_RewindParams) { .texture = input, .time = (f32)fmod(seconds_now().seconds, 1024.0), .strength = 1.f });
+	draw_end_pass(window->draw);
+	return output;
+}
+
+static GFX_Texture *app_crt_scanlines_pass(App_Window *window, GFX_Texture *input)
+{
+	GFX_Texture *output = app_acquire_hdr_pass_output(window, input, "scanlines pass output");
+	draw_begin_pass(window->draw, (GFX_PassDesc) { .output = output, .clear = true, .clear_color = COLOR_BLACK });
+	draw_crt_scanlines(window->draw, input);
+	draw_end_pass(window->draw);
+	return output;
+}
+
+static void app_draw_exclusive_ppu(App_Window *window, GFX_Texture *frame_texture, rect_f32 window_rect)
+{
+	vec2 presentation_size = v2(4.f, 3.f);
+	f32 scale = Min(window_rect.w / presentation_size.x, window_rect.h / presentation_size.y);
+	rect_f32 video_rect = rect_f32_align(window_rect, v2(presentation_size.x * scale, presentation_size.y * scale), v2(0.5f, 0.5f));
+	video_rect = rect_f32_round_out(video_rect);
+
+	GFX_Texture *video_texture = window->crt_enabled ? app_crt_scanlines_pass(window, window->app->video_texture) : window->app->video_texture;
+	draw_begin_pass(window->draw, (GFX_PassDesc) {
+		.output = frame_texture,
+		.clear = true,
+		.clear_color = COLOR_BLACK,
+	});
+	draw_rect(window->draw, (Draw_RectParams) {
+		.rect = video_rect,
+		.texture = video_texture,
+		.texture_region = { 0, 0, NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT },
+		.color = COLOR_WHITE,
+		.sampler = GRAPHICS_SAMPLER_POINT,
+	});
+	draw_end_pass(window->draw);
+}
+
+static void app_draw_box_tree(UI_Box *box)
+{
+	ui_box_paint(box);
+	for (UI_Box *child = box->first; child; child = child->next) {
+		app_draw_box_tree(child);
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef struct
+{
+	Orb *orb;
+	Str    title;
+	Str    path;
+   u64    play_time_ms;
+   u64    id;
+   u32    mapper;
+   b32    is_supported;
+   Str    save_name;
+   GFX_Texture *texture;
+   rect_i32      region;
+}
+DisplayCard;
+
+static UI_Box *app_build_catalog_card(UI_Context *ui, vec2 size, Orb *orb)
+{
+	u32 id = 0;
+	GFX_Texture *texture = 0;
+	u64 play_time_ms = 0;
+	b32 is_supported = 0;
+	Str title = orb->title;
+	u32 mapper = 0;
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_fixed(size.x));
+	ui_size(ui, AXIS_Y, ui_fixed(size.y));
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+	UI_Box *card_box = ui_begin_vert(ui, (UI_Key){(u64)orb});
+	{
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fill());
+		ui_size(ui, AXIS_Y, ui_fill());
+		ui_background(ui, ui->theme.panel_outline);
+		ui_roundness(ui, size.x * 0.02f);
+		ui_image_box(ui, UI_KEY("image"), (UI_ImageStyle) {.fit=UI_IMAGE_FIT_COVER,.align=v2(0.5f,0.5f),.tint=(Color_SRGBA){1,1,1,1}}, texture);
+
+		ui_clean(ui);
+		// ui_align(ui, AXIS_Y, 1.f);
+		ui_size(ui, AXIS_X, ui_fill());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		// ui_roundness(ui, size.x * 0.02f);
+		// ui_background(ui, ui->theme.panel_outline);
+		ui_padd(ui, AXIS_X, 8.f, 8.f);
+		ui_padd(ui, AXIS_Y, 8.f, 8.f);
+		ui_gap(ui, 2.f);
+		ui_begin_vert(ui, 1);
+		{
+			ui_clean(ui);
+			ui_size(ui, AXIS_X, ui_wrap());
+			ui_size(ui, AXIS_Y, ui_wrap());
+			UI_TextStyle style = ui->theme.code;
+			style.size = 32;
+			ui_text(ui, 0, style, title);
+
+			style.size = 18;
+			style.color = ui->theme.text_subtle;
+			ui_clean(ui);
+			ui_size(ui, AXIS_X, ui_wrap());
+			ui_size(ui, AXIS_Y, ui_wrap());
+			ui_text_box(ui, 1, style, "MAPPER %u", mapper);
+			if (!is_supported) ui_text(ui, 2, style, LIT("UNSUPPORTED CARTRIDGE"));
+
+			ui_text_box(ui, 3, style, "%lluh %02llum", play_time_ms / (60 * 60 * 1000), play_time_ms / (60 * 1000) % 60);
+		}
+		ui_box_end(ui);
+	}
+	ui_box_end(ui);
+	return card_box;
+}
+
+// TODO(RJ) padding hardclips scrolling lists, we need to fade out the edges!
+static DisplayCard *app_build_catalog_shelf(App_Window *window, UI_Key key, Str title, vec2 card_size)
+{
+	UI_Context *ui = window->ui;
+	ui_box_push_id(ui, key);
+	UI_TextStyle title_style = ui->theme.code;
+	title_style.color = ui->theme.palette.amber;
+	title_style.size = 64;
+	title_style.align.y = 0.5f;
+	title_style.align.x = 0.5f;
+	ui_clean(ui);
+	ui_text(ui, 1, title_style, title);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 2, AXIS_X);
+
+	ui_clean(ui);
+	ui_axis(ui, AXIS_X);
+	ui_size(ui, AXIS_X, ui_fill());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_gap(ui, 16.f);
+	ui_box_begin(ui, 3, LIT(""));
+
+	DisplayCard *selected = 0;
+	for (u32 index = 0; index < window->app->orb_library_count; index ++)
+	{
+		UI_Box *card_box = app_build_catalog_card(ui, card_size, window->app->orb_library[index].orb);
+		if (ui_signal_from_box(card_box).pressed)
+		{
+			ui_feedback_emit(ui, UI_FEEDBACK_PRESS);
+		}
+	}
+	ui_box_end(ui);
+
+	ui_scroll_box_end(scroll);
+	ui_box_pop_id(ui);
+	return selected;
+}
+
+static DisplayCard *library_build_ui(App_Window *window, rect_f32 window_rect, const App *app)
+{
+	UI_Context *ui = window->ui;
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_fill());
+	ui_size(ui, AXIS_Y, ui_fill());
+	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, UI_KEY("library vertical scroll"), AXIS_Y);
+
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_fill());
+	ui_size(ui, AXIS_Y, ui_fill());
+	ui_padd(ui, AXIS_X, 32.f, 32.f);
+	ui_padd(ui, AXIS_Y, 32.f, 32.f);
+	ui_gap(ui, 16.f);
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_box_begin(ui, UI_KEY("library shelves"), LIT("library shelves"));
+	{
+		f32 card_width = window_rect.w * 0.13f;
+		f32 card_height = card_width * 1.35f;
+		app_build_catalog_shelf(window, UI_KEY("saves"), LIT("Recent Saves"), v2(card_width, card_height));
+	}
+	ui_box_end(ui);
+	ui_scroll_box_end(scroll);
+	DisplayCard *selected = 0;
+	return selected;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static UI_Box *app_status_row_begin(UI_Context *ui, UI_Key key, Str name)
+{
+	ui_clean(ui);
+	ui_axis(ui, AXIS_X);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_padd(ui, AXIS_X, 6.f, 6.f);
+	return ui_box_begin(ui, key, name);
+}
+
+static UI_Box *app_status_divider(UI_Context *ui, UI_Key key, b32 at_top)
+{
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(1.f));
+	if (at_top) ui_margin(ui, AXIS_Y, 0.f, -1.f);
+	else        ui_margin(ui, AXIS_Y, -1.f, 0.f);
+	UI_Box *box = ui_box_make(ui, key, LIT("status divider"));
+	box->paint = (UI_BoxPaintDesc) {
+		.flags = UI_BOX_DRAW_BACKGROUND,
+		.background = ui->theme.panel_outline,
+	};
+	return box;
+}
+
+static UI_Box *app_status_text(UI_Context *ui, u64 key, Str text, UI_TextStyle style, f32 emission)
+{
+	ui_emission(ui, emission);
+	UI_Box *box = ui_text(ui, key, style, text);
+	return box;
+}
+
+static UI_Box *app_status_bar_begin(UI_Context *ui, UI_Key key, Str name, f32 height)
+{
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(height));
+	UI_Box *box = ui_box_begin(ui, key, name);
+	box->paint = (UI_BoxPaintDesc) {
+		.flags = UI_BOX_DRAW_BACKGROUND,
+		.background = ui->theme.slider_track,
+	};
+	return box;
+}
+
+static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrameData *view_frame)
+{
+	App *app = window->app;
+	UI_Context *ui = window->ui;
+	Assert(app);
+	Assert(view_frame);
+
+	UI_BoxDesc root_desc = ui_defaults();
+	root_desc.axis = AXIS_Y;
+	root_desc.size[AXIS_X] = ui_grow(1.f);
+	root_desc.size[AXIS_Y] = ui_grow(1.f);
+	UI_Box *root = ui_build_begin(ui, UI_KEY("application shell"), LIT("application shell"), root_desc);
+
+	f32 status_height = ui->theme.code.size + 8.f;
+	UI_TextStyle style = ui->theme.code;
+	style.align.y = 0.5f;
+
+	app_status_bar_begin(ui, 1, LIT("top status"), status_height);
+	app_status_row_begin(ui, 1, LIT("top status row"));
+
+	style.color = ui->theme.palette.cyan;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_wrap());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	app_status_text(ui, 1, LIT("ORBITER"), style, ui->theme.palette.emission_medium);
+
+	style.color = ui->theme.text_subtle;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	app_status_text(ui, 2, LIT("  |  github.com/MicroRJ  |  "), style, 0.f);
+
+	f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
+
+	if (!nes_emulator_ready_to_run(&app->emulator))
+	{
+		style.color = ui->theme.palette.amber;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(ui, AXIS_Y, ui_wrap());
+		app_status_text(ui, 3, LIT("* INSERT CARTRIDGE *"), style, ui->theme.palette.emission_high * pulse);
+	}
+	else if (app->transport.state == APP_TRANSPORT_SCRUBBING && app->transport.direction == -1)
+	{
+		style.color = ui->theme.palette.error;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(ui, AXIS_Y, ui_wrap());
+		app_status_text(ui, 3, LIT("<< REWINDING"), style, ui->theme.palette.emission_high * pulse);
+	}
+	else if (app->transport.state == APP_TRANSPORT_SCRUBBING && app->transport.direction == +1)
+	{
+		style.color = ui->theme.palette.amber;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(ui, AXIS_Y, ui_wrap());
+		app_status_text(ui, 3, LIT("REPLAYING >>"), style, ui->theme.palette.emission_high * pulse);
+	}
+	else if (app->transport.state == APP_TRANSPORT_SCRUBBING)
+	{
+		style.color = ui->theme.palette.error;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(ui, AXIS_Y, ui_wrap());
+		app_status_text(ui, 3, LIT("<< REWINDING >>"), style, ui->theme.palette.emission_high);
+	}
+	else
+	{
+		if (app->transport.state == APP_TRANSPORT_RUNNING)
+		{
+			style.color = ui->theme.palette.amber;
+			ui_clean(ui);
+			ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+			ui_size(ui, AXIS_Y, ui_wrap());
+			app_status_text(ui, 3, LIT("RUNNING"), style, ui->theme.palette.emission_medium);
+		}
+		else
+		{
+			style.color = ui->theme.palette.error;
+			ui_clean(ui);
+			ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+			ui_size(ui, AXIS_Y, ui_wrap());
+			app_status_text(ui, 3, LIT("PAUSED"), style, 0.06f + pulse * 0.16f);
+		}
+	}
+
+	style.color = ui->theme.text_subtle;
+	if (window->capture.recording)
+	{
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(ui, AXIS_Y, ui_wrap());
+		app_status_text(ui, 4, LIT("   REC APP"), style, 0.f);
+	}
+	if (app->ppu_gif.recording)
+	{
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+		ui_size(ui, AXIS_Y, ui_wrap());
+		app_status_text(ui, 4, LIT("   REC PPU"), style, 0.f);
+	}
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_box_make(ui, 6, LIT("top spacer"));
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	style.align.x = 0.f;
+
+	Color_SRGBA ppu_volume_base_color = ui->theme.text_subtle;
+	if (app->ppu_volume <= 0.01f) {
+		ppu_volume_base_color = ui->theme.palette.error;
+	}
+	style.color = color_srgba_mix(ppu_volume_base_color, ui->theme.palette.amber, window->volume_animation);
+	ui_emission(ui, ui->theme.palette.emission_high * window->volume_animation);
+	UI_Box *volume_box = ui_text_sized_f(ui, UI_KEY("volume"), style, LIT("VOL 100%"), "VOL %i%%", (i32) roundf(app->ppu_volume * 100.f));
+	if (ui_signal_from_box(volume_box).hovered && ui_tooltip_begin(ui, UI_KEY("volume_tooltip"), ui->mouse))
+	{
+		ui_clean(ui);
+		ui_axis(ui, AXIS_Y);
+		ui_size(ui, AXIS_X, ui_wrap());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_padd(ui, AXIS_X, 8.f, 8.f);
+		ui_padd(ui, AXIS_Y, 8.f, 8.f);
+		ui_gap(ui, 4.f);
+
+		ui_box_begin(ui, 0, LIT(""));
+		UI_TextStyle style = ui->theme.code;
+		style.color = ui->theme.text_neutral;
+		ui_clean(ui);
+		ui_text(ui, UI_KEY("1"), style, str_push_copy_f(&ui->frame_arena, "Ctrl+Up Raise Volume"));
+		ui_clean(ui);
+		ui_text(ui, UI_KEY("2"), style, str_push_copy_f(&ui->frame_arena, "Ctrl+Down Lower Volume"));
+		ui_box_end(ui);
+
+		ui_tooltip_end(ui);
+	}
+	window->volume_animation *= 0.95f;
+
+	style.color = ui->theme.text_subtle;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_text_sized_f(ui, UI_KEY("fps"), style, LIT("FPS 999.9"), "FPS %02.2f", window->frames_per_second);
+
+	style.color = ui->theme.text_subtle;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_text_sized_f(ui, UI_KEY("frame"), style, LIT("FRAME 999999999"), " FRAME %llu", app->published.generation);
+
+	ui_box_end(ui);
+	app_status_divider(ui, 2, false);
+	ui_box_end(ui);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_layout(ui, &UI_FlatLayoutHooks);
+	ui_box_begin(ui, 2, LIT("belly"));
+	{
+		rect_f32 panel_rect = window_rect;
+		panel_rect.y += status_height;
+		panel_rect.h = Max(0.f, panel_rect.h - status_height * 2.f);
+		panels_build_ui(window->panels, window->os, view_frame, panel_rect);
+
+		if (window->library_overlay_on)
+		{
+			ui_push_box_z(ui, UI_Z_OVERLAY);
+
+			ui_clean(ui);
+			ui_size(ui, AXIS_X, ui_grow(1.f));
+			ui_size(ui, AXIS_Y, ui_grow(1.f));
+			ui_backdrop(ui, 0.f);
+			ui_background(ui, (Color_SRGBA){0,0,0,0.2});
+			UI_Box *overlay_root = ui_box_begin(ui, UI_KEY("overlay"), LIT(""));
+			overlay_root->hit_intercept = true;
+
+			library_build_ui(window, window_rect, app);
+
+			ui_box_end(ui);
+
+			ui_pop_box_z(ui);
+		}
+
+	}
+	ui_box_end(ui);
+
+	app_status_bar_begin(ui, 3, LIT("bottom status"), status_height);
+	app_status_divider(ui, 1, true);
+	app_status_row_begin(ui, 2, LIT("bottom status row"));
+
+	Str rom_name = app->last_rom_path;
+	Str bottom_left = rom_name.size ? str_push_copy_f(&ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	style.align.x = 0.f;
+	app_status_text(ui, 1, bottom_left, style, 0.f);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_make(ui, 2, LIT("bottom spacer"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_flex(0.f, 3.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	style.align.x = 1.f;
+	app_status_text(ui, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU PNG / SHIFT GIF   F9 APP PNG / SHIFT GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
+	ui_box_end(ui);
+	ui_box_end(ui);
+
+	ui_build_end(ui);
+	PROF_BLOCK("ui measure") ui_box_measure(root, (UI_BoxConstraints) { .min = window_rect.size, .max = window_rect.size });
+	PROF_BLOCK("ui layout") ui_box_layout(root, window_rect);
+	return root;
+}
+
+
+static void app_window_update_fps(App_Window *window)
+{
+	Seconds now = seconds_now();
+	if (window->previous_draw_time.seconds > 0.0)
+	{
+		f64 elapsed = now.seconds - window->previous_draw_time.seconds;
+		if (elapsed > 0.0)
+		{
+			f32 measured = (f32)(1.0 / elapsed);
+			window->frames_per_second = window->frames_per_second > 0.f ? window->frames_per_second * 0.9f + measured * 0.1f : measured;
+		}
+	}
+	window->previous_draw_time = now;
+}
+
+static u8 app_window_linear_to_srgb_u8(f32 value)
+{
+	value = CLAMP(value, 0.f, 1.f);
+	f32 srgb = value <= 0.0031308f ? value * 12.92f : 1.055f * powf(value, 1.f / 2.4f) - 0.055f;
+	return (u8)(srgb * 255.f + 0.5f);
+}
+
+static void app_window_capture_frame(App_Window *window, GFX_Texture *texture)
+{
+	enum { GIF_CAPTURE_MAX_FRAMES = 60 * 30 };
+	b32 screenshot_requested = window->screenshot_requested;
+	window->screenshot_requested = false;
+	if (!screenshot_requested && !window->capture.recording) return;
+
+	vec2i size = gfx_texture_size(texture);
+	if (window->capture.recording && (size.x != window->capture.size.x || size.y != window->capture.size.y))
+	{
+		LOG_WARN("ending application GIF because the window size changed");
+		gif_recorder_end(&window->capture);
+	}
+	if (!screenshot_requested && !window->capture.recording) return;
+	u32 pixel_count = size.x * size.y;
+	vec4 *linear = arena_push(&window->ui->frame_arena, pixel_count * sizeof(*linear));
+	Color_RGBA8 *pixels = arena_push(&window->ui->frame_arena, pixel_count * sizeof(*pixels));
+	if (!gfx_read_texture(texture, linear, size.x * sizeof(*linear)))
+	{
+		LOG_ERROR("application capture texture readback failed");
+		if (window->capture.recording) gif_recorder_end(&window->capture);
+		return;
+	}
+	for (u32 index = 0; index < pixel_count; index++)
+	{
+		pixels[index] = (Color_RGBA8) {
+			app_window_linear_to_srgb_u8(linear[index].x),
+			app_window_linear_to_srgb_u8(linear[index].y),
+			app_window_linear_to_srgb_u8(linear[index].z),
+			(u8)(CLAMP(linear[index].w, 0.f, 1.f) * 255.f + 0.5f),
+		};
+	}
+	if (screenshot_requested && !screenshot_write_png(pixels, size, size.x * sizeof(*pixels), "orbiter_screenshot")) LOG_ERROR("failed to save application screenshot");
+	if (window->capture.recording && !gif_recorder_frame(&window->capture, pixels, size.x * sizeof(*pixels)))
+	{
+		LOG_ERROR("application GIF capture failed");
+		gif_recorder_end(&window->capture);
+		return;
+	}
+	if (window->capture.frame_count >= GIF_CAPTURE_MAX_FRAMES) gif_recorder_end(&window->capture);
+}
+
+void app_window_render(App_Window *window)
+{
+	Assert(window);
+	App *app = window->app;
+	Assert(app);
+	Assert(app->debugger);
+	Assert(app->video_texture);
+	Assert(app->chr_texture);
+
+	rect_f32 window_rect = rect_f32_from_size(v2_from_v2i(window->os->size));
+	app_window_update_fps(window);
+	app_resize_graphics_outputs(window, window->os->size);
+	draw_begin_frame(window->draw);
+	os_window_set_cursor(window->os, OS_CURSOR_POINTER);
+
+	GFX_Texture *frame_texture = app_acquire_pass_output(window, window->os->size, GRAPHICS_SAMPLER_POINT, "application frame");
+
+	if (window->exclusive_ppu) {
+		app_draw_exclusive_ppu(window, frame_texture, window_rect);
+	}
+	else {
+		ViewFrameData view_frame = {
+			.emulator = &app->emulator,
+			.debugger = app->debugger,
+			.execution_graph = debugger_execution_graph(app->debugger),
+			.execution_activity = &app->execution_activity,
+			.publication = &app->published,
+			.video_texture = app->video_texture,
+			.chr_texture = app->chr_texture,
+			.ui = window->ui,
+			.scratch = &window->ui->frame_arena,
+		};
+		UI_Box *shell = build_main_ui(window, window_rect, &view_frame);
+		draw_begin_pass(window->draw, (GFX_PassDesc) {
+			.output = frame_texture,
+			.clear = true,
+			.clear_color = COLOR_BLACK,
+		});
+		draw_rect(window->draw, (Draw_RectParams) {
+			.rect = window_rect,
+			.color = window->ui->theme.background,
+		});
+		app_draw_box_tree(shell);
+		draw_end_pass(window->draw);
+		draw_compose(window->draw, window->text_gfx, frame_texture, window_rect);
+	}
+
+
+	GFX_Texture *present_texture = frame_texture;
+	if (app->transport.state == APP_TRANSPORT_SCRUBBING) present_texture = app_rewind_pass(window, present_texture);
+	if (window->crt_enabled) present_texture = app_crt_barrel_pass(window, present_texture);
+
+	draw_begin_pass(window->draw, (GFX_PassDesc) {
+		.output = gfx_window_texture(window->gfx),
+	});
+	draw_blit(window->draw, present_texture);
+	draw_end_pass(window->draw);
+
+	text_gfx_sync(window->text_gfx);
+
+	draw_end_frame(window->draw);
+	PROF_BLOCK("app capture") app_window_capture_frame(window, present_texture);
+
+	PROF_BLOCK("present wait") gfx_present_window(window->gfx);
+
+	ui_end_frame(window->ui);
+}

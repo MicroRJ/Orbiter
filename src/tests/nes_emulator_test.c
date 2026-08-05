@@ -47,44 +47,8 @@ static NES_SetupParams test_setup_params(NES_CartridgeDesc cartridge)
 	};
 }
 
-static void test_scheduler_trace_packing(void)
-{
-	NES_TraceEntry expected = {
-		.scheduler_clock = 0x1234FFF0,
-		.cpu_address = MAX_VALUE_U16,
-		.cpu_mapped = nes_map_addr(NES_DEVICE_PRG_RAM, NES_SCHEDULER_TRACE_MAPPED_OFFSET_MASK),
-		.cpu_byte = MAX_VALUE_U8,
-	};
-	NES_PackedTraceEntry entry = nes_scheduler_trace_pack(expected);
-	NES_SchedulerTraceView view = {
-		.trace = &entry,
-		.index = 1,
-		.scheduler_clock = 0x12350020,
-	};
-	NES_TraceEntry actual = nes_scheduler_trace_at(view, 0);
-	Assert(sizeof(entry) == 8);
-	Assert(actual.scheduler_clock == expected.scheduler_clock);
-	Assert(actual.cpu_address == expected.cpu_address);
-	Assert(actual.cpu_mapped.device == expected.cpu_mapped.device);
-	Assert(actual.cpu_mapped.offset == expected.cpu_mapped.offset);
-	Assert(actual.cpu_byte == expected.cpu_byte);
-	Assert(nes_scheduler_trace_clock_reconstructable_since(view, expected.scheduler_clock));
-	Assert(!nes_scheduler_trace_clock_reconstructable_since(view, view.scheduler_clock - ((u64)MAX_VALUE_U16 + 1)));
-
-	for (u32 device = NES_DEVICE_NONE; device < NES_DEVICE_COUNT; ++device)
-	{
-		expected.cpu_mapped.device = (NES_DeviceId)device;
-		entry = nes_scheduler_trace_pack(expected);
-		actual = nes_scheduler_trace_at((NES_SchedulerTraceView) { .trace = &entry, .index = 1, .scheduler_clock = view.scheduler_clock }, 0);
-		Assert(actual.cpu_mapped.device == expected.cpu_mapped.device);
-		Assert(actual.cpu_mapped.offset == expected.cpu_mapped.offset);
-	}
-}
-
 int main(int argc, char **argv)
 {
-	test_scheduler_trace_packing();
-
 	for (u32 opcode = 0; opcode < 256; ++opcode)
 	{
 		NES_InstructionDesc instruction = nes_instruction_desc(opcode);
@@ -138,13 +102,13 @@ int main(int argc, char **argv)
 
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(core);
-	Assert(!nes_is_booted(core));
+	Assert(!nes_emulator_ready_to_run(core));
 	NES_CartridgeDesc oversized_nrom = parsed_cartridge;
 	oversized_nrom.prg_rom = byte_span(arena_push_zero(&arena, KiB(48)), KiB(48));
 	Assert(!nes_setup_emulator(core, test_setup_params(oversized_nrom)));
-	Assert(!nes_is_booted(core));
+	Assert(!nes_emulator_ready_to_run(core));
 	Assert(nes_setup_emulator(core, test_setup_params(parsed_cartridge)));
-	Assert(nes_is_booted(core));
+	Assert(nes_emulator_ready_to_run(core));
 	//	NES_CHRMap chr_map = {};
 	//	nes_emulator_capture_chr_map(core, &chr_map);
 	//	Assert(chr_map.tiles[0].pixels[0][0] == 1);
@@ -153,44 +117,18 @@ int main(int argc, char **argv)
 	//	Assert(chr_map.mappings[0].address == 0);
 	u8 obsolete_state_header[12] = {};
 	Assert(!orb_transfer_save_state_no_chunk(core, byte_span(obsolete_state_header, sizeof(obsolete_state_header))));
-	Assert(nes_is_booted(core));
+	Assert(nes_emulator_ready_to_run(core));
 
 	NES_CPUState before = core->cpu;
 	Assert(before.PC != 0);
 
-	nes_emulator_step(core);
+	NES_TraceEntry trace;
+	nes_emulator_step(core, &trace);
 	NES_CPUState after = core->cpu;
 	Assert(after.PC != before.PC);
-	NES_SchedulerTraceView trace = nes_emulator_scheduler_trace(core);
-	Assert(trace.index > 0);
-	Assert(!nes_scheduler_trace_dropped_since(trace, 0));
-	NES_TraceEntry first = nes_scheduler_trace_at(trace, 0);
-	Assert(first.cpu_address == before.PC);
-	Assert(first.cpu_mapped.device == NES_DEVICE_PRG_ROM);
-	Assert(first.cpu_mapped.offset == 0);
-	NES_SchedulerTraceView boundaries = nes_emulator_scheduler_trace(core);
-	Assert(boundaries.index > 0);
-	first = nes_scheduler_trace_at(boundaries, 0);
-	Assert(first.cpu_address == before.PC);
-	Assert(first.cpu_mapped.device == NES_DEVICE_PRG_ROM);
-	Assert(first.cpu_mapped.offset == 0);
-	NES_SchedulerTraceSpans contiguous = nes_scheduler_trace_spans_since(trace, 0);
-	Assert(!contiguous.dropped);
-	Assert(contiguous.spans[0].entries == trace.trace);
-	Assert(contiguous.spans[0].count == trace.index);
-	Assert(!contiguous.spans[1].count);
-
-	NES_SchedulerTraceView wrapped = { .trace = trace.trace, .index = NES_SCHEDULER_TRACE_CAPACITY_POW2 + 7, .scheduler_clock = trace.scheduler_clock };
-	Assert(nes_scheduler_trace_first_since(wrapped, 0) == 7);
-	Assert(nes_scheduler_trace_dropped_since(wrapped, 0) == 7);
-	Assert(nes_scheduler_trace_entry_at(wrapped, 7) == &wrapped.trace[7]);
-	Assert(nes_scheduler_trace_entry_at(wrapped, wrapped.index - 1) == &wrapped.trace[(wrapped.index - 1) & NES_SCHEDULER_TRACE_CAPACITY_MASK]);
-	NES_SchedulerTraceSpans split = nes_scheduler_trace_spans_since(wrapped, 0);
-	Assert(split.dropped == 7);
-	Assert(split.spans[0].entries == wrapped.trace + 7);
-	Assert(split.spans[0].count == NES_SCHEDULER_TRACE_CAPACITY_POW2 - 7);
-	Assert(split.spans[1].entries == wrapped.trace);
-	Assert(split.spans[1].count == 7);
+	Assert(trace.cpu_address == before.PC);
+	Assert(trace.cpu_mapped.device == NES_DEVICE_PRG_ROM);
+	Assert(trace.cpu_mapped.offset == 0);
 
 	NES_CPUState captured_cpu = core->cpu;
 	NES_PPUState captured_ppu = core->ppu;
@@ -203,7 +141,7 @@ int main(int argc, char **argv)
 
 	// Captured values are copies of the actual device structs. Advancing the
 	// emulator must not mutate a previously captured state value.
-	nes_emulator_step(core);
+	nes_emulator_step(core, 0);
 	Assert(core->cpu.PC != captured_cpu.PC);
 
 	Assert(ArrayCount(core->video) == NES_VIDEO_HEIGHT);
@@ -249,7 +187,7 @@ int main(int argc, char **argv)
 		Str disk_state = test_read_file(&arena, test_state_path);
 		Assert(disk_state.text && disk_state.size == state.size);
 		Assert(memory_match(disk_state.text, state.data, state.size));
-		nes_emulator_step(core);
+		nes_emulator_step(core, 0);
 		core->video[7][11] = 0;
 		Assert(orb_transfer_save_state_no_chunk(core, byte_span(disk_state.text, disk_state.size)));
 		state_after_load_ppu = core->ppu;

@@ -99,6 +99,7 @@ GFX_UpdateTextureParams;
 
 
 GFX_Texture *gfx_create_texture(GFX_Renderer *renderer, GFX_TextureDesc desc);
+GFX_Texture *gfx_create_texture_from_image(GFX_Renderer *renderer, Image_rgba_u8 image, GFX_Sampler sampler);
 GFX_Texture *gfx_acquire_transient_texture(GFX_Renderer *renderer, GFX_TextureDesc desc);
 void gfx_destroy_texture(GFX_Texture *texture);
 vec2i gfx_texture_size(const GFX_Texture *texture);
@@ -142,6 +143,11 @@ typedef struct
 	Draw_CornerRadii corner_radii;
 	f32              border_thickness;
 	f32              edge_softness;
+	// A null texture makes a solid rectangle. Zero region dimensions extend to the texture edge.
+	GFX_Texture     *texture;
+	rect_f32         texture_region;
+	GFX_Sampler      sampler;
+	GFX_Blender      blender;
 }
 Draw_RectParams;
 
@@ -153,18 +159,6 @@ typedef struct
 	Color_SRGBA end_color;
 }
 Draw_GradientParams;
-
-typedef struct
-{
-	rect_f32    rect;
-	GFX_Texture *texture;
-	rect_i32    region;
-	Color_SRGBA tint;
-	GFX_Sampler sampler;
-	GFX_Blender blender;
-	GFX_Shader  shader;
-}
-Draw_TextureParams;
 
 typedef struct
 {
@@ -261,38 +255,11 @@ typedef struct
 }
 Draw_BackdropParams;
 
-typedef enum
-{
-	DRAW_COMMAND_RECT,
-	DRAW_COMMAND_IMAGE,
-	DRAW_COMMAND_TEXT,
-	DRAW_COMMAND_INSET_SHADOW,
-	DRAW_COMMAND_BACKDROP,
-}
-Draw_CommandKind;
-
-typedef struct Draw_Command Draw_Command;
-struct Draw_Command
-{
-	Draw_Command *next;
-	Draw_CommandKind kind;
-	f32 emission;
-	union
-	{
-		Draw_RectParams                rect;
-		Draw_TextureParams            image;
-		Draw_TextParams                text;
-		Draw_InsetShadowParams inset_shadow;
-		Draw_BackdropParams        backdrop;
-	};
-};
-
 Draw_Context *draw_create(Arena *owner, GFX_Renderer *renderer);
 void draw_push_clip(Draw_Context *draw, rect_f32 clip);
 void draw_pop_clip(Draw_Context *draw);
 void draw_rect(Draw_Context *draw, Draw_RectParams params);
 void draw_gradient(Draw_Context *draw, Draw_GradientParams params);
-void draw_image(Draw_Context *draw, Draw_TextureParams params);
 void draw_crt_scanlines(Draw_Context *draw, GFX_Texture *texture);
 void draw_gaussian_blur(Draw_Context *draw, Draw_GaussianBlurParams params);
 void draw_blur_material(Draw_Context *draw, Draw_BlurMaterialParams params);
@@ -314,8 +281,7 @@ void draw_list_push_unclipped(Draw_Context *draw);
 void draw_list_pop_unclipped(Draw_Context *draw);
 void draw_list_push_emission(Draw_Context *draw, f32 emission);
 void draw_list_pop_emission(Draw_Context *draw);
-Draw_Command *draw_list_rect(Draw_Context *draw, Draw_RectParams params);
-void draw_list_image(Draw_Context *draw, Draw_TextureParams params);
+void draw_list_rect(Draw_Context *draw, Draw_RectParams params);
 void draw_list_text(Draw_Context *draw, Draw_TextParams params);
 void draw_list_inset_shadow(Draw_Context *draw, Draw_InsetShadowParams params);
 void draw_list_backdrop(Draw_Context *draw, Draw_BackdropParams params);
@@ -330,14 +296,9 @@ GFX_Texture *gfx_window_texture(GFX_Window *window);
 void gfx_resize_window(GFX_Window *window, vec2i resolution);
 void gfx_present_window(GFX_Window *window);
 
-GFX_Renderer *gfx_create_renderer(Arena *owner);
-GFX_Window *gfx_create_window(Arena *owner, GFX_Renderer *renderer, OS_Window *window);
-void gfx_resize_window(GFX_Window *window, vec2i size);
-GFX_Texture *gfx_window_texture(GFX_Window *window);
-void gfx_present_window(GFX_Window *window);
-void gfx_begin_frame(Draw_Context *draw);
-void gfx_begin_pass(Draw_Context *draw, GFX_PassDesc desc);
-void gfx_end_pass(Draw_Context *draw);
-void gfx_end_frame(Draw_Context *draw);
+void draw_begin_frame(Draw_Context *draw);
+void draw_begin_pass(Draw_Context *draw, GFX_PassDesc desc);
+void draw_end_pass(Draw_Context *draw);
+void draw_end_frame(Draw_Context *draw);
 
 #endif

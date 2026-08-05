@@ -15,7 +15,6 @@ _(METRIC_DRAW_RUN_BYTES          ,          "draw_run_bytes"      ) \
 _(METRIC_DRAW_COMMANDS           ,           "draw_commands"      ) \
 _(METRIC_DRAW_COMMAND_BYTES      ,     "draw_command_bytes"       ) \
 _(METRIC_DRAW_RECT_COMMANDS      ,      "draw_rect_commands"      ) \
-_(METRIC_DRAW_IMAGE_COMMANDS     ,     "draw_image_commands"      ) \
 _(METRIC_DRAW_TEXT_COMMANDS      ,      "draw_text_commands"      ) \
 _(METRIC_DRAW_EFFECT_COMMANDS    ,    "draw_effect_commands"      ) \
 _(METRIC_DRAW_CLIPPED_COMMANDS   ,   "draw_clipped_commands"      ) \
@@ -68,25 +67,26 @@ Prof_MetricBlock;
 
 #define PROF_MAX_SCOPES 64
 
-typedef struct
+typedef struct Prof_Scope Prof_Scope;
+struct Prof_Scope
 {
-	u32 id;
-}
-Prof_Scope;
+	Prof_Scope  *parent;
+	u16 has_field_index;
+	u16     field_index;
+};
 
 typedef struct
 {
-	Str     name;
-	Seconds    time;
-	u32        freq;
+	f64  time;
+	u32  freq;
 }
 Prof_Field;
 
 typedef struct
 {
 	Prof_MetricBlock metrics;
-	u64                  id;
-	Seconds             time;
+	u64                   id;
+	f64                 time;
 	u32              nfields;
 	Prof_Field        fields[PROF_MAX_SCOPES];
 }
@@ -96,13 +96,13 @@ Prof_Frame;
 #define PROF_TIMELINE_CAPACITY (64 * 128)
 STATIC_ASSERT(!(PROF_TIMELINE_CAPACITY & (PROF_TIMELINE_CAPACITY - 1)));
 
-
 void prof_begin_frame();
 void prof_close_frame();
 u64 prof_timeline_cursor();
 const Prof_Frame *prof_timeline_frame(u64 index);
 void prof_begin_scope(Prof_Scope *scope, Str name);
 void prof_close_scope(Prof_Scope *scope);
+Prof_Field prof_get_total(u32 index);
 
 #define PROF_BLOCK_AUTO(SCOPE, LABEL) \
 	static Prof_Scope SCOPE;           \
@@ -111,3 +111,4 @@ void prof_close_scope(Prof_Scope *scope);
 #define PROF_BLOCK(LABEL) PROF_BLOCK_AUTO(CONCAT(prof_scope_,__COUNTER__), LIT(LABEL))
 
 void prof_add_metric(Prof_Metric metric, i64 add);
+Str prof_get_field_name(u32 index);

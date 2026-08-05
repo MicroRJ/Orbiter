@@ -160,7 +160,7 @@ static void playground_build_profiler_row(UI_Context *ui, u32 row, void *user)
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(28.f));
-	ui_text_box_string(ui, 1, rows->title_style, title);
+	ui_text(ui, 1, rows->title_style, title);
 
 	Str subtitle =
 		row == 0 ? LIT("16.67 ms  |  complete frame") :
@@ -172,7 +172,7 @@ static void playground_build_profiler_row(UI_Context *ui, u32 row, void *user)
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_fixed(28.f));
-	ui_text_box_string(ui, 2, rows->subtitle_style, subtitle);
+	ui_text(ui, 2, rows->subtitle_style, subtitle);
 
 	ui_box_end(ui);
 	ui_box_end(ui);
@@ -473,6 +473,34 @@ static int playground_run_tests(void)
 		CHECK(profiler != UI_KEY("program"), "different strings produce different UI keys");
 		CHECK(ui_key_child(profiler, 1) != ui_key_child(profiler, 2), "integer keys extend a string-keyed structural namespace");
 		CHECK(ui_id_equal(ui_id_child(UI_ID_NONE, profiler), ui_id_child(UI_ID_NONE, UI_KEY("profiler"))), "string keys produce deterministic UI IDs");
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.layout = &UI_FlatLayoutHooks;
+		UI_Box *root = ui_build_begin(ui, UI_KEY("z ordered hits"), LIT("z ordered hits"), root_desc);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(20.f));
+		ui_size(ui, AXIS_Y, ui_fixed(20.f));
+		ui_paint_z(ui, 10);
+		UI_Box *front = ui_box_make(ui, 1, LIT("front"));
+		ui_signal_from_box(front);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(100.f));
+		ui_size(ui, AXIS_Y, ui_fixed(100.f));
+		UI_Box *back = ui_box_make(ui, 2, LIT("back"));
+		ui_signal_from_box(back);
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(ui_box_find_deepest(root, v2(10.f, 10.f)) == front, "hit discovery follows paint z instead of append order");
+		CHECK(ui_box_find_deepest(root, v2(50.f, 50.f)) == back, "an intercept only captures inside its clipped rectangle");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
 	}
 
 	SCRATCH_SCOPE(&arena)
@@ -1375,7 +1403,8 @@ static int playground_run_window(void)
 			previous_size = window->size;
 		}
 
-		gfx_begin_frame(draw);
+		gfx_renderer_begin_frame(renderer);
+		draw_begin_frame(draw);
 		ui_begin_frame(ui);
 		SCRATCH_SCOPE(&frame_arena)
 		{
@@ -1399,16 +1428,16 @@ static int playground_run_window(void)
 				selected_id = hot->id;
 			}
 
-			gfx_begin_pass(draw, (GFX_PassDesc) {
+			draw_begin_pass(draw, (GFX_PassDesc) {
 				.output = gfx_window_texture(gfx_window),
 				.clear = true,
 				.clear_color = color_srgba(0x071013),
 			});
 			playground_draw_tree(&frame_arena, draw, text, text_gfx, font, scene.root, hot, selected_id);
-			gfx_end_pass(draw);
+			draw_end_pass(draw);
 			draw_compose(draw, text_gfx, gfx_window_texture(gfx_window), rect_f32_from_size(v2_from_v2i(window->size)));
 			text_gfx_sync(text_gfx);
-			gfx_end_frame(draw);
+			draw_end_frame(draw);
 			gfx_present_window(gfx_window);
 		}
 		ui_end_frame(ui);

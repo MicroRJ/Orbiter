@@ -5,9 +5,9 @@
 #include "ui.h"
 
 UI_Box *ui_text_box(UI_Context *ui, UI_Key key, UI_TextStyle style, const char *format, ...) __attribute__((format(printf, 4, 5)));
-UI_Box *ui_text_box_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, const char *format, ...) __attribute__((format(printf, 5, 6)));
-UI_Box *ui_text_box_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str text);
-UI_Box *ui_text_box_sized_string(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, Str text);
+UI_Box *ui_text_sized_f(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, const char *format, ...) __attribute__((format(printf, 5, 6)));
+UI_Box *ui_text(UI_Context *ui, UI_Key key, UI_TextStyle style, Str text);
+UI_Box *ui_text_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, Str text);
 
 typedef enum
 {

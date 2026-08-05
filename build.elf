@@ -80,6 +80,7 @@ objects := {
 	{ name = "text_cache",        input = "src/text/text_cache.c" },
 	{ name = "ttf",               input = "src/fonts/ttf/ttf.c" },
 	{ name = "renderer",          input = "src/graphics/d3d11.c" },
+	{ name = "graphics",          input = "src/graphics/graphics.c" },
 	{ name = "base",              input = "src/base/base.c" },
 	{ name = "draw",              input = "src/graphics/draw.c" },
 	{ name = "ui",                input = "src/ui/ui.c" },
@@ -104,7 +105,7 @@ objects := {
 	{ name = "nes_mmc3",         input = "src/nes/src/mappers/mapper_mmc3.c" },
 	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
 	{ name = "serialize",         input = "src/serialize/serialize.c" },
-	{ name = "orb_runtime",       input = "src/orb/orb_runtime.c" },
+	{ name = "orb",               input = "src/orb/orb.c" },
 	{ name = "tabula",            input = "tabula/src/tabula.c" },
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
@@ -114,6 +115,7 @@ objects := {
 	{ name = "gif_recorder",      input = "src/frontend/gif_recorder.c" },
 	{ name = "views",             input = "src/frontend/views.c" },
 	{ name = "panels",            input = "src/frontend/panels.c" },
+	{ name = "app_window",         input = "src/frontend/app_window.c" },
 	{ name = "program_view",      input = "src/frontend/views/program_view.c" },
 	{ name = "cpu_view",          input = "src/frontend/views/cpu_view.c" },
 	{ name = "profiler_view",     input = "src/frontend/views/profiler_view.c" },
@@ -138,7 +140,7 @@ tests := {
 
 executables := tests:clone():extend({
 	// { name = "nes_headless",    input = "tools/headless/main.c" },
-	// { name = "nes_benchmark",   input = "tools/benchmark/main.c" },
+	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
 	// { name = "ui_playground",   input = "tools/ui_playground/main.c" },
 	{ name = "main",            input = "src/main.c" },
 })
@@ -201,6 +203,20 @@ for object := objects[...] ? {
 	if object.name == "base" ? {
 		inputs:add("src/base/base_hash.h")
 		inputs:add("src/base/base_hash.c")
+		inputs:add("src/base/base_image.h")
+		inputs:add("src/base/base_image.c")
+		inputs:add("src/base/base_profiler.h")
+		inputs:add("src/base/base_profiler.c")
+		inputs:add("src/vendor/stb_image.h")
+	}
+	if object.name == "graphics" ? {
+		inputs:add("src/graphics/graphics.h")
+	}
+	if object.name == "app_window" ? {
+		inputs:add("src/app.h")
+		inputs:add("src/frontend/actions.h")
+		inputs:add("src/frontend/library_ui.c")
+		inputs:add("src/frontend/app_window.h")
 	}
 	dependencies := { prepare_build }
 	if object.name == "renderer" ? {
@@ -233,7 +249,9 @@ for executable := executables[...] ? {
 		entry_inputs:add("tools/ui_playground/demo_scroll_history.c")
 	}
 	if executable.name == "main" ? {
-		entry_inputs:add("src/frontend/library_ui.c")
+		entry_inputs:add("src/app.h")
+		entry_inputs:add("src/frontend/actions.h")
+		entry_inputs:add("src/frontend/app_window.h")
 	}
 	entry_task := {
 		name = f"${executable.name} entry",
@@ -295,6 +313,24 @@ for object := objects[...] ? {
 	output := f"build/release/${object.name}.obj"
 	compiler_pdb := f"build/release/${object.name}.compiler.pdb"
 	inputs := { "build.elf", object.input }
+	if object.name == "base" ? {
+		inputs:add("src/base/base_hash.h")
+		inputs:add("src/base/base_hash.c")
+		inputs:add("src/base/base_image.h")
+		inputs:add("src/base/base_image.c")
+		inputs:add("src/base/base_profiler.h")
+		inputs:add("src/base/base_profiler.c")
+		inputs:add("src/vendor/stb_image.h")
+	}
+	if object.name == "graphics" ? {
+		inputs:add("src/graphics/graphics.h")
+	}
+	if object.name == "app_window" ? {
+		inputs:add("src/app.h")
+		inputs:add("src/frontend/actions.h")
+		inputs:add("src/frontend/library_ui.c")
+		inputs:add("src/frontend/app_window.h")
+	}
 	dependencies := { prepare_release }
 	if object.name == "renderer" ? {
 		for shader_task := release_shader_tasks[...] ? {
@@ -318,7 +354,7 @@ release_entry_compiler_pdb := "build/release/main.entry.compiler.pdb"
 release_entry_task := {
 	name = "release main entry",
 	command_line = f"${cc} -c src/main.c /Fo${release_entry_object} /Fd${release_entry_compiler_pdb}${release_options}${release_includes}",
-	inputs = { "build.elf", "src/main.c" },
+	inputs = { "build.elf", "src/main.c", "src/app.h", "src/frontend/actions.h", "src/frontend/app_window.h" },
 	outputs = { release_entry_object },
 	dependencies = { prepare_release },
 }
@@ -361,6 +397,7 @@ package_files := {
 	{ source = "src/fonts/ttf/freetype/FTL.TXT", destination = "licenses/FreeType-FTL.txt" },
 	{ source = "data/fonts/Saira/OFL.txt", destination = "licenses/Saira-OFL.txt" },
 	{ source = "licenses/MSF-GIF-MIT.txt", destination = "licenses/MSF-GIF-MIT.txt" },
+	{ source = "licenses/STB-MIT.txt", destination = "licenses/STB-MIT.txt" },
 	{ source = "platform/LICENSE", destination = "licenses/platform-MIT.txt" },
 }
 

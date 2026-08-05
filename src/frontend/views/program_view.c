@@ -132,7 +132,7 @@ static void program_view_content(ViewFrameData *frame)
 	main_rect.h += frame->header_height;
 	Arena *scratch = frame->scratch;
 	UI_TextStyle font = ui->theme.code;
-	if (!frame->publication->valid || !nes_is_booted(frame->emulator))
+	if (!frame->publication->valid || !nes_emulator_ready_to_run(frame->emulator))
 	{
 		ui_draw_text(ui, main_rect, font, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
 		return;
@@ -243,7 +243,10 @@ static void program_view_content(ViewFrameData *frame)
 		ui_push_emission(ui, address == cpu.PC ? ui->theme.palette.emission_high : has_breakpoint ? ui->theme.palette.emission_medium : 0.f);
 		if (has_breakpoint)
 		{
-			ui_draw_rect(ui, (rect_f32) { row_rect.x - 12.f, row_rect.y + row_height * 0.35f, 4.f, 4.f }, ui->theme.program_counter);
+			ui_draw_rect(ui, (Draw_RectParams) {
+				.rect = { row_rect.x - 12.f, row_rect.y + row_height * 0.35f, 4.f, 4.f },
+				.color = ui->theme.program_counter,
+			});
 		}
 		UI_TextStyle address_style = font;
 		address_style.color = address_color;
@@ -275,9 +278,11 @@ static void program_view_content(ViewFrameData *frame)
 		{
 			if (instruction.bridges & 1)
 			{
-				ui_draw_rect(ui, rect_f32_translate_axis(bridge_rect,
-					AXIS_X, i * indent_size_px),
-					ui->theme.program_bridge);
+				ui_draw_rect(ui, (Draw_RectParams) {
+					.rect = rect_f32_translate_axis(bridge_rect,
+						AXIS_X, i * indent_size_px),
+					.color = ui->theme.program_bridge,
+				});
 			}
 		}
 	}
@@ -303,7 +308,7 @@ void program_view_build_ui(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
 	Str title = LIT("PROGRAM");
-	if (nes_is_booted(frame->emulator) && frame->publication->valid)
+	if (nes_emulator_ready_to_run(frame->emulator) && frame->publication->valid)
 	{
 		u16 cpu_address = frame->publication->cpu.PC;
 		NES_MapAddr mapped = nes_emulator_cpu_map(frame->emulator, cpu_address);

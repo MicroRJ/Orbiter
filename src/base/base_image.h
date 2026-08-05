@@ -18,6 +18,7 @@ typedef struct
 Image_rgba_u8;
 
 Image_rgba_u8 push_image_rgba_u8(Arena *arena, vec2i reso);
+Image_rgba_u8 push_image_rgba_u8_from_file(Arena *arena, Str path);
 Image_r_u8 push_image_r_u8(Arena *arena, vec2i reso);
 Image_r_u8 push_image_r_u8_filled(Arena *arena, vec2i reso, u32 color);
 Image_rgba_u8 push_image_rgba_u8_filled(Arena *arena, vec2i reso, u32 fill);

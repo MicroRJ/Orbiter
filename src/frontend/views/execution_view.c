@@ -90,7 +90,10 @@ static void prg_activity_draw_segment(UI_Context *ui, vec2 from, vec2 to, f32 th
 		segment.w = fabsf(to.x - from.x);
 		segment.h = thickness;
 	}
-	ui_draw_rect(ui, segment, color);
+	ui_draw_rect(ui, (Draw_RectParams) {
+		.rect = segment,
+		.color = color,
+	});
 }
 
 static Color_SRGBA prg_activity_edge_color(const UI_Theme *theme, u32 source_offset, u32 destination_offset)
@@ -260,12 +263,15 @@ static void prg_activity_draw_crawler(ViewFrameData *frame, const PRGActivityGri
 	color.a = 0.55f + pulse * 0.45f;
 	ui_draw_rect_outline(frame->ui, cell, Max(1.f, Min(3.f, grid->cell_extent * 0.16f)), color);
 	f32 dot_size = Max(2.f, Min(6.f, grid->cell_extent * 0.35f));
-	ui_draw_rect(frame->ui, (rect_f32) {
-		.x = cell.x + (cell.w - dot_size) * 0.5f,
-		.y = cell.y + (cell.h - dot_size) * 0.5f,
-		.w = dot_size,
-		.h = dot_size,
-	}, color);
+	ui_draw_rect(frame->ui, (Draw_RectParams) {
+		.rect = {
+			.x = cell.x + (cell.w - dot_size) * 0.5f,
+			.y = cell.y + (cell.h - dot_size) * 0.5f,
+			.w = dot_size,
+			.h = dot_size,
+		},
+		.color = color,
+	});
 }
 
 static void prg_activity_view_content(ViewFrameData *frame)
@@ -359,7 +365,10 @@ static void prg_activity_view_content(ViewFrameData *frame)
 		if (include_prg_ram && cell_begin >= program->prg_rom_byte_count) {
 			color = color_srgba_mix(color, ui->theme.program_bridge, 0.06f);
 		}
-		ui_draw_rect(ui, cell, color);
+		ui_draw_rect(ui, (Draw_RectParams) {
+			.rect = cell,
+			.color = color,
+		});
 		if (cell_index == active_cell && grid.cell_extent >= 4.f) {
 			ui_draw_rect_outline(ui, cell, 1.f, ui->theme.text_vibrant);
 		}

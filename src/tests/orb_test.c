@@ -1,4 +1,4 @@
-#include "orb_runtime.h"
+#include "orb.h"
 
 static void orb_test_write_u16(u8 *data, u16 value)
 {

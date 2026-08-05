@@ -1,5 +1,23 @@
-[TODO]
+[CHANGED]
+	The emulator module no longer dictates serialization nor cartridge loading.
+	It is now a pure executioner.
+	It has a single setup procedure, that merely all it does is copy memory and reset its devices.
 
+	Orb is now the unified representation for both, disk saves and the runtime model.
+	Each orb contains a game and its saves along with metadata.
+	iNES files are converted into orbs, and saved to disk as orbs.
+
+	The debugger is no longer a complete proxy for the emulator, it now only handles the debug execution path,
+	introspection and unwind semantics.
+
+	The emulator no longer stores nor manages a circular trace buffer.
+	The entire bookkeeping system is gone now.
+	Now the debugger simply passes a trace buffer to the run function, the emulator fills it with trace entries.
+	Entries no longer store the scheduler step, instead each trace corresponds to one scheduler step.
+	Traces are now unpacked, since packing didn't seem to make much of a difference last time, thought we could
+	revisit later.
+
+[TODO]
 -- UPCOMING REFACTOR OF DOOM --
 
 A) the emulator itself doesn't get to pick what it serializes or not, that's the job of the

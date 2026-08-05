@@ -1,37 +1,28 @@
+#ifndef ORBITER_APP_ACTIONS_H
+#define ORBITER_APP_ACTIONS_H
 
-// NOTE(RJ) eventually these could become scripts
+#include "base.h"
+#include "os_graphical.h"
+
 typedef enum
 {
 	APP_ACTION_NONE,
+
+	// Window actions
 	APP_ACTION_TOGGLE_LIBRARY_OVERLAY,
-	APP_ACTION_SPLIT_PANEL_HORIZONTALLY,
-	APP_ACTION_SPLIT_PANEL_VERTICALLY,
+	APP_ACTION_SPLIT_PANEL,
 	APP_ACTION_CLOSE_PANEL,
-	APP_ACTION_OPEN_VIEW_0,
-	APP_ACTION_OPEN_VIEW_1,
-	APP_ACTION_OPEN_VIEW_2,
-	APP_ACTION_OPEN_VIEW_3,
-	APP_ACTION_OPEN_VIEW_4,
-	APP_ACTION_OPEN_VIEW_5,
-	APP_ACTION_OPEN_VIEW_6,
-	APP_ACTION_OPEN_VIEW_7,
-	APP_ACTION_OPEN_VIEW_8,
-	APP_ACTION_OPEN_VIEW_9,
-	APP_ACTION_OPEN_VIEW_10,
-	APP_ACTION_OPEN_VIEW_11,
-	APP_ACTION_OPEN_VIEW_12,
-	APP_ACTION_OPEN_VIEW_13,
-	APP_ACTION_OPEN_VIEW_14,
-	APP_ACTION_OPEN_VIEW_15,
-
-	APP_ACTION_BEGIN_REWINDING_BACKWARDS,
-	APP_ACTION_BEGIN_REWINDING_FORWARD,
-	APP_ACTION_STOP_REWINDING,
-
-	APP_ACTION_SUPPRESS_EMULATOR_INPUT,
+	APP_ACTION_OPEN_VIEW,
 	APP_ACTION_TOGGLE_FULLSCREEN,
 	APP_ACTION_TOGGLE_PPU_FULLSCREEN,
 	APP_ACTION_EXIT_PPU_FULLSCREEN,
+	APP_ACTION_TAKE_APP_SCREENSHOT,
+	APP_ACTION_TOGGLE_APP_CAPTURE,
+	APP_ACTION_TOGGLE_CRT,
+	APP_ACTION_ADJUST_UI_FONT_SIZE,
+	APP_ACTION_RESET_UI_FONT_SIZE,
+
+	// Application actions
 	APP_ACTION_OPEN_ROM,
 	APP_ACTION_RESET,
 	APP_ACTION_SAVE_STATE,
@@ -39,34 +30,86 @@ typedef enum
 	APP_ACTION_DUMP_PROGRAM,
 	APP_ACTION_TOGGLE_RUNNING,
 	APP_ACTION_STEP,
+	APP_ACTION_SCRUB,
+	APP_ACTION_TAKE_PPU_SCREENSHOT,
 	APP_ACTION_TOGGLE_PPU_CAPTURE,
-	APP_ACTION_TOGGLE_APP_CAPTURE,
-	APP_ACTION_TOGGLE_CRT,
-	APP_ACTION_INCREASE_UI_FONT_SIZE,
-	APP_ACTION_DECREASE_UI_FONT_SIZE,
-	APP_ACTION_RESET_UI_FONT_SIZE,
+	APP_ACTION_ADJUST_VOLUME,
 	APP_ACTION_MUTE,
-	APP_LOWER_VOLUME,
-	APP_RAISE_VOLUME,
 }
-AppAction;
+App_ActionKind;
+
+typedef struct
+{
+	App_ActionKind kind;
+	union
+	{
+		struct { AXIS axis; } split_panel;
+		struct { u32 index; } open_view;
+		struct { i32 direction; } scrub;
+		struct { i32 pixels; } ui_font;
+		struct { f32 delta; } volume;
+	};
+}
+App_Action;
 
 typedef enum
 {
-	KEY_CHORD_ON_RELEASE = OS_EVENT_KEY_RELEASE,
-	KEY_CHORD_ON_PRESSED = OS_EVENT_KEY_PRESS,
+	APP_KEY_CHORD_ON_PRESS,
+	APP_KEY_CHORD_ON_RELEASE,
+	APP_KEY_CHORD_WHILE_DOWN,
 }
-KeyChordActivation;
+App_KeyChordActivation;
 
-typedef struct {
-	KeyChordActivation activation;
-	OS_Key             key;
-	OS_ModifierFlags   modifiers;
+typedef struct
+{
+	App_KeyChordActivation activation;
+	OS_Key key;
+	u32 modifiers;
 }
-KeyChord;
+App_KeyChord;
 
-typedef struct {
-	AppAction action;
-	KeyChord  key_chord;
+typedef struct
+{
+	App_Action action;
+	App_KeyChord key_chord;
+	b32 allow_repeat;
 }
-KeyBind;
+App_KeyBinding;
+
+typedef struct
+{
+	const App_KeyBinding *bindings;
+	u32 count;
+}
+App_KeyMap;
+
+typedef u32 App_GameInput;
+enum
+{
+	APP_GAME_INPUT_UP     = 1 << 0,
+	APP_GAME_INPUT_DOWN   = 1 << 1,
+	APP_GAME_INPUT_LEFT   = 1 << 2,
+	APP_GAME_INPUT_RIGHT  = 1 << 3,
+	APP_GAME_INPUT_A      = 1 << 4,
+	APP_GAME_INPUT_B      = 1 << 5,
+	APP_GAME_INPUT_START  = 1 << 6,
+	APP_GAME_INPUT_SELECT = 1 << 7,
+};
+
+typedef enum
+{
+	APP_TRANSPORT_PAUSED = 0,
+	APP_TRANSPORT_RUNNING,
+	APP_TRANSPORT_SCRUBBING,
+}
+App_TransportState;
+
+typedef struct
+{
+	App_TransportState state;
+	App_TransportState return_state;
+	i32 direction;
+}
+App_Transport;
+
+#endif

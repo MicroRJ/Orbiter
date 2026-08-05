@@ -168,7 +168,7 @@ void nes_target_publish(NES_TargetPublication *publication, NES_Emulator *emulat
 {
 	Assert(publication);
 	Assert(emulator);
-	Assert(nes_is_booted(emulator));
+	Assert(nes_emulator_ready_to_run(emulator));
 
 	publication->valid = false;
 	publication->cpu = emulator->cpu;

@@ -151,12 +151,11 @@ void ui_push_unclipped(UI_Context *ui);
 void ui_pop_unclipped(UI_Context *ui);
 void ui_push_emission(UI_Context *ui, f32 emission);
 void ui_pop_emission(UI_Context *ui);
-Draw_Command *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color);
+void ui_draw_rect(UI_Context *ui, Draw_RectParams params);
 void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SRGBA color);
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength);
 void ui_draw_backdrop(UI_Context *ui, rect_f32 rect, f32 roundness);
 
-void ui_draw_image(UI_Context *ui, Draw_TextureParams params);
 vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, Str text);
 vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, Str text);
 UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_height, f32 *position, f32 content_height);

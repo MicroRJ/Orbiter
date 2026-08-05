@@ -1,5 +1,9 @@
 #include "panels.h"
 
+#define TABULA_USE_EXTERNAL_TYPES
+#include "tabula/tabula.h"
+#undef TABULA_USE_EXTERNAL_TYPES
+
 struct PanelViewAllocation
 {
 	PanelViewAllocation *next_free;
@@ -175,6 +179,170 @@ Panels *panels_create(Arena *owner)
 	panels->root = panel_new(panels, 0, PANEL_EMPTY);
 	panels->focused = panels->root;
 	return panels;
+}
+
+static Tabula_String panel_tabula_string(Str string)
+{
+	return (Tabula_String) { string.text, string.size };
+}
+
+static Tabula_Value panel_tabula_table_value(Tabula_Table *table)
+{
+	return (Tabula_Value) { .type = TABULA_VALUE_TABLE, .as.table = table };
+}
+
+static void panel_tabula_set(Tabula_Table *table, Tabula_String key, Tabula_Value value)
+{
+	Assert(tabula_table_set(table, key, value));
+}
+
+static const Tabula_Value *panel_tabula_get(const Tabula_Table *table, Tabula_String key, Tabula_ValueType type)
+{
+	const Tabula_Value *value = tabula_table_get(table, key);
+	return value && value->type == type ? value : 0;
+}
+
+static b32 panel_tabula_string_match(Tabula_String a, Tabula_String b)
+{
+	return a.length == b.length && memory_match(a.data, b.data, a.length);
+}
+
+static const ViewDesc *panel_tabula_view_desc(Tabula_String name)
+{
+	for (u32 i = 0; i < view_desc_count; ++i)
+	{
+		const ViewDesc *desc = &view_descs[i];
+		if (panel_tabula_string_match(name, panel_tabula_string(str_from_cstr(desc->name)))) return desc;
+	}
+	return 0;
+}
+
+static Tabula_Table *panel_layout_to_table(Tabula_Context *context, const Panel *panel)
+{
+	Assert(context);
+	Assert(panel);
+
+	Tabula_Table *table = tabula_table_create(context);
+	Assert(table);
+
+	switch (panel->kind)
+	{
+		case PANEL_EMPTY:
+		{
+			panel_tabula_set(table, TABULA_STRING_LITERAL("kind"), tabula_value_string(context, TABULA_STRING_LITERAL("empty")));
+		}
+		break;
+
+		case PANEL_VIEW:
+		{
+			Assert(panel->view);
+			Assert(panel->view->desc);
+			Assert(panel->view->desc->name);
+			panel_tabula_set(table, TABULA_STRING_LITERAL("kind"), tabula_value_string(context, TABULA_STRING_LITERAL("view")));
+			panel_tabula_set(table, TABULA_STRING_LITERAL("view"), tabula_value_string(context, panel_tabula_string(str_from_cstr(panel->view->desc->name))));
+		}
+		break;
+
+		case PANEL_SPLIT:
+		{
+			Assert(panel->left);
+			Assert(panel->right);
+			Assert(panel->axis == AXIS_X || panel->axis == AXIS_Y);
+			panel_tabula_set(table, TABULA_STRING_LITERAL("kind"), tabula_value_string(context, TABULA_STRING_LITERAL("split")));
+			panel_tabula_set(table, TABULA_STRING_LITERAL("axis"), tabula_value_string(context, panel->axis == AXIS_X ? TABULA_STRING_LITERAL("x") : TABULA_STRING_LITERAL("y")));
+			panel_tabula_set(table, TABULA_STRING_LITERAL("ratio"), tabula_value_number(panel->ratio));
+			panel_tabula_set(table, TABULA_STRING_LITERAL("left"), panel_tabula_table_value(panel_layout_to_table(context, panel->left)));
+			panel_tabula_set(table, TABULA_STRING_LITERAL("right"), panel_tabula_table_value(panel_layout_to_table(context, panel->right)));
+		}
+		break;
+
+		default: Assert(!"invalid panel kind"); break;
+	}
+
+	return table;
+}
+
+Tabula_Table *panels_layout_to_table(const Panels *panels, Tabula_Context *context)
+{
+	Assert(panels);
+	Assert(panels->root);
+	Assert(context);
+
+	Tabula_Table *table = tabula_table_create(context);
+	Assert(table);
+	panel_tabula_set(table, TABULA_STRING_LITERAL("version"), tabula_value_integer(1));
+	panel_tabula_set(table, TABULA_STRING_LITERAL("root"), panel_tabula_table_value(panel_layout_to_table(context, panels->root)));
+	return table;
+}
+
+static Panel *panel_layout_from_table(Panels *panels, Panel *parent, const Tabula_Table *table, u32 depth)
+{
+	if (depth >= 64) return 0;
+	const Tabula_Value *kind = panel_tabula_get(table, TABULA_STRING_LITERAL("kind"), TABULA_VALUE_STRING);
+	if (!kind) return 0;
+
+	if (panel_tabula_string_match(kind->as.string, TABULA_STRING_LITERAL("empty"))) {
+		return panel_new(panels, parent, PANEL_EMPTY);
+	}
+
+	if (panel_tabula_string_match(kind->as.string, TABULA_STRING_LITERAL("view")))
+	{
+		const Tabula_Value *view = panel_tabula_get(table, TABULA_STRING_LITERAL("view"), TABULA_VALUE_STRING);
+		if (!view) return 0;
+		const ViewDesc *desc = panel_tabula_view_desc(view->as.string);
+		if (!desc) return 0;
+
+		Panel *panel = panel_new(panels, parent, PANEL_EMPTY);
+		panel_open_view(panels, panel, desc);
+		return panel;
+	}
+
+	if (panel_tabula_string_match(kind->as.string, TABULA_STRING_LITERAL("split")))
+	{
+		const Tabula_Value *axis = panel_tabula_get(table, TABULA_STRING_LITERAL("axis"), TABULA_VALUE_STRING);
+		const Tabula_Value *ratio = panel_tabula_get(table, TABULA_STRING_LITERAL("ratio"), TABULA_VALUE_NUMBER);
+		const Tabula_Value *left = panel_tabula_get(table, TABULA_STRING_LITERAL("left"), TABULA_VALUE_TABLE);
+		const Tabula_Value *right = panel_tabula_get(table, TABULA_STRING_LITERAL("right"), TABULA_VALUE_TABLE);
+		if (!axis || !ratio || !left || !right || !(ratio->as.number >= 0.05 && ratio->as.number <= 0.95)) return 0;
+
+		AXIS split_axis;
+		if (panel_tabula_string_match(axis->as.string, TABULA_STRING_LITERAL("x"))) split_axis = AXIS_X;
+		else if (panel_tabula_string_match(axis->as.string, TABULA_STRING_LITERAL("y"))) split_axis = AXIS_Y;
+		else return 0;
+
+		Panel *panel = panel_new(panels, parent, PANEL_SPLIT);
+		panel->axis = split_axis;
+		panel->ratio = (f32)ratio->as.number;
+		panel->left = panel_layout_from_table(panels, panel, left->as.table, depth + 1);
+		if (panel->left) panel->right = panel_layout_from_table(panels, panel, right->as.table, depth + 1);
+		if (!panel->left || !panel->right)
+		{
+			panel_free_tree(panels, panel);
+			return 0;
+		}
+		return panel;
+	}
+
+	return 0;
+}
+
+b32 panels_layout_from_table(Panels *panels, const Tabula_Table *table)
+{
+	Assert(panels);
+	Assert(table);
+
+	const Tabula_Value *version = panel_tabula_get(table, TABULA_STRING_LITERAL("version"), TABULA_VALUE_INTEGER);
+	const Tabula_Value *root_value = panel_tabula_get(table, TABULA_STRING_LITERAL("root"), TABULA_VALUE_TABLE);
+	if (!version || version->as.integer != 1 || !root_value) return false;
+
+	Panel *root = panel_layout_from_table(panels, 0, root_value->as.table, 0);
+	if (!root) return false;
+
+	panel_free_tree(panels, panels->root);
+	panels->root = root;
+	panels->focused = panel_first_leaf(root);
+	panels->split_drag_offset = 0.f;
+	return true;
 }
 
 static void panel_save_layout(Panel *panel, Arena *arena)

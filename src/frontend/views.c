@@ -52,7 +52,7 @@ ViewFrameData view_begin_frame(ViewFrameData *frame, Str title)
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_emission(ui, 0.15f);
 	ui_paint_z(ui, UI_Z_HEADER);
-	ui_text_box_string(ui, 1, style, title);
+	ui_text(ui, 1, style, title);
 	ui_box_end(ui);
 	ui_box_end(ui);
 

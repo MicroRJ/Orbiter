@@ -9,6 +9,8 @@
 typedef struct Panels Panels;
 typedef struct Panel Panel;
 typedef struct PanelViewAllocation PanelViewAllocation;
+typedef struct Tabula_Context Tabula_Context;
+typedef struct Tabula_Table Tabula_Table;
 
 typedef enum
 {
@@ -45,6 +47,9 @@ struct Panels
 
 Panels *panels_create(Arena *owner);
 UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame, rect_f32 rect);
+// The returned table and all of its contents are owned by context.
+Tabula_Table *panels_layout_to_table(const Panels *panels, Tabula_Context *context);
+b32 panels_layout_from_table(Panels *panels, const Tabula_Table *table);
 Str panels_save_layout(Panels *panels, Arena *arena);
 b32 panels_restore_layout(Panels *panels, Str text);
 void panel_close(Panels *panels, Panel *panel);

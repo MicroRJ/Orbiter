@@ -16,6 +16,7 @@ CPU_MappingSnapshot;
 enum
 {
 	DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY = 256,
+	DEBUGGER_TRACE_CAPACITY              = 16 * 1024,
 	DEBUGGER_SNAPSHOT_CAPACITY     = 1024,
 	DEBUGGER_SNAPSHOT_MASK         = DEBUGGER_SNAPSHOT_CAPACITY - 1,
 	DEBUGGER_RUNTIME_CHR_RAM_SIZE  = KiB(8),
@@ -48,6 +49,7 @@ struct Debugger
 	Arena *arena;
 	Arena program_work_arena;
 	NES_Emulator *emulator;
+	NES_TraceEntry *trace;
 	Program program;
 	ExecutionGraph     execution_graph;
 	ExecutionPathState execution_path;
@@ -57,8 +59,6 @@ struct Debugger
 	b32 breakpoint_hit;
 	b32 breakpoint_resume_pending;
 	b32 warned_missing_cartridge;
-	u64 personal_scheduler_trace_index;
-	u64 personal_scheduler_trace_clock;
 
 	NES_MapAddr       program_breakpoints[DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY];
 	u64               snapshots_rewind_marker;

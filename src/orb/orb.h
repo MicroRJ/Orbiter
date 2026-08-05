@@ -1,56 +1,132 @@
 #ifndef ORB_H
 #define ORB_H
 
-#include "base.h"
+#include "nes/emulator.h"
 
-#define ORB_FOURCC(a, b, c, d) ((u32)(u8)(a) | (u32)(u8)(b) << 8 | (u32)(u8)(c) << 16 | (u32)(u8)(d) << 24)
+typedef struct Orb Orb;
 
-enum
+typedef enum
 {
-	ORB_FILE_VERSION_CURRENT = 3,
+	ORB_SAVE_RESUME = 1,
+	ORB_SAVE_MANUAL,
+}
+Orb_SaveKind;
 
-	ORB_CHUNK_METADATA        = ORB_FOURCC('M', 'E', 'T', 'A'),
-	ORB_CHUNK_CARTRIDGE       = ORB_FOURCC('C', 'A', 'R', 'T'),
-	ORB_CHUNK_PRG_ROM         = ORB_FOURCC('P', 'R', 'G', ' '),
-	ORB_CHUNK_CHR_ROM         = ORB_FOURCC('C', 'H', 'R', ' '),
-	ORB_CHUNK_SAVE            = ORB_FOURCC('S', 'A', 'V', 'E'),
-	ORB_CHUNK_SAVE_METADATA   = ORB_FOURCC('S', 'M', 'E', 'T'),
-	ORB_CHUNK_STATE           = ORB_FOURCC('S', 'T', 'A', 'T'),
-	ORB_CHUNK_THUMBNAIL       = ORB_FOURCC('T', 'H', 'M', 'B'),
+typedef enum
+{
+	ORB_PIXEL_FORMAT_RGBA8 = 1,
+}
+Orb_PixelFormat;
 
-	ORB_CHUNK_REQUIRED  = 1 << 0,
-	ORB_CHUNK_HAS_CRC32 = 1 << 1,
-	ORB_CHUNK_KNOWN_FLAGS = ORB_CHUNK_REQUIRED | ORB_CHUNK_HAS_CRC32,
+typedef struct
+{
+	u8 bytes[16];
+}
+Orb_Id;
+
+typedef struct
+{
+	u32 width;
+	u32 height;
+	u32 stride;
+	Orb_PixelFormat format;
+	ByteSpan pixels;
+}
+Orb_Thumbnail;
+
+typedef struct
+{
+	u64 scheduler_clock;
+	u64 sample_phase;
+	u8 values[32];
+	NES_InputState input_state;
+	u32 cpu_stall_cycles;
+	NES_CPUState cpu;
+	NES_PPUState ppu;
+	NES_APUState apu;
+	u8 controllers[2];
+	u8 wram[NES_WRAM_SIZE];
+	u8 vram[NES_VRAM_SIZE];
+	u8 chr_ram[NES_MAX_CHR_RAM_SIZE];
+	u8 prg_ram[NES_MAX_PRG_RAM_SIZE];
+	u8 video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+}
+Orb_SaveState;
+
+typedef struct
+{
+	u64 kind;
+	u64 flags;
+	Orb_Id id;
+	u64 created_unix_ms;
+	u64 updated_unix_ms;
+	u64 play_time_ms;
+}
+Orb_SaveMetadata;
+
+typedef struct Orb_SaveNode Orb_SaveNode;
+struct Orb_SaveNode
+{
+	Orb_SaveNode *next;
+	Orb *orb;
+	Orb_SaveMetadata metadata;
+	Orb_Thumbnail thumbnail;
+	Orb_SaveState state;
 };
 
 typedef struct
 {
-	u32 tag;
-	u16 version;
-	u16 flags;
-	u32 checksum;
-	u64 data_offset;
-	u64 data_size;
-	u64 stream_size;
+	u32 mapper;
+	b32 vmirror;
+	b32 has_trainer;
+	b32 four_screen;
+	u32 prg_rom_size;
+	u32 chr_rom_size;
 }
-Orb_Chunk;
+Orb_GameMetadata;
 
 typedef struct
 {
-	u64 header_offset;
-	u64 data_offset;
-	u32 tag;
-	u16 version;
-	u16 flags;
+	Orb_GameMetadata metadata;
+	u8 *prg_rom_data;
+	u8 *chr_rom_data;
+	u8 *trainer_data;
 }
-Orb_ChunkToken;
+Orb_Game;
 
-void orb_write_header(ByteStream *writer);
-b32 orb_read_header(ByteStream *reader);
-Orb_ChunkToken orb_begin_chunk(ByteStream *writer, u32 tag, u16 version, u16 flags);
-void orb_end_chunk(ByteStream *writer, Orb_ChunkToken chunk);
-void orb_write_chunk(ByteStream *writer, u32 tag, u16 version, u16 flags, ByteSpan data);
-b32 orb_read_chunk(ByteStream *reader, Orb_Chunk *chunk);
-b32 orb_end_read_chunk(ByteStream *reader, Orb_Chunk chunk);
+typedef struct Orb Orb;
+struct Orb
+{
+	Str disk_path;
+	Orb_Game game;
+	Hash256 game_hash;
+	Str title;
+	u64 first_played_unix_ms;
+	u64 last_played_unix_ms;
+	u64 play_time_ms;
+	Orb_SaveNode *first_save;
+	Orb_SaveNode *last_save;
+	u32 save_count;
+};
+
+typedef struct
+{
+	Arena arena;
+	Str path;
+	Orb *orb;
+}
+Orb_Store;
+
+ByteSpan orb_write(Arena *arena, Orb *orb);
+// Variable-sized data points into source; source must outlive the returned Orb.
+Orb *orb_read(Arena *arena, ByteSpan source);
+// Game data is borrowed and must outlive the returned Orb.
+Orb *orb_from_game(Orb_Store *store, Orb_Game game);
+// Replaces the store's current contents; failure leaves it empty. The store owns the loaded file data.
+Orb *orb_from_file(Orb_Store *store, Str path);
+Hash256 orb_game_hash(Orb_Game game);
+
+void orb_store_init(Orb_Store *store);
+void orb_store_destroy(Orb_Store *store);
 
 #endif

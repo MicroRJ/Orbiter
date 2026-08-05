@@ -19,6 +19,7 @@
 /data/user.tab
 /data/*.orb
 /data/*.orbiter
+/data/orbs/
 /data/*.gif
 /data/roms/
 /data/saves/

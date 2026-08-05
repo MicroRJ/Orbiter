@@ -945,21 +945,53 @@ void ui_box_layout(UI_Box *box, rect_f32 rect)
 	ui_box_layout_clipped(box, rect, rect);
 }
 
-UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)
+typedef struct
 {
-	if (!box || !rect_f32_contains(box->clip_rect, point)) {
-		return 0;
-	}
-	if (box->hit_intercept) {
-		return box;
-	}
-	for (UI_Box *child = box->last; child; child = child->prev)
+	UI_Box *box;
+	i32 z;
+	b32 interactive;
+	u64 order;
+}
+UI_BoxHit;
+
+static b32 ui_box__hit_is_better(i32 z, b32 interactive, u64 order, UI_BoxHit best)
+{
+	if (!best.box) return true;
+	if (z != best.z) return z > best.z;
+	if (interactive != best.interactive) return interactive;
+	return order > best.order;
+}
+
+static void ui_box__find_deepest(UI_Box *box, vec2 point, u64 *order, UI_BoxHit *best)
+{
+	if (!box) return;
+	u64 box_order = (*order)++;
+	if (!rect_f32_contains(box->clip_rect, point)) return;
+
+	b32 contains_point = rect_f32_contains(box->rect, point);
+	if (box->hit_intercept && contains_point)
 	{
-		UI_Box *result = ui_box_find_deepest(child, point);
-		if (result) {
-			return result;
+		if (ui_box__hit_is_better(box->paint.z, true, box_order, *best)) {
+			*best = (UI_BoxHit) { .box = box, .z = box->paint.z, .interactive = true, .order = box_order };
 		}
 	}
-	if (box->hit_passthrough) return 0;
-	return rect_f32_contains(box->rect, point) ? box : 0;
+
+	for (UI_Box *child = box->first; child; child = child->next) {
+		ui_box__find_deepest(child, point, order, best);
+	}
+
+	if (!box->hit_intercept && !box->hit_passthrough && contains_point)
+	{
+		if (ui_box__hit_is_better(box->paint.z, false, box_order, *best)) {
+			*best = (UI_BoxHit) { .box = box, .z = box->paint.z, .order = box_order };
+		}
+	}
+}
+
+UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)
+{
+	u64 order = 0;
+	UI_BoxHit best = {};
+	ui_box__find_deepest(box, point, &order, &best);
+	return best.box;
 }

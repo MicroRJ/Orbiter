@@ -39,6 +39,14 @@ captures. It is distributed under the MIT License. The complete text is
 available as `licenses/MSF-GIF-MIT.txt` in the binary distribution and in
 `src/vendor/msf_gif.h` in the source tree.
 
+## stb
+
+stb_image 2.30 is used to decode image files, and stb_image_write 1.16 is used
+to encode PNG screenshots. They are copyright Sean Barrett and other
+contributors and are distributed under the MIT License. The complete text is
+available as `licenses/STB-MIT.txt` in both the source tree and binary
+distribution.
+
 ## MicroRJ Platform
 
 Orbiter uses the MicroRJ platform library for operating-system integration.
