@@ -24,9 +24,22 @@ static inline void ppu_bus_write(NES_Emulator *core, u16 address, u8 value)
 	nes_ppu_bus_write(core, address, value);
 }
 
-void nes_ppu_reset(NES_PPUState *ppu)
+// https://www.nesdev.org/wiki/PPU_power_up_state
+void nes_ppu_power_on(NES_PPUState *ppu)
 {
 	memory_zero(ppu, sizeof(*ppu));
+	nes_ppu_reset(ppu);
+}
+
+void nes_ppu_reset(NES_PPUState *ppu)
+{
+	NES_PPUState previous = *ppu;
+	memory_zero(ppu, sizeof(*ppu));
+	ppu->v = previous.v;
+	ppu->PPUSTATUS = previous.PPUSTATUS;
+	ppu->OAMADDR = previous.OAMADDR;
+	memory_copy(ppu->_oam, previous._oam, sizeof(ppu->_oam));
+	memory_copy(ppu->_pram, previous._pram, sizeof(ppu->_pram));
 }
 
 NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)

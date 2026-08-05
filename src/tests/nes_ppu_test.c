@@ -50,10 +50,60 @@ static PPU_TestFixture ppu_test_fixture_create(void)
 
 static void ppu_test_prepare(PPU_TestFixture *fixture)
 {
-	nes_ppu_reset(&fixture->core->ppu);
+	nes_ppu_power_on(&fixture->core->ppu);
 	memory_zero(fixture->core->_wram, sizeof(fixture->core->_wram));
 	memory_zero(fixture->core->_vram, sizeof(fixture->core->_vram));
 	fixture->core->cpu_stall_cycles = 0;
+}
+
+static void ppu_test_power_and_reset(PPU_TestFixture *fixture)
+{
+	ppu_test_name = "PPU power and reset state";
+	ppu_test_prepare(fixture);
+	NES_PPUState *ppu = &fixture->core->ppu;
+	ppu->xtick = 123;
+	ppu->ytick = 45;
+	ppu->t = 0x3456;
+	ppu->v = 0x2345;
+	ppu->x = 7;
+	ppu->w = 1;
+	ppu->tile_id = 0x11;
+	ppu->chr_r0 = 0x2222;
+	ppu->spr0_enable = 1;
+	ppu->PPUCTRL = 0xFF;
+	ppu->PPUMASK = 0xFF;
+	ppu->PPUSTATUS = 0xE0;
+	ppu->OAMADDR = 0x44;
+	ppu->data_read_buf = 0x55;
+	ppu->nsprs = 8;
+	ppu->_oam[9] = 0x66;
+	ppu->_pram[7] = 0x77;
+
+	nes_ppu_reset(ppu);
+	PPU_EXPECT_EQUAL(0, ppu->xtick);
+	PPU_EXPECT_EQUAL(0, ppu->ytick);
+	PPU_EXPECT_EQUAL(0, ppu->t);
+	PPU_EXPECT_EQUAL(0x2345, ppu->v);
+	PPU_EXPECT_EQUAL(0, ppu->x);
+	PPU_EXPECT_EQUAL(0, ppu->w);
+	PPU_EXPECT_EQUAL(0, ppu->tile_id);
+	PPU_EXPECT_EQUAL(0, ppu->chr_r0);
+	PPU_EXPECT_EQUAL(0, ppu->spr0_enable);
+	PPU_EXPECT_EQUAL(0, ppu->PPUCTRL);
+	PPU_EXPECT_EQUAL(0, ppu->PPUMASK);
+	PPU_EXPECT_EQUAL(0xE0, ppu->PPUSTATUS);
+	PPU_EXPECT_EQUAL(0x44, ppu->OAMADDR);
+	PPU_EXPECT_EQUAL(0, ppu->data_read_buf);
+	PPU_EXPECT_EQUAL(0, ppu->nsprs);
+	PPU_EXPECT_EQUAL(0x66, ppu->_oam[9]);
+	PPU_EXPECT_EQUAL(0x77, ppu->_pram[7]);
+
+	nes_ppu_power_on(ppu);
+	PPU_EXPECT_EQUAL(0, ppu->v);
+	PPU_EXPECT_EQUAL(0, ppu->PPUSTATUS);
+	PPU_EXPECT_EQUAL(0, ppu->OAMADDR);
+	PPU_EXPECT_EQUAL(0, ppu->_oam[9]);
+	PPU_EXPECT_EQUAL(0, ppu->_pram[7]);
 }
 
 static void ppu_cpu_write(PPU_TestFixture *fixture, u16 address, u8 value)
@@ -356,6 +406,7 @@ static void ppu_test_video_is_published_separately(PPU_TestFixture *fixture)
 int main(void)
 {
 	PPU_TestFixture fixture = ppu_test_fixture_create();
+	ppu_test_power_and_reset(&fixture);
 	ppu_test_explicit_bus_operations(&fixture);
 	ppu_test_scroll_and_address_latch(&fixture);
 	ppu_test_data_port_address_increment(&fixture);

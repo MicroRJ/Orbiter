@@ -107,7 +107,7 @@ b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 	emulator->num_chr_banks = params.chr_rom.size / KiB(8);
 	nes_bootup_emulator(emulator);
 	Assert(emulator->mapper.reset(emulator));
-	nes_ppu_reset(&emulator->ppu);
+	nes_ppu_power_on(&emulator->ppu);
 	nes_apu_reset(&emulator->apu);
 	nes_cpu_power_on(emulator);
 	return true;
