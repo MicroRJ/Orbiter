@@ -132,7 +132,7 @@ typedef struct
 	u8              irq_pending;
 	u8              irq_inhibit;
 	u8              reset_delay;
-	u8              reset_mode;
+	u8              reset_mode; // Last mode written to $4017, pending while reset_delay is nonzero.
 	u8              mode;
 	u8              step_index;
 	u16             cpu_cycle_counter;

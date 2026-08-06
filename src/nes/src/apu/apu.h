@@ -11,6 +11,7 @@ enum
 	APU_MAX_PULSE_TIMER_VALUE = 1 << 11,
 };
 
+void nes_apu_power_on(NES_APUState *apu);
 void nes_apu_reset(NES_APUState *apu);
 NES_BusAccess nes_apu_register_access(NES_Emulator *core, NES_BusAccess access);
 void nes_apu_clock_cpu_cycle(NES_APUState *apu);

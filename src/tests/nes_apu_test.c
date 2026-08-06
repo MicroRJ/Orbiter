@@ -41,13 +41,19 @@ static u8 apu_read(u16 address)
 	return apu_access(NES_BUS_ACCESS_READ, address, 0).value;
 }
 
+static void apu_test_clear(NES_APUState *apu)
+{
+	nes_apu_power_on(apu);
+	apu->cpu_cycle_counter = 0;
+}
+
 
 static void apu_test_triangle_registers(void)
 {
 	apu_test_name = "triangle register decoding";
 
 	NES_APUState *apu = &apu_test_core->apu;
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 
 	NES_APU_Triangle *triangle = &apu->triangle;
 	apu_write(0x4015, 0x04);
@@ -83,7 +89,7 @@ static void apu_test_triangle_counters_and_timer(void)
 	apu_test_name = "triangle counters and timer";
 	NES_APUState *apu = &apu_test_core->apu;
 	NES_APU_Triangle *triangle = &apu->triangle;
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 
 	triangle->linear_counter_reload = 1;
 	triangle->linear_counter_reload_value = 5;
@@ -132,18 +138,51 @@ static void apu_test_triangle_counters_and_timer(void)
 	APU_EXPECT_EQUAL(1, triangle->wave_phase);
 }
 
-static void apu_test_reset_and_registers(void)
+static void apu_test_power_reset_and_registers(void)
 {
-	apu_test_name = "reset and pulse register decoding";
+	apu_test_name = "power, reset, and pulse register decoding";
 	NES_APUState *apu = &apu_test_core->apu;
 	memset(apu, 0xCC, sizeof(*apu));
-	nes_apu_reset(apu);
+	nes_apu_power_on(apu);
 
 	APU_EXPECT_EQUAL(0, apu->mode);
 	APU_EXPECT_EQUAL(0, apu->step_index);
-	APU_EXPECT_EQUAL(0, apu->cpu_cycle_counter);
+	APU_EXPECT_EQUAL(10, apu->cpu_cycle_counter);
+	APU_EXPECT_EQUAL(0, apu->irq_inhibit);
 	APU_EXPECT_EQUAL(0, apu->pulse[0].enable);
 	APU_EXPECT_EQUAL(0, apu->pulse[1].enable);
+
+	apu->pulse[0].enable = 1;
+	apu->pulse[0].length_counter = 4;
+	apu->pulse[0].duty_mask = 0x5A;
+	apu->pulse[1].enable = 1;
+	apu->pulse[1].length_counter = 5;
+	apu->triangle.enable = 1;
+	apu->triangle.length_counter = 6;
+	apu->triangle.linear_counter_reload_value = 0x55;
+	apu->triangle.wave_phase = 17;
+	apu->irq_pending = 1;
+	apu->irq_inhibit = 1;
+	apu->reset_mode = 1;
+	nes_apu_reset(apu);
+	APU_EXPECT_EQUAL(0, apu->irq_pending);
+	APU_EXPECT_EQUAL(1, apu->irq_inhibit);
+	APU_EXPECT_EQUAL(1, apu->mode);
+	APU_EXPECT_EQUAL(1, apu->reset_mode);
+	APU_EXPECT_EQUAL(0, apu->reset_delay);
+	APU_EXPECT_EQUAL(0, apu->step_index);
+	APU_EXPECT_EQUAL(10, apu->cpu_cycle_counter);
+	APU_EXPECT_EQUAL(0, apu->pulse[0].enable);
+	APU_EXPECT_EQUAL(0, apu->pulse[0].length_counter);
+	APU_EXPECT_EQUAL(0x5A, apu->pulse[0].duty_mask);
+	APU_EXPECT_EQUAL(0, apu->pulse[1].enable);
+	APU_EXPECT_EQUAL(0, apu->pulse[1].length_counter);
+	APU_EXPECT_EQUAL(0, apu->triangle.enable);
+	APU_EXPECT_EQUAL(0, apu->triangle.length_counter);
+	APU_EXPECT_EQUAL(0x55, apu->triangle.linear_counter_reload_value);
+	APU_EXPECT_EQUAL(0, apu->triangle.wave_phase);
+
+	apu_test_clear(apu);
 
 	apu_write(0x4000, 0xBB);
 	NES_APU_Pulse *pulse = &apu->pulse[0];
@@ -203,7 +242,7 @@ static void apu_test_status_register(void)
 {
 	apu_test_name = "$4015 status register";
 	NES_APUState *apu = &apu_test_core->apu;
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 	apu->pulse[0].length_counter = 4;
 	apu->pulse[1].length_counter = 5;
 	apu->triangle.length_counter = 6;
@@ -228,7 +267,7 @@ static void apu_test_frame_clock(void)
 {
 	apu_test_name = "frame sequencer clocks";
 	NES_APUState *apu = &apu_test_core->apu;
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 	for (u32 cycle = 0; cycle < 3728 * 2 - 1; ++cycle) {
 		nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	}
@@ -261,7 +300,7 @@ static void apu_test_frame_clock(void)
 	APU_EXPECT_EQUAL(0, apu->step_index);
 	APU_EXPECT_EQUAL(0, apu->cpu_cycle_counter);
 
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 	apu->pulse[0].enable = true;
 	apu->pulse[0].length_counter = 2;
 	apu_write(0x4017, 0x80);
@@ -290,7 +329,7 @@ static void apu_test_pulse_output_and_sweep(void)
 #if 0
 	apu_test_name = "pulse output and sweep";
 	NES_APUState *apu = &apu_test_core->apu;
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 	APU_EXPECT_EQUAL(0, nes_apu_dac(apu) != 0.0f);
 
 	apu_make_audible_pulse(apu);
@@ -356,7 +395,7 @@ int main(void)
 {
 	Arena arena = arena_create(0, "APU test");
 	apu_test_core = arena_push_zero(&arena, sizeof(NES_Emulator));
-	apu_test_reset_and_registers();
+	apu_test_power_reset_and_registers();
 	apu_test_status_register();
 	apu_test_triangle_registers();
 	apu_test_triangle_counters_and_timer();

@@ -82,7 +82,7 @@ int main(void)
 	Assert(core->ppu.ytick == 0);
 	Assert(core->apu.mode == 0);
 	Assert(core->apu.step_index == 0);
-	Assert(core->apu.cpu_cycle_counter == 0);
+	Assert(core->apu.cpu_cycle_counter == 10);
 	Assert(core->video[7][11] == 0);
 	Assert(core->_wram[5] == 0);
 

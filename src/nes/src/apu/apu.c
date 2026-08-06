@@ -12,20 +12,60 @@ static const u8 apu_length_table[32] =
 	0xC0, 0x18, 0x48, 0x1A, 0x10, 0x1C, 0x20, 0x1E,
 };
 
-void nes_apu_reset(NES_APUState *apu)
+enum
+{
+	// On an NTSC front-loader, the frame counter has already advanced this far
+	// from its implicit $4017 write when reset-vector code begins.
+	APU_RESET_VECTOR_DELAY_CPU_CYCLES = 10,
+};
+
+static void apu_clock_pulse_sweeps(NES_APUState *apu);
+static void apu_clock_pulse_timer(NES_APU_Pulse *pulse);
+static void apu_clock_envelope(NES_APUEnvelope *envelope, b32 infinite_play);
+static inline void apu_half_frame_clock(NES_APUState *apu);
+static inline void apu_quarter_frame_clock(NES_APUState *apu);
+
+static void apu_restart_frame_counter(NES_APUState *apu, u8 value)
+{
+	apu->irq_pending = 0;
+	apu->irq_inhibit = value >> 6 & 1;
+	apu->reset_delay = 0;
+	apu->reset_mode = value >> 7 & 1;
+	apu->mode = apu->reset_mode;
+	apu->step_index = 0;
+	apu->cpu_cycle_counter = APU_RESET_VECTOR_DELAY_CPU_CYCLES;
+	if (apu->mode)
+	{
+		apu_half_frame_clock(apu);
+		apu_quarter_frame_clock(apu);
+	}
+}
+
+void nes_apu_power_on(NES_APUState *apu)
 {
 	memory_zero(apu, sizeof(*apu));
-	apu->irq_inhibit = 1;
+	apu_restart_frame_counter(apu, 0x00);
+}
+
+void nes_apu_reset(NES_APUState *apu)
+{
+	// Reset behaves like an immediate $4015 = 0 followed by the last value
+	// written to $4017. Channel register and waveform state otherwise survive.
+	apu->pulse[0].enable = 0;
+	apu->pulse[0].length_counter = 0;
+	apu->pulse[1].enable = 0;
+	apu->pulse[1].length_counter = 0;
+	apu->triangle.enable = 0;
+	apu->triangle.length_counter = 0;
+	apu->triangle.wave_phase = 0;
+	u8 frame_counter = apu->reset_mode << 7 | apu->irq_inhibit << 6;
+	apu_restart_frame_counter(apu, frame_counter);
 }
 
 static NES_APU_Pulse *apu_pulse_from_register(NES_APUState *apu, u16 address)
 {
 	return &apu->pulse[address >> 2 & 1];
 }
-
-static void apu_clock_pulse_sweeps(NES_APUState *apu);
-static void apu_clock_pulse_timer(NES_APU_Pulse *pulse);
-static void apu_clock_envelope(NES_APUEnvelope *envelope, b32 infinite_play);
 
 static inline void apu_half_frame_clock(NES_APUState *apu)
 {
