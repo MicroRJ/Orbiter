@@ -64,7 +64,6 @@ int main(int argc, char **argv)
 	printf("per frame   %.3f ms\n", elapsed_seconds * 1000.0 / frame_count);
 	printf("throughput  %.2f frames/s\n", frame_count / elapsed_seconds);
 
-	debugger_destroy(debugger);
 	orb_store_destroy(&store);
 	arena_destroy(&arena);
 	os_shutdown();

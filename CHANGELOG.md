@@ -1,3 +1,6 @@
+[CHANGED]
+	- Live disassembler is now incredibly simple, as explained in the program notes.
+
 [TODO]
 	- Simplify the live disassembler process!
 

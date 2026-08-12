@@ -342,11 +342,6 @@ static b32 app_open_orb(Str path)
 	app.orb_store = next_store;
 	app.active_save = 0;
 
-	debugger_reset(app.debugger);
-	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
-	// TODO(RJ) we can't just do this, it has to be driven based off of intent!
-	app_window_set_library_visible(app.window, false);
-
 	u64 now = app_unix_time_ms();
 	Orb_SaveNode *save = orb->first_save;
 	if (save) app_transfer_save(&save->state, &app.emulator, true);
@@ -362,6 +357,10 @@ static b32 app_open_orb(Str path)
 		orb->save_count = 1;
 	}
 	app.active_save = save;
+	debugger_reset(app.debugger);
+	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
+	// TODO(RJ) we can't just do this, it has to be driven based off of intent!
+	app_window_set_library_visible(app.window, false);
 	LOG_INFO("opened '%.*s'", path.size, path.data);
 	return true;
 }
@@ -395,7 +394,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 			case APP_ACTION_RESTORE_STATE: app_restore_state(); break;
 			case APP_ACTION_DUMP_PROGRAM:
 			{
-				if (program_dump(app.debugger, debugger_program_path, &app.frame_arena)) LOG_INFO("dumped program model to '%s'", debugger_program_path);
+				if (program_dump(app.debugger, debugger_program_path)) LOG_INFO("dumped program model to '%s'", debugger_program_path);
 				else LOG_ERROR("failed to dump program model to '%s'", debugger_program_path);
 			} break;
 			case APP_ACTION_TOGGLE_RUNNING:
@@ -587,10 +586,6 @@ static void app_capture_ppu(void)
 static void app_tick(App_WindowOutput input)
 {
 	b32 step_requested = app_handle_actions(input);
-	const Program *program = debugger_program(app.debugger);
-	u32 crawler_budget = program->refinement_pass_count < 2 ? 2048 : 128;
-
-
 
 	if (nes_emulator_ready_to_run(&app.emulator))
 	{
@@ -622,7 +617,7 @@ static void app_tick(App_WindowOutput input)
 		}
 
 		PROF_BLOCK("update cpu mapping")   debugger_update_cpu_mapping(app.debugger);
-		// PROF_BLOCK("program refinement")   debugger_run_program_crawler(app.debugger, crawler_budget);
+		if (app.transport.state != APP_TRANSPORT_RUNNING) program_update(app.debugger);
 		PROF_BLOCK("execution activity")   execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
 		PROF_BLOCK("publish NES target")   nes_target_publish(&app.published, &app.emulator);
 		PROF_BLOCK("upload video texture") app_upload_video_texture();

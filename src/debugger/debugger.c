@@ -65,6 +65,7 @@ b32 debugger_undo_snapshot(Debugger *debugger)
 	if (debugger->snapshots_cursor <= debugger->snapshots_rewind_marker) return 0;
 	debugger_restore(debugger, &debugger->snapshots[-- debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK]);
 	execution_path_discard(&debugger->execution_path);
+	program_invalidate(&debugger->program);
 	return 1;
 }
 
@@ -73,6 +74,7 @@ b32 debugger_redo_snapshot(Debugger *debugger)
 	if (debugger->snapshots_cursor >= debugger->snapshots_replay_marker) return 0;
 	debugger_restore(debugger, &debugger->snapshots[debugger->snapshots_cursor ++ & DEBUGGER_SNAPSHOT_MASK]);
 	execution_path_discard(&debugger->execution_path);
+	program_invalidate(&debugger->program);
 	return 1;
 }
 
@@ -87,10 +89,8 @@ Debugger *debugger_create(Arena *arena, NES_Emulator *emulator)
 {
 	Assert(arena && emulator);
 	Debugger *debugger = arena_push_zero(arena, sizeof(*debugger));
-	debugger->arena = arena;
 	debugger->emulator = emulator;
 	debugger->trace = arena_push(arena, sizeof(*debugger->trace) * DEBUGGER_TRACE_CAPACITY);
-	debugger->program_work_arena = arena_create(0, "debugger program work arena");
 	return debugger;
 }
 
@@ -152,12 +152,6 @@ static void debugger_process_trace(Debugger *debugger, const NES_TraceEntry *tra
 	PROF_BLOCK("process trace") debugger_process_trace_(debugger, trace, trace_count);
 }
 
-void debugger_destroy(Debugger *debugger)
-{
-	if (!debugger) return;
-	arena_destroy(&debugger->program_work_arena);
-}
-
 NES_MapAddr debugger_cpu_mapping_chunk(const Debugger *debugger, u32 chunk)
 {
 	Assert(chunk < CPU_MAPPING_CHUNK_COUNT);
@@ -181,6 +175,7 @@ void debugger_update_cpu_mapping(Debugger *debugger)
 	debugger->cpu_mapping.changed_chunks = changed_chunks;
 	if (changed_chunks) {
 		++debugger->cpu_mapping.revision;
+		program_invalidate(&debugger->program);
 	}
 	debugger->cpu_mapping.initialized = true;
 }
@@ -208,6 +203,7 @@ u32 debugger_step(Debugger *debugger)
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	u32 cycles = nes_emulator_step(debugger->emulator, debugger->trace);
 	debugger_process_trace(debugger, debugger->trace, 1);
+	program_invalidate(&debugger->program);
 	return cycles;
 }
 
@@ -223,6 +219,7 @@ NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *sample_buffer, u6
 		.trace_capacity = DEBUGGER_TRACE_CAPACITY,
 	});
 	debugger_process_trace(debugger, debugger->trace, result.steps);
+	program_invalidate(&debugger->program);
 	if (debugger->breakpoint_hit) return (NES_RunFrameResult) {};
 	return result;
 }
@@ -256,11 +253,6 @@ b32 debugger_has_program_breakpoint(const Debugger *debugger, NES_MapAddr addres
 b32 debugger_breakpoint_hit(const Debugger *debugger)
 {
 	return debugger->breakpoint_hit;
-}
-
-void debugger_run_program_crawler(Debugger *debugger, u32 instruction_budget)
-{
-	program_refine(debugger, instruction_budget);
 }
 
 const Program *debugger_program(const Debugger *debugger)

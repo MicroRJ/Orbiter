@@ -66,13 +66,6 @@ static const char *program_opcode_class_name(NES_OpcodeClass classification)
 	return "UNKNOWN";
 }
 
-static void program_view_clamp_scroll(ViewState *state, rect_f32 viewport, f32 header_height, f32 row_height, u32 instruction_count)
-{
-	f32 max_scroll = Max(header_height + instruction_count * row_height - viewport.h, 0.f);
-	state->scroll_target = Min(state->scroll_target, max_scroll);
-	state->scroll = Min(state->scroll, max_scroll);
-}
-
 static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_rect, ProgramInstruction instruction, NES_InstructionDesc desc, Str formatted_instruction)
 {
 	UI_Context *ui = frame->ui;
@@ -139,10 +132,11 @@ static void program_view_content(ViewFrameData *frame)
 	}
 
 	const Program *program = debugger_program(debugger);
-	u32 instruction_count = program_mapped_instruction_count(debugger);
+	b32 listing_current = !program->listing_dirty;
+	u32 instruction_count = program->row_count;
 	f32 row_height = font.size;
 
-	NES_CPUState cpu = frame->publication->cpu;
+	u16 cpu_pc = program->cpu_pc;
 
 	rect_f32_slice(&main_rect, AXIS_X, 32);
 	f32 scroll_height = frame->header_height + instruction_count * row_height;
@@ -163,18 +157,18 @@ static void program_view_content(ViewFrameData *frame)
 	if (wheel_scroll || scroll_response.pressed || scroll_response.held) {
 		state->tracking_resume_time.seconds = now.seconds + 8.0;
 	}
-	if (now.seconds >= state->tracking_resume_time.seconds)
+	if (listing_current && now.seconds >= state->tracking_resume_time.seconds)
 	{
 		u32 tracked_index = 0;
-		if (program_index_from_cpu_address(debugger, cpu.PC, &tracked_index))
+		if (program_index_from_cpu_address(program, cpu_pc, &tracked_index))
 		{
 			state->tracking_failed = false;
 			state->scroll_target = CLAMP(frame->header_height + (tracked_index + 0.5f) * row_height - main_rect.h * 0.5f, 0.f, max_scroll);
 		}
-		else if (!state->tracking_failed || state->tracking_failed_cpu_address != cpu.PC)
+		else if (!state->tracking_failed || state->tracking_failed_cpu_address != cpu_pc)
 		{
-			LOG_WARN("program view could not find CPU address $%04X", cpu.PC);
-			state->tracking_failed_cpu_address = cpu.PC;
+			LOG_WARN("program view could not find CPU address $%04X", cpu_pc);
+			state->tracking_failed_cpu_address = cpu_pc;
 			state->tracking_failed = true;
 		}
 	}
@@ -197,26 +191,18 @@ static void program_view_content(ViewFrameData *frame)
 
 	Color_SRGBA row_colors[] =
 	{
-		[PROGRAM_ROW_NONE]        = ui->theme.palette.error,
 		[PROGRAM_ROW_INSTRUCTION] = ui->theme.text_vibrant,
 		[PROGRAM_ROW_GUESS]       = ui->theme.text_subtle,
 		[PROGRAM_ROW_ERROR]       = ui->theme.palette.error,
 	};
 
-	ProgramSlice rows = program_slice(debugger, scratch, (u32)first_visible, (u32)row_count);
-	if (rows.count < (u32)row_count)
-	{
-		u32 actual_count = (u32)first_visible + rows.count;
-		Assert(actual_count <= instruction_count);
-		program_view_clamp_scroll(state, main_rect, frame->header_height, row_height, actual_count);
-	}
-	if (!rows.count) {
+	if (!row_count) {
 		return;
 	}
 	PROF_BLOCK("program view rows")
-	for (u32 row_index = 0; row_index < rows.count; ++row_index)
+	for (u32 row_index = 0; row_index < (u32)row_count; ++row_index)
 	{
-		ProgramInstruction instruction = rows.items[row_index];
+		ProgramInstruction instruction = program->rows[first_visible + row_index];
 		NES_InstructionDesc desc = nes_instruction_desc(instruction.type);
 		u16 address = instruction.cpu_address;
 
@@ -230,17 +216,17 @@ static void program_view_content(ViewFrameData *frame)
 		u32 indent_size_px = 24;
 		rect_f32 row_rect = rect_f32_slice(&scroll_rect, AXIS_Y, row_height);
 		Color_SRGBA color = row_colors[instruction.status];
-		Color_SRGBA address_color = address == cpu.PC ? ui->theme.program_counter : ui->theme.text_subtle;
+		Color_SRGBA address_color = address == cpu_pc ? ui->theme.program_counter : ui->theme.text_subtle;
 
 		rect_f32 content_rect = row_rect;
 		rect_f32 address_rect = rect_f32_slice(&content_rect, AXIS_X, 12 * 7);
 		b32 has_breakpoint = debugger_has_program_breakpoint(debugger, instruction.map_addr);
-		if (rect_f32_contains(address_rect, ui->mouse) && ui->window->keys[OS_Key_MouseLeft] & OS_KEY_PRESSED) {
+		if (listing_current && rect_f32_contains(address_rect, ui->mouse) && ui->window->keys[OS_Key_MouseLeft] & OS_KEY_PRESSED) {
 			debugger_set_program_breakpoint(debugger, instruction.map_addr, !has_breakpoint);
 			has_breakpoint = !has_breakpoint;
 		}
 
-		ui_push_emission(ui, address == cpu.PC ? ui->theme.palette.emission_high : has_breakpoint ? ui->theme.palette.emission_medium : 0.f);
+		ui_push_emission(ui, address == cpu_pc ? ui->theme.palette.emission_high : has_breakpoint ? ui->theme.palette.emission_medium : 0.f);
 		if (has_breakpoint)
 		{
 			ui_draw_rect(ui, (Draw_RectParams) {
@@ -256,12 +242,10 @@ static void program_view_content(ViewFrameData *frame)
 			AXIS_X, instruction.indent * indent_size_px);
 		UI_TextStyle instruction_style = font;
 		instruction_style.color = color;
-		u32 program_offset = program_mapped_instruction_offset(program, instruction.map_addr);
-		const ProgramByte *program_byte = program_offset != MAX_VALUE_U32 ? &program->bytes[program_offset] : 0;
 		f32 opacity = 0.5f;
-		if (program_byte && (program_byte->flags & PROGRAM_INSTRUCTION_EXECUTED)) {
+		if (instruction.flags & PROGRAM_INSTRUCTION_EXECUTED) {
 			opacity = 1.f;
-		} else if (program_byte && (program_byte->flags & PROGRAM_INSTRUCTION_STATIC)) {
+		} else if (instruction.flags & PROGRAM_INSTRUCTION_STATIC) {
 			opacity = 0.7f;
 		}
 		instruction_style.color.a *= opacity;
@@ -307,18 +291,20 @@ static const UI_BoxHooks program_box_hooks = {
 void program_view_build_ui(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
+	const Program *program = debugger_program(debugger);
+	b32 listing_current = !program->listing_dirty;
 	Str title = LIT("PROGRAM");
 	if (nes_emulator_ready_to_run(frame->emulator) && frame->publication->valid)
 	{
-		u16 cpu_address = frame->publication->cpu.PC;
-		NES_MapAddr mapped = nes_emulator_cpu_map(frame->emulator, cpu_address);
+		u16 cpu_address = program->cpu_pc;
+		NES_MapAddr mapped = program->cpu_pc_mapping;
 		u32 instruction_index = 0;
-		const char *mode = seconds_now().seconds >= frame->view->program.tracking_resume_time.seconds ? "tracking" : "manual";
-		if (mapped.device == NES_DEVICE_PRG_ROM && program_index_from_cpu_address(debugger, cpu_address, &instruction_index)) {
+		const char *mode = !listing_current ? "frozen" : seconds_now().seconds >= frame->view->program.tracking_resume_time.seconds ? "tracking" : "manual";
+		if (mapped.device == NES_DEVICE_PRG_ROM && program_index_from_cpu_address(program, cpu_address, &instruction_index)) {
 			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, PRG=$%05X] (%s)", instruction_index, cpu_address, mapped.address, mode);
 		} else if (mapped.device == NES_DEVICE_PRG_ROM) {
 			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=$%05X] (%s)", cpu_address, mapped.address, mode);
-		} else if (mapped.device == NES_DEVICE_PRG_RAM && program_index_from_cpu_address(debugger, cpu_address, &instruction_index)) {
+		} else if (mapped.device == NES_DEVICE_PRG_RAM && program_index_from_cpu_address(program, cpu_address, &instruction_index)) {
 			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, RAM=$%04X] (%s)", instruction_index, cpu_address, mapped.address, mode);
 		} else {
 			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=?] (%s)", cpu_address, mode);

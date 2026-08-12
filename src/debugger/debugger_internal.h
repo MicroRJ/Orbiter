@@ -46,8 +46,6 @@ DBG_LiveSnapshot;
 
 struct Debugger
 {
-	Arena *arena;
-	Arena program_work_arena;
 	NES_Emulator *emulator;
 	NES_TraceEntry *trace;
 	Program program;

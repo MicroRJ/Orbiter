@@ -212,21 +212,19 @@ int main(int argc, char **argv)
 			debugger_run_frame(debugger, samples, sample_capacity);
 			continue;
 		}
-		debugger_update_cpu_mapping(debugger);
 		debugger_capture_snapshot(debugger);
 		debugger_run_frame(debugger, samples, sample_capacity);
+		debugger_update_cpu_mapping(debugger);
+		program_update(debugger);
 		const Program *program = debugger_program(debugger);
-		u32 refinement_budget = program->refinement_pass_count < 2 ? 2048 : 128;
-		debugger_run_program_crawler(debugger, refinement_budget);
 
 		nes_target_publish(publication, emulator);
 		u16 pc = publication->cpu.PC;
 		u32 instruction_index = 0;
-		if (!program_index_from_cpu_address(debugger, pc, &instruction_index))
+		if (!program_index_from_cpu_address(program, pc, &instruction_index))
 		{
 			NES_MapAddr mapped = nes_emulator_cpu_map(emulator, pc);
-			u32 owner = program_mapped_instruction_offset(program, mapped);
-			LOG_ERROR("frame %u: CPU PC $%04X could not be found (device %u offset $%05X, owner $%05X, refinement lap %llu cursor $%04X, program revision %llu)", frame, pc, mapped.device, mapped.address, owner, program->refinement_pass_count, program->refinement_cpu_cursor, program->revision);
+			LOG_ERROR("frame %u: CPU PC $%04X could not be found (device %u offset $%05X, rows %u)", frame, pc, mapped.device, mapped.address, program->row_count);
 			goto done;
 		}
 	}
@@ -235,7 +233,7 @@ int main(int argc, char **argv)
 	if (check_replay) {
 		LOG_INFO("deterministic replay passed for '%s' across %u frames", argv[1], frame_count);
 	} else {
-		LOG_INFO("executed '%s' for %u frames; PC $%04X, %llu instructions observed, refinement lap %llu", argv[1], frame_count, publication->cpu.PC, program->executed_instruction_count, program->refinement_pass_count);
+		LOG_INFO("executed '%s' for %u frames; PC $%04X, %u listed rows", argv[1], frame_count, publication->cpu.PC, program->row_count);
 	}
 	exit_code = 0;
 

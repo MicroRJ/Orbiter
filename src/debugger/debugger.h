@@ -15,7 +15,6 @@ enum
 };
 
 Debugger *debugger_create(Arena *arena, NES_Emulator *emulator);
-void debugger_destroy(Debugger *debugger);
 void debugger_reset(Debugger *debugger);
 u32 debugger_step(Debugger *debugger);
 
@@ -25,7 +24,6 @@ NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *samples, u64 samp
 void debugger_set_program_breakpoint(Debugger *debugger, NES_MapAddr address, b32 enabled);
 b32 debugger_has_program_breakpoint(const Debugger *debugger, NES_MapAddr address);
 b32 debugger_breakpoint_hit(const Debugger *debugger);
-void debugger_run_program_crawler(Debugger *debugger, u32 instruction_budget);
 void debugger_update_cpu_mapping(Debugger *debugger);
 
 void debugger_get_rewind_markers(Debugger *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker);

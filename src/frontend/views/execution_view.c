@@ -252,28 +252,6 @@ static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *
 	}
 }
 
-static void prg_activity_draw_crawler(ViewFrameData *frame, const PRGActivityGrid *grid, u32 cell_count, u32 crawler_cell)
-{
-	if (crawler_cell >= cell_count) {
-		return;
-	}
-	rect_f32 cell = prg_activity_cell_rect(grid, crawler_cell);
-	f32 pulse = 0.5f + 0.5f * sinf((f32)frame->publication->generation * 0.22f);
-	Color_SRGBA color = frame->ui->theme.program_bridge;
-	color.a = 0.55f + pulse * 0.45f;
-	ui_draw_rect_outline(frame->ui, cell, Max(1.f, Min(3.f, grid->cell_extent * 0.16f)), color);
-	f32 dot_size = Max(2.f, Min(6.f, grid->cell_extent * 0.35f));
-	ui_draw_rect(frame->ui, (Draw_RectParams) {
-		.rect = {
-			.x = cell.x + (cell.w - dot_size) * 0.5f,
-			.y = cell.y + (cell.h - dot_size) * 0.5f,
-			.w = dot_size,
-			.h = dot_size,
-		},
-		.color = color,
-	});
-}
-
 static void prg_activity_view_content(ViewFrameData *frame)
 {
 	Debugger *debugger = frame->debugger;
@@ -315,15 +293,6 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	u32 active_cell = has_active_cell ? active_offset / cell_size : MAX_VALUE_U32;
 	u32 active_begin = active_cell * cell_size;
 	u32 active_end = Min(active_begin + cell_size, program_size);
-	u32 crawler_cpu = program->refinement_cpu_cursor;
-	NES_MapAddr crawler_mapping = {};
-	b32 crawler_in_cpu_space = crawler_cpu < NES_CPU_ADDRESS_SPACE;
-	if (crawler_in_cpu_space) {
-		crawler_mapping = nes_emulator_cpu_map(frame->emulator, (u16)crawler_cpu);
-	}
-	u32 crawler_offset = 0;
-	b32 crawler_in_prg = crawler_in_cpu_space && prg_activity_storage_offset(program, crawler_mapping, include_prg_ram, &crawler_offset);
-	u32 crawler_cell = crawler_in_prg ? crawler_offset / cell_size : MAX_VALUE_U32;
 	f32 label_height = ui->theme.code.size + 10.f;
 	rect_f32 label = rect_f32_slice(&layout, AXIS_Y, label_height);
 	const char *active_device = has_active_cell && active_mapping.device == NES_DEVICE_PRG_RAM ? "PRG RAM" : "PRG ROM";
@@ -331,20 +300,6 @@ static void prg_activity_view_content(ViewFrameData *frame)
 		? str_push_copy_f(frame->scratch, "%u B / cell   PC $%04X -> %s $%X   active $%X-$%X   Ctrl+wheel zooms", cell_size, pc, active_device, active_mapping.offset, active_begin, active_end - 1)
 		: str_push_copy_f(frame->scratch, "%u B / cell   PC $%04X is not mapped to program storage   Ctrl+wheel zooms", cell_size, pc);
 	ui_draw_text(ui, label, text_style, label_text);
-	label = rect_f32_slice(&layout, AXIS_Y, label_height);
-	const char *crawler_pass = program->refinement_pass_count & 1 ? "BRIDGES" : "DISCOVERY";
-	if (crawler_in_prg)
-	{
-		const char *crawler_device = crawler_mapping.device == NES_DEVICE_PRG_RAM ? "PRG RAM" : "PRG ROM";
-		label_text = str_push_copy_f(frame->scratch, "CRAWLER %s   LAP %llu   CPU $%04X -> %s $%X", crawler_pass, program->refinement_pass_count, crawler_cpu, crawler_device, crawler_mapping.offset);
-	}
-	else
-	{
-		label_text = str_push_copy_f(frame->scratch, "CRAWLER %s   LAP %llu   CPU $%05X   NOT IN PROGRAM STORAGE", crawler_pass, program->refinement_pass_count, crawler_cpu);
-	}
-	UI_TextStyle crawler_style = text_style;
-	crawler_style.color = ui->theme.program_bridge;
-	ui_draw_text(ui, label, crawler_style, label_text);
 
 	u32 cell_count = (program_size + cell_size - 1) / cell_size;
 	u32 ram_size = include_prg_ram ? program->prg_ram_byte_count : 0;
@@ -400,7 +355,6 @@ static void prg_activity_view_content(ViewFrameData *frame)
 			ui_pop_emission(ui);
 		}
 	}
-	prg_activity_draw_crawler(frame, &grid, cell_count, crawler_cell);
 	prg_activity_draw_tooltip(frame, &grid, hovered_cell, hovered_cell_rect, program, program_size);
 }
 
