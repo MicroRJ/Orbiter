@@ -613,12 +613,9 @@ static rect_f32 ui_box__child_clip(UI_Box *box, rect_f32 clip)
 {
 	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
 	{
-		f32 content_min = box->content_bounds.xy[axis];
-		f32 content_max = content_min + box->content_bounds.wh[axis];
-		f32 viewport_min = box->viewport.xy[axis];
-		f32 viewport_max = viewport_min + box->viewport.wh[axis];
-		b32 overflowing = content_min < viewport_min - 0.001f || content_max > viewport_max + 0.001f;
-		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_VISIBLE && overflowing) ui_box__clip_axis(&clip, box->viewport, axis);
+		// Overflow clipping applies to the complete descendant subtree. Direct
+		// content bounds cannot prove that deeper descendants remain contained.
+		if (box->desc.overflow[axis] == UI_BOX_OVERFLOW_CLIP) ui_box__clip_axis(&clip, box->viewport, axis);
 	}
 	return clip;
 }

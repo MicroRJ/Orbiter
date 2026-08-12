@@ -1,3 +1,27 @@
+[TODO]
+	- Simplify the live disassembler process!
+
+[CHANGED]
+	- Fixed Mike Tyson's punch out bug, it a simple vmirror mishandling.
+	- Simplified the MMC2 mapper a bit by removing the fixed bank vs switchable bank branch.
+ 		No substantial speedups since the branch seemed to be highly predictable.
+	- Mapper validity checks are now done per mapper.
+	- Orbiter no longer crashes on failed orb loads.
+	- Orb picker now actually works a bit.
+	- Added proper clipping to the UI tree. Pending clip optimizations.
+	- Removed tabula and instead migrated to elf for future scripting support and config files.
+
+[TODO]
+	- Bug with Mike Tyson's punch out
+
+	- Crashing when activity view cell size is really small, presumably because we run out of draw arena
+	space
+
+	- Crashing when an orb fails to load because we don't check whether it is null or not and we don't provide
+	an useful error message!
+
+	- Orb card text not clipping properly!
+
 [CHANGED]
 	---
 	Introduced app windows, these take care of building and representing the UI state for an
@@ -125,6 +149,5 @@ step directly.
 - Breakpoint restoration and rewind now use the same snapshot ring buffer. Snapshots are no longer
 created per cpu step on F10 singular step mode, instead the latest snapshot is unwound and the
 debugger runs to the previous scheduler cycle.
-
 
 

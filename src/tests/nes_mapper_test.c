@@ -102,6 +102,7 @@ static void mapper_test_nrom(Mapper_TestFixture *fixture)
 	mapper_test_prepare(fixture, KiB(16), KiB(8));
 	NES_Emulator *core = fixture->core;
 	mapper_mark_prg_banks(core, KiB(16));
+	MAPPER_EXPECT_EQUAL(true, nrom_valid(core));
 
 	MAPPER_EXPECT_EQUAL(0x40, mapper_read(core, nrom_cpu, 0x8000));
 	MAPPER_EXPECT_EQUAL(0x40, mapper_read(core, nrom_cpu, 0xC000));
@@ -144,6 +145,7 @@ static void mapper_test_uxrom(Mapper_TestFixture *fixture)
 	mapper_test_prepare(fixture, KiB(64), 0);
 	NES_Emulator *core = fixture->core;
 	mapper_mark_prg_banks(core, KiB(16));
+	MAPPER_EXPECT_EQUAL(true, uxrom_valid(core));
 
 	mapper_write(core, uxrom_cpu, 0x8000, 1);
 	MAPPER_EXPECT_EQUAL(0x41, mapper_read(core, uxrom_cpu, 0x8000));
@@ -190,6 +192,7 @@ static void mapper_test_mmc1(Mapper_TestFixture *fixture)
 	mapper_mark_chr_banks(core, KiB(4));
 	core->values[TEST_MMC1_CONTROL] = 0x0C;
 	core->values[TEST_MMC1_SHIFT] = 0x10;
+	MAPPER_EXPECT_EQUAL(true, mmc1_valid(core));
 
 	mapper_mmc1_serial_write(core, 0xE000, 2);
 	MAPPER_EXPECT_EQUAL(2, core->values[TEST_MMC1_PRG]);
@@ -255,18 +258,6 @@ static void mapper_test_mmc1(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(0xA5, mapper_read(core, mmc1_ppu, 0x1234));
 }
 
-enum
-{
-	TEST_MMC2_PRG,
-	TEST_MMC2_CHR0_FD,
-	TEST_MMC2_CHR0_FE,
-	TEST_MMC2_CHR1_FD,
-	TEST_MMC2_CHR1_FE,
-	TEST_MMC2_LATCH0,
-	TEST_MMC2_LATCH1,
-	TEST_MMC2_MIRRORING,
-};
-
 static void mapper_test_mmc2(Mapper_TestFixture *fixture)
 {
 	mapper_test_name = "MMC2 PRG banking and latches";
@@ -282,10 +273,9 @@ static void mapper_test_mmc2(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(KiB(120), mapper_map(core, mmc2_cpu, 0xE000).offset);
 	MAPPER_EXPECT_EQUAL(KiB(112), mapper_map(core, mmc2_cpu, 0xC000).offset);
 
-	u8 selected_bank = core->values[TEST_MMC2_PRG];
 	mapper_peek(core, mmc2_cpu, 0xA000);
 	mapper_map(core, mmc2_cpu, 0xA000);
-	MAPPER_EXPECT_EQUAL(selected_bank, core->values[TEST_MMC2_PRG]);
+	MAPPER_EXPECT_EQUAL(3 * KiB(8), mapper_map(core, mmc2_cpu, 0x8000).offset);
 
 	mapper_write(core, mmc2_cpu, 0xB000, 2);
 	mapper_write(core, mmc2_cpu, 0xC000, 3);
@@ -295,23 +285,29 @@ static void mapper_test_mmc2(Mapper_TestFixture *fixture)
 	MAPPER_EXPECT_EQUAL(5 * KiB(4), mapper_map(core, mmc2_ppu, 0x1000).offset);
 
 	mapper_read(core, mmc2_ppu, 0x0FD8);
-	MAPPER_EXPECT_EQUAL(0xFD, core->values[TEST_MMC2_LATCH0]);
 	MAPPER_EXPECT_EQUAL(2 * KiB(4), mapper_map(core, mmc2_ppu, 0x0000).offset);
 	mapper_peek(core, mmc2_ppu, 0x0FE8);
 	mapper_map(core, mmc2_ppu, 0x0FE8);
-	MAPPER_EXPECT_EQUAL(0xFD, core->values[TEST_MMC2_LATCH0]);
+	MAPPER_EXPECT_EQUAL(2 * KiB(4), mapper_map(core, mmc2_ppu, 0x0000).offset);
 	mapper_read(core, mmc2_ppu, 0x0FE8);
-	MAPPER_EXPECT_EQUAL(0xFE, core->values[TEST_MMC2_LATCH0]);
+	MAPPER_EXPECT_EQUAL(3 * KiB(4), mapper_map(core, mmc2_ppu, 0x0000).offset);
 	mapper_read(core, mmc2_ppu, 0x1FD8);
-	MAPPER_EXPECT_EQUAL(0xFD, core->values[TEST_MMC2_LATCH1]);
 	MAPPER_EXPECT_EQUAL(4 * KiB(4), mapper_map(core, mmc2_ppu, 0x1000).offset);
 	mapper_read(core, mmc2_ppu, 0x1FE8);
-	MAPPER_EXPECT_EQUAL(0xFE, core->values[TEST_MMC2_LATCH1]);
+	MAPPER_EXPECT_EQUAL(5 * KiB(4), mapper_map(core, mmc2_ppu, 0x1000).offset);
 
-	mapper_write(core, mmc2_cpu, 0xF000, 1);
+	mapper_write(core, mmc2_cpu, 0xF000, 0);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc2_ppu, 0x2000).offset);
 	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, mmc2_ppu, 0x2400).offset);
 	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc2_ppu, 0x2800).offset);
+	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, mmc2_ppu, 0x2C00).offset);
+
+	mapper_write(core, mmc2_cpu, 0xF000, 1);
+	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc2_ppu, 0x2000).offset);
+	MAPPER_EXPECT_EQUAL(0x000, mapper_map(core, mmc2_ppu, 0x2400).offset);
+	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, mmc2_ppu, 0x2800).offset);
+	MAPPER_EXPECT_EQUAL(0x400, mapper_map(core, mmc2_ppu, 0x2C00).offset);
+	MAPPER_EXPECT_EQUAL(true, mmc2_valid(core));
 }
 
 int main(void)

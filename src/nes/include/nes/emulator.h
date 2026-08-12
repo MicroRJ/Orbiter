@@ -98,15 +98,18 @@ NES_BusMetrics;
 
 
 typedef NES_BusAccess (*NES_BusFunc)(NES_Emulator *nes, NES_BusAccess access);
+#define NES_MAPPER_VALID_FUNC(NAME) b32 (NAME)(const NES_Emulator *nes)
 #define NES_MAPPER_RSET_FUNC(NAME) b32 (NAME)(NES_Emulator *nes)
+typedef NES_MAPPER_VALID_FUNC(*NES_MapperValidFunc);
 typedef NES_MAPPER_RSET_FUNC(*NES_RstFunc);
 
 typedef struct
 {
-	const char     *name;
-	NES_RstFunc    reset;
-	NES_BusFunc  cpu_bus;
-	NES_BusFunc  ppu_bus;
+	const char          *name;
+	NES_MapperValidFunc  valid;
+	NES_RstFunc          reset;
+	NES_BusFunc          cpu_bus;
+	NES_BusFunc          ppu_bus;
 }
 NES_MapperClass;
 
@@ -176,8 +179,8 @@ struct NES_Emulator
 
 
 b32 nes_emulator_valid(const NES_Emulator *emulator);
+b32 nes_supports_setup_params(NES_SetupParams params);
 b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams data);
-b32 nes_bootup_emulator(NES_Emulator *emulator);
 // Reset live devices while preserving cartridge and RAM storage.
 void nes_reset_emulator(NES_Emulator *emulator);
 

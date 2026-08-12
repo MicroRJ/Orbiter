@@ -13,6 +13,14 @@ Bob is copyright 2026 Dayan Rodriguez and is distributed under the MIT
 License. The complete text is available as `tools/bob/LICENSE` in the source
 tree. Bob is not included in the Orbiter binary distribution.
 
+## Elf
+
+Orbiter embeds Elf for configuration parsing and serialization.
+
+Elf is copyright 2023 Dayan Rodriguez and is distributed under the MIT
+License. The complete text is available as `licenses/Elf-MIT.txt` in the
+binary distribution and as `elf/LICENSE` in the source tree.
+
 ## FreeType
 
 FreeType 2.14.1 is used for TrueType font rasterization.

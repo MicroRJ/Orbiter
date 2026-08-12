@@ -1,8 +1,5 @@
 #include "panels.h"
-
-#define TABULA_USE_EXTERNAL_TYPES
-#include "tabula/tabula.h"
-#undef TABULA_USE_EXTERNAL_TYPES
+#include "elf.h"
 
 struct PanelViewAllocation
 {
@@ -181,140 +178,165 @@ Panels *panels_create(Arena *owner)
 	return panels;
 }
 
-static Tabula_String panel_tabula_string(Str string)
+static b32 panel_elf_string_match(elf_StrSlice value, Str expected)
 {
-	return (Tabula_String) { string.text, string.size };
+	return value.size == expected.size && memory_match(value.data, expected.data, expected.size);
 }
 
-static Tabula_Value panel_tabula_table_value(Tabula_Table *table)
-{
-	return (Tabula_Value) { .type = TABULA_VALUE_TABLE, .as.table = table };
-}
-
-static void panel_tabula_set(Tabula_Table *table, Tabula_String key, Tabula_Value value)
-{
-	Assert(tabula_table_set(table, key, value));
-}
-
-static const Tabula_Value *panel_tabula_get(const Tabula_Table *table, Tabula_String key, Tabula_ValueType type)
-{
-	const Tabula_Value *value = tabula_table_get(table, key);
-	return value && value->type == type ? value : 0;
-}
-
-static b32 panel_tabula_string_match(Tabula_String a, Tabula_String b)
-{
-	return a.length == b.length && memory_match(a.data, b.data, a.length);
-}
-
-static const ViewDesc *panel_tabula_view_desc(Tabula_String name)
+static const ViewDesc *panel_elf_view_desc(elf_StrSlice name)
 {
 	for (u32 i = 0; i < view_desc_count; ++i)
 	{
 		const ViewDesc *desc = &view_descs[i];
-		if (panel_tabula_string_match(name, panel_tabula_string(str_from_cstr(desc->name)))) return desc;
+		if (panel_elf_string_match(name, str_from_cstr(desc->name))) return desc;
 	}
 	return 0;
 }
 
-static Tabula_Table *panel_layout_to_table(Tabula_Context *context, const Panel *panel)
+static void panel_elf_set_string(elf_State *state, i32 table, const char *field, const char *value)
 {
-	Assert(context);
-	Assert(panel);
+	elf_push_cstr(state, value);
+	Assert(elf_set_field(state, table, field));
+}
 
-	Tabula_Table *table = tabula_table_create(context);
-	Assert(table);
+static b32 panel_elf_read_string(elf_State *state, i32 table, const char *field, elf_StrSlice *result)
+{
+	Assert(result);
+	if (!elf_get_field(state, table, field)) return false;
+	b32 valid = elf_to_str(state, -1, result);
+	Assert(elf_pop(state, 1));
+	return valid;
+}
+
+static b32 panel_elf_read_integer(elf_State *state, i32 table, const char *field, elf_Integer *result)
+{
+	Assert(result);
+	if (!elf_get_field(state, table, field)) return false;
+	b32 valid = elf_to_int(state, -1, result);
+	Assert(elf_pop(state, 1));
+	return valid;
+}
+
+static b32 panel_elf_read_number(elf_State *state, i32 table, const char *field, elf_Number *result)
+{
+	Assert(result);
+	if (!elf_get_field(state, table, field)) return false;
+	b32 valid = elf_to_num(state, -1, result);
+	Assert(elf_pop(state, 1));
+	return valid;
+}
+
+static b32 panel_elf_push_table_field(elf_State *state, i32 table, const char *field)
+{
+	if (!elf_get_field(state, table, field)) return false;
+	if (elf_type(state, -1) == ELF_VALUE_TYPE_TABLE) return true;
+	Assert(elf_pop(state, 1));
+	return false;
+}
+
+static void panel_layout_push(elf_State *state, const Panel *panel)
+{
+	Assert(state);
+	Assert(panel);
+	i32 top = elf_get_top(state);
+	elf_new_table(state);
+	i32 table = elf_abs_index(state, -1);
 
 	switch (panel->kind)
 	{
 		case PANEL_EMPTY:
 		{
-			panel_tabula_set(table, TABULA_STRING_LITERAL("kind"), tabula_value_string(context, TABULA_STRING_LITERAL("empty")));
-		}
-		break;
+			panel_elf_set_string(state, table, "kind", "empty");
+		} break;
 
 		case PANEL_VIEW:
 		{
 			Assert(panel->view);
 			Assert(panel->view->desc);
 			Assert(panel->view->desc->name);
-			panel_tabula_set(table, TABULA_STRING_LITERAL("kind"), tabula_value_string(context, TABULA_STRING_LITERAL("view")));
-			panel_tabula_set(table, TABULA_STRING_LITERAL("view"), tabula_value_string(context, panel_tabula_string(str_from_cstr(panel->view->desc->name))));
-		}
-		break;
+			panel_elf_set_string(state, table, "kind", "view");
+			panel_elf_set_string(state, table, "view", panel->view->desc->name);
+		} break;
 
 		case PANEL_SPLIT:
 		{
 			Assert(panel->left);
 			Assert(panel->right);
 			Assert(panel->axis == AXIS_X || panel->axis == AXIS_Y);
-			panel_tabula_set(table, TABULA_STRING_LITERAL("kind"), tabula_value_string(context, TABULA_STRING_LITERAL("split")));
-			panel_tabula_set(table, TABULA_STRING_LITERAL("axis"), tabula_value_string(context, panel->axis == AXIS_X ? TABULA_STRING_LITERAL("x") : TABULA_STRING_LITERAL("y")));
-			panel_tabula_set(table, TABULA_STRING_LITERAL("ratio"), tabula_value_number(panel->ratio));
-			panel_tabula_set(table, TABULA_STRING_LITERAL("left"), panel_tabula_table_value(panel_layout_to_table(context, panel->left)));
-			panel_tabula_set(table, TABULA_STRING_LITERAL("right"), panel_tabula_table_value(panel_layout_to_table(context, panel->right)));
-		}
-		break;
+			panel_elf_set_string(state, table, "kind", "split");
+			panel_elf_set_string(state, table, "axis", panel->axis == AXIS_X ? "x" : "y");
+			elf_push_num(state, panel->ratio);
+			Assert(elf_set_field(state, table, "ratio"));
+			panel_layout_push(state, panel->left);
+			Assert(elf_set_field(state, table, "left"));
+			panel_layout_push(state, panel->right);
+			Assert(elf_set_field(state, table, "right"));
+		} break;
 
 		default: Assert(!"invalid panel kind"); break;
 	}
-
-	return table;
+	Assert(elf_get_top(state) == top + 1);
 }
 
-Tabula_Table *panels_layout_to_table(const Panels *panels, Tabula_Context *context)
+void panels_layout_push(elf_State *state, const Panels *panels)
 {
+	Assert(state);
 	Assert(panels);
 	Assert(panels->root);
-	Assert(context);
-
-	Tabula_Table *table = tabula_table_create(context);
-	Assert(table);
-	panel_tabula_set(table, TABULA_STRING_LITERAL("version"), tabula_value_integer(1));
-	panel_tabula_set(table, TABULA_STRING_LITERAL("root"), panel_tabula_table_value(panel_layout_to_table(context, panels->root)));
-	return table;
+	i32 top = elf_get_top(state);
+	elf_new_table(state);
+	i32 table = elf_abs_index(state, -1);
+	elf_push_int(state, 1);
+	Assert(elf_set_field(state, table, "version"));
+	panel_layout_push(state, panels->root);
+	Assert(elf_set_field(state, table, "root"));
+	Assert(elf_get_top(state) == top + 1);
 }
 
-static Panel *panel_layout_from_table(Panels *panels, Panel *parent, const Tabula_Table *table, u32 depth)
+static Panel *panel_layout_read(elf_State *state, i32 index, Panels *panels, Panel *parent, u32 depth)
 {
-	if (depth >= 64) return 0;
-	const Tabula_Value *kind = panel_tabula_get(table, TABULA_STRING_LITERAL("kind"), TABULA_VALUE_STRING);
-	if (!kind) return 0;
+	if (depth >= 64 || elf_type(state, index) != ELF_VALUE_TYPE_TABLE) return 0;
+	i32 table = elf_abs_index(state, index);
+	elf_StrSlice kind;
+	if (!panel_elf_read_string(state, table, "kind", &kind)) return 0;
 
-	if (panel_tabula_string_match(kind->as.string, TABULA_STRING_LITERAL("empty"))) {
-		return panel_new(panels, parent, PANEL_EMPTY);
-	}
+	if (panel_elf_string_match(kind, LIT("empty"))) return panel_new(panels, parent, PANEL_EMPTY);
 
-	if (panel_tabula_string_match(kind->as.string, TABULA_STRING_LITERAL("view")))
+	if (panel_elf_string_match(kind, LIT("view")))
 	{
-		const Tabula_Value *view = panel_tabula_get(table, TABULA_STRING_LITERAL("view"), TABULA_VALUE_STRING);
-		if (!view) return 0;
-		const ViewDesc *desc = panel_tabula_view_desc(view->as.string);
+		elf_StrSlice view;
+		if (!panel_elf_read_string(state, table, "view", &view)) return 0;
+		const ViewDesc *desc = panel_elf_view_desc(view);
 		if (!desc) return 0;
-
 		Panel *panel = panel_new(panels, parent, PANEL_EMPTY);
 		panel_open_view(panels, panel, desc);
 		return panel;
 	}
 
-	if (panel_tabula_string_match(kind->as.string, TABULA_STRING_LITERAL("split")))
+	if (panel_elf_string_match(kind, LIT("split")))
 	{
-		const Tabula_Value *axis = panel_tabula_get(table, TABULA_STRING_LITERAL("axis"), TABULA_VALUE_STRING);
-		const Tabula_Value *ratio = panel_tabula_get(table, TABULA_STRING_LITERAL("ratio"), TABULA_VALUE_NUMBER);
-		const Tabula_Value *left = panel_tabula_get(table, TABULA_STRING_LITERAL("left"), TABULA_VALUE_TABLE);
-		const Tabula_Value *right = panel_tabula_get(table, TABULA_STRING_LITERAL("right"), TABULA_VALUE_TABLE);
-		if (!axis || !ratio || !left || !right || !(ratio->as.number >= 0.05 && ratio->as.number <= 0.95)) return 0;
+		elf_StrSlice axis;
+		elf_Number ratio;
+		if (!panel_elf_read_string(state, table, "axis", &axis) || !panel_elf_read_number(state, table, "ratio", &ratio) || !(ratio >= 0.05 && ratio <= 0.95)) return 0;
 
 		AXIS split_axis;
-		if (panel_tabula_string_match(axis->as.string, TABULA_STRING_LITERAL("x"))) split_axis = AXIS_X;
-		else if (panel_tabula_string_match(axis->as.string, TABULA_STRING_LITERAL("y"))) split_axis = AXIS_Y;
+		if (panel_elf_string_match(axis, LIT("x"))) split_axis = AXIS_X;
+		else if (panel_elf_string_match(axis, LIT("y"))) split_axis = AXIS_Y;
 		else return 0;
 
 		Panel *panel = panel_new(panels, parent, PANEL_SPLIT);
 		panel->axis = split_axis;
-		panel->ratio = (f32)ratio->as.number;
-		panel->left = panel_layout_from_table(panels, panel, left->as.table, depth + 1);
-		if (panel->left) panel->right = panel_layout_from_table(panels, panel, right->as.table, depth + 1);
+		panel->ratio = (f32)ratio;
+		if (panel_elf_push_table_field(state, table, "left"))
+		{
+			panel->left = panel_layout_read(state, -1, panels, panel, depth + 1);
+			Assert(elf_pop(state, 1));
+		}
+		if (panel->left && panel_elf_push_table_field(state, table, "right"))
+		{
+			panel->right = panel_layout_read(state, -1, panels, panel, depth + 1);
+			Assert(elf_pop(state, 1));
+		}
 		if (!panel->left || !panel->right)
 		{
 			panel_free_tree(panels, panel);
@@ -326,16 +348,14 @@ static Panel *panel_layout_from_table(Panels *panels, Panel *parent, const Tabul
 	return 0;
 }
 
-b32 panels_layout_from_table(Panels *panels, const Tabula_Table *table)
+static b32 panels_layout_read_impl(elf_State *state, i32 index, Panels *panels)
 {
-	Assert(panels);
-	Assert(table);
-
-	const Tabula_Value *version = panel_tabula_get(table, TABULA_STRING_LITERAL("version"), TABULA_VALUE_INTEGER);
-	const Tabula_Value *root_value = panel_tabula_get(table, TABULA_STRING_LITERAL("root"), TABULA_VALUE_TABLE);
-	if (!version || version->as.integer != 1 || !root_value) return false;
-
-	Panel *root = panel_layout_from_table(panels, 0, root_value->as.table, 0);
+	if (elf_type(state, index) != ELF_VALUE_TYPE_TABLE) return false;
+	i32 table = elf_abs_index(state, index);
+	elf_Integer version;
+	if (!panel_elf_read_integer(state, table, "version", &version) || version != 1 || !panel_elf_push_table_field(state, table, "root")) return false;
+	Panel *root = panel_layout_read(state, -1, panels, 0, 0);
+	Assert(elf_pop(state, 1));
 	if (!root) return false;
 
 	panel_free_tree(panels, panels->root);
@@ -343,6 +363,16 @@ b32 panels_layout_from_table(Panels *panels, const Tabula_Table *table)
 	panels->focused = panel_first_leaf(root);
 	panels->split_drag_offset = 0.f;
 	return true;
+}
+
+b32 panels_layout_read(elf_State *state, i32 index, Panels *panels)
+{
+	Assert(state);
+	Assert(panels);
+	i32 top = elf_get_top(state);
+	b32 result = panels_layout_read_impl(state, index, panels);
+	Assert(elf_get_top(state) == top);
+	return result;
 }
 
 static void panel_split_rects(Panel *panel, rect_f32 rect,

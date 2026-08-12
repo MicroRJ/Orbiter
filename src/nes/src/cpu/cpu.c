@@ -85,23 +85,23 @@ static inline u32 addr_abs(NES_Emulator *core)
 	return fetch_word(core);
 }
 
-static inline CPU_IndexedAddress cpu_address_absolute_x(NES_Emulator *core)
+static inline CPU_IndexedAddress abs_x(NES_Emulator *core)
 {
 	return cpu_index_address(fetch_word(core), core->cpu.X);
 }
 
-static inline CPU_IndexedAddress cpu_address_absolute_y(NES_Emulator *core)
+static inline CPU_IndexedAddress abs_y(NES_Emulator *core)
 {
 	return cpu_index_address(fetch_word(core), core->cpu.Y);
 }
 
-static inline u32 cpu_address_indirect_x(NES_Emulator *core)
+static inline u32 ind_x(NES_Emulator *core)
 {
 	u32 pointer = (fetch_byte(core) + core->cpu.X) & 0xFF;
 	return cpu_read_zero_page_word(core, pointer);
 }
 
-static inline CPU_IndexedAddress cpu_address_indirect_y(NES_Emulator *core)
+static inline CPU_IndexedAddress ind_y(NES_Emulator *core)
 {
 	u32 pointer = fetch_byte(core);
 	u32 base = cpu_read_zero_page_word(core, pointer);
@@ -419,33 +419,33 @@ u32 nes_cpu_step(NES_Emulator *core)
 		case 0xA5: cpu_load_a(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0xB5: cpu_load_a(core, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0xAD: cpu_load_a(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0xBD: indexed = cpu_address_absolute_x(core); cpu_load_a(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0xB9: indexed = cpu_address_absolute_y(core); cpu_load_a(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0xA1: cpu_load_a(core, cpu_read(core, cpu_address_indirect_x(core))); cycles = 6; break;
-		case 0xB1: indexed = cpu_address_indirect_y(core); cpu_load_a(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
+		case 0xBD: indexed = abs_x(core); cpu_load_a(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xB9: indexed = abs_y(core); cpu_load_a(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xA1: cpu_load_a(core, cpu_read(core, ind_x(core))); cycles = 6; break;
+		case 0xB1: indexed = ind_y(core); cpu_load_a(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
 
 		// Load X
 		case 0xA2: cpu_load_x(core, fetch_byte(core)); cycles = 2; break;
 		case 0xA6: cpu_load_x(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0xB6: cpu_load_x(core, cpu_read(core, zero_page_y(core))); cycles = 4; break;
 		case 0xAE: cpu_load_x(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0xBE: indexed = cpu_address_absolute_y(core); cpu_load_x(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xBE: indexed = abs_y(core); cpu_load_x(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
 
 		// Load Y
 		case 0xA0: cpu_load_y(core, fetch_byte(core)); cycles = 2; break;
 		case 0xA4: cpu_load_y(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0xB4: cpu_load_y(core, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0xAC: cpu_load_y(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0xBC: indexed = cpu_address_absolute_x(core); cpu_load_y(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xBC: indexed = abs_x(core); cpu_load_y(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
 
 		// Store registers
 		case 0x85: cpu_write(core, zero_page(core), cpu->A); cycles = 3; break;
 		case 0x95: cpu_write(core, zero_page_x(core), cpu->A); cycles = 4; break;
 		case 0x8D: cpu_write(core, addr_abs(core), cpu->A); cycles = 4; break;
-		case 0x9D: indexed = cpu_address_absolute_x(core); cpu_write(core, indexed.address, cpu->A); cycles = 5; break;
-		case 0x99: indexed = cpu_address_absolute_y(core); cpu_write(core, indexed.address, cpu->A); cycles = 5; break;
-		case 0x81: cpu_write(core, cpu_address_indirect_x(core), cpu->A); cycles = 6; break;
-		case 0x91: indexed = cpu_address_indirect_y(core); cpu_write(core, indexed.address, cpu->A); cycles = 6; break;
+		case 0x9D: indexed = abs_x(core); cpu_write(core, indexed.address, cpu->A); cycles = 5; break;
+		case 0x99: indexed = abs_y(core); cpu_write(core, indexed.address, cpu->A); cycles = 5; break;
+		case 0x81: cpu_write(core, ind_x(core), cpu->A); cycles = 6; break;
+		case 0x91: indexed = ind_y(core); cpu_write(core, indexed.address, cpu->A); cycles = 6; break;
 		case 0x86: cpu_write(core, zero_page(core), cpu->X); cycles = 3; break;
 		case 0x96: cpu_write(core, zero_page_y(core), cpu->X); cycles = 4; break;
 		case 0x8E: cpu_write(core, addr_abs(core), cpu->X); cycles = 4; break;
@@ -458,48 +458,48 @@ u32 nes_cpu_step(NES_Emulator *core)
 		case 0x65: cpu_add_with_carry(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0x75: cpu_add_with_carry(core, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0x6D: cpu_add_with_carry(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0x7D: indexed = cpu_address_absolute_x(core); cpu_add_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x79: indexed = cpu_address_absolute_y(core); cpu_add_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x61: cpu_add_with_carry(core, cpu_read(core, cpu_address_indirect_x(core))); cycles = 6; break;
-		case 0x71: indexed = cpu_address_indirect_y(core); cpu_add_with_carry(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
+		case 0x7D: indexed = abs_x(core); cpu_add_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x79: indexed = abs_y(core); cpu_add_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x61: cpu_add_with_carry(core, cpu_read(core, ind_x(core))); cycles = 6; break;
+		case 0x71: indexed = ind_y(core); cpu_add_with_carry(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
 
 		// Subtract with carry
 		case 0xE9: cpu_subtract_with_carry(core, fetch_byte(core)); cycles = 2; break;
 		case 0xE5: cpu_subtract_with_carry(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0xF5: cpu_subtract_with_carry(core, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0xED: cpu_subtract_with_carry(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0xFD: indexed = cpu_address_absolute_x(core); cpu_subtract_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0xF9: indexed = cpu_address_absolute_y(core); cpu_subtract_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0xE1: cpu_subtract_with_carry(core, cpu_read(core, cpu_address_indirect_x(core))); cycles = 6; break;
-		case 0xF1: indexed = cpu_address_indirect_y(core); cpu_subtract_with_carry(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
+		case 0xFD: indexed = abs_x(core); cpu_subtract_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xF9: indexed = abs_y(core); cpu_subtract_with_carry(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xE1: cpu_subtract_with_carry(core, cpu_read(core, ind_x(core))); cycles = 6; break;
+		case 0xF1: indexed = ind_y(core); cpu_subtract_with_carry(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
 
 		// Logical operations
 		case 0x29: cpu_and(core, fetch_byte(core)); cycles = 2; break;
 		case 0x25: cpu_and(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0x35: cpu_and(core, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0x2D: cpu_and(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0x3D: indexed = cpu_address_absolute_x(core); cpu_and(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x39: indexed = cpu_address_absolute_y(core); cpu_and(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x21: cpu_and(core, cpu_read(core, cpu_address_indirect_x(core))); cycles = 6; break;
-		case 0x31: indexed = cpu_address_indirect_y(core); cpu_and(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
+		case 0x3D: indexed = abs_x(core); cpu_and(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x39: indexed = abs_y(core); cpu_and(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x21: cpu_and(core, cpu_read(core, ind_x(core))); cycles = 6; break;
+		case 0x31: indexed = ind_y(core); cpu_and(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
 
 		case 0x09: cpu_or(core, fetch_byte(core)); cycles = 2; break;
 		case 0x05: cpu_or(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0x15: cpu_or(core, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0x0D: cpu_or(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0x1D: indexed = cpu_address_absolute_x(core); cpu_or(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x19: indexed = cpu_address_absolute_y(core); cpu_or(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x01: cpu_or(core, cpu_read(core, cpu_address_indirect_x(core))); cycles = 6; break;
-		case 0x11: indexed = cpu_address_indirect_y(core); cpu_or(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
+		case 0x1D: indexed = abs_x(core); cpu_or(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x19: indexed = abs_y(core); cpu_or(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x01: cpu_or(core, cpu_read(core, ind_x(core))); cycles = 6; break;
+		case 0x11: indexed = ind_y(core); cpu_or(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
 
 		case 0x49: cpu_xor(core, fetch_byte(core)); cycles = 2; break;
 		case 0x45: cpu_xor(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0x55: cpu_xor(core, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0x4D: cpu_xor(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0x5D: indexed = cpu_address_absolute_x(core); cpu_xor(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x59: indexed = cpu_address_absolute_y(core); cpu_xor(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0x41: cpu_xor(core, cpu_read(core, cpu_address_indirect_x(core))); cycles = 6; break;
-		case 0x51: indexed = cpu_address_indirect_y(core); cpu_xor(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
+		case 0x5D: indexed = abs_x(core); cpu_xor(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x59: indexed = abs_y(core); cpu_xor(core, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0x41: cpu_xor(core, cpu_read(core, ind_x(core))); cycles = 6; break;
+		case 0x51: indexed = ind_y(core); cpu_xor(core, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
 
 		case 0x24: cpu_test_bits(core, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0x2C: cpu_test_bits(core, cpu_read(core, addr_abs(core))); cycles = 4; break;
@@ -509,10 +509,10 @@ u32 nes_cpu_step(NES_Emulator *core)
 		case 0xC5: cpu_compare(core, cpu->A, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0xD5: cpu_compare(core, cpu->A, cpu_read(core, zero_page_x(core))); cycles = 4; break;
 		case 0xCD: cpu_compare(core, cpu->A, cpu_read(core, addr_abs(core))); cycles = 4; break;
-		case 0xDD: indexed = cpu_address_absolute_x(core); cpu_compare(core, cpu->A, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0xD9: indexed = cpu_address_absolute_y(core); cpu_compare(core, cpu->A, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
-		case 0xC1: cpu_compare(core, cpu->A, cpu_read(core, cpu_address_indirect_x(core))); cycles = 6; break;
-		case 0xD1: indexed = cpu_address_indirect_y(core); cpu_compare(core, cpu->A, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
+		case 0xDD: indexed = abs_x(core); cpu_compare(core, cpu->A, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xD9: indexed = abs_y(core); cpu_compare(core, cpu->A, cpu_read(core, indexed.address)); cycles = 4 + indexed.page_crossed; break;
+		case 0xC1: cpu_compare(core, cpu->A, cpu_read(core, ind_x(core))); cycles = 6; break;
+		case 0xD1: indexed = ind_y(core); cpu_compare(core, cpu->A, cpu_read(core, indexed.address)); cycles = 5 + indexed.page_crossed; break;
 		case 0xE0: cpu_compare(core, cpu->X, fetch_byte(core)); cycles = 2; break;
 		case 0xE4: cpu_compare(core, cpu->X, cpu_read(core, zero_page(core))); cycles = 3; break;
 		case 0xEC: cpu_compare(core, cpu->X, cpu_read(core, addr_abs(core))); cycles = 4; break;
@@ -521,39 +521,39 @@ u32 nes_cpu_step(NES_Emulator *core)
 		case 0xCC: cpu_compare(core, cpu->Y, cpu_read(core, addr_abs(core))); cycles = 4; break;
 
 		// Shifts and rotates
-		case 0x0A: core->cpu.A = (u8)(cpu_shift_left(core, cpu->A)); cycles = 2; break;
+		case 0x0A: cpu->A = (u8)(cpu_shift_left(core, cpu->A)); cycles = 2; break;
 		case 0x06: address = zero_page(core); value = cpu_shift_left(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 5; break;
 		case 0x16: address = zero_page_x(core); value = cpu_shift_left(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
 		case 0x0E: address = addr_abs(core); value = cpu_shift_left(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
-		case 0x1E: indexed = cpu_address_absolute_x(core); value = cpu_shift_left(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
+		case 0x1E: indexed = abs_x(core); value = cpu_shift_left(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
 
-		case 0x4A: core->cpu.A = (u8)(cpu_shift_right(core, cpu->A)); cycles = 2; break;
+		case 0x4A: cpu->A = (u8)(cpu_shift_right(core, cpu->A)); cycles = 2; break;
 		case 0x46: address = zero_page(core); value = cpu_shift_right(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 5; break;
 		case 0x56: address = zero_page_x(core); value = cpu_shift_right(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
 		case 0x4E: address = addr_abs(core); value = cpu_shift_right(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
-		case 0x5E: indexed = cpu_address_absolute_x(core); value = cpu_shift_right(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
+		case 0x5E: indexed = abs_x(core); value = cpu_shift_right(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
 
-		case 0x2A: core->cpu.A = (u8)(cpu_rotate_left(core, cpu->A)); cycles = 2; break;
+		case 0x2A: cpu->A = (u8)(cpu_rotate_left(core, cpu->A)); cycles = 2; break;
 		case 0x26: address = zero_page(core); value = cpu_rotate_left(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 5; break;
 		case 0x36: address = zero_page_x(core); value = cpu_rotate_left(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
 		case 0x2E: address = addr_abs(core); value = cpu_rotate_left(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
-		case 0x3E: indexed = cpu_address_absolute_x(core); value = cpu_rotate_left(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
+		case 0x3E: indexed = abs_x(core); value = cpu_rotate_left(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
 
-		case 0x6A: core->cpu.A = (u8)(cpu_rotate_right(core, cpu->A)); cycles = 2; break;
+		case 0x6A: cpu->A = (u8)(cpu_rotate_right(core, cpu->A)); cycles = 2; break;
 		case 0x66: address = zero_page(core); value = cpu_rotate_right(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 5; break;
 		case 0x76: address = zero_page_x(core); value = cpu_rotate_right(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
 		case 0x6E: address = addr_abs(core); value = cpu_rotate_right(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
-		case 0x7E: indexed = cpu_address_absolute_x(core); value = cpu_rotate_right(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
+		case 0x7E: indexed = abs_x(core); value = cpu_rotate_right(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
 
 		// Increment and decrement memory
 		case 0xE6: address = zero_page(core); value = cpu_increment(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 5; break;
 		case 0xF6: address = zero_page_x(core); value = cpu_increment(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
 		case 0xEE: address = addr_abs(core); value = cpu_increment(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
-		case 0xFE: indexed = cpu_address_absolute_x(core); value = cpu_increment(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
+		case 0xFE: indexed = abs_x(core); value = cpu_increment(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
 		case 0xC6: address = zero_page(core); value = cpu_decrement(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 5; break;
 		case 0xD6: address = zero_page_x(core); value = cpu_decrement(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
 		case 0xCE: address = addr_abs(core); value = cpu_decrement(core, cpu_read(core, address)); cpu_write(core, address, value); cycles = 6; break;
-		case 0xDE: indexed = cpu_address_absolute_x(core); value = cpu_decrement(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
+		case 0xDE: indexed = abs_x(core); value = cpu_decrement(core, cpu_read(core, indexed.address)); cpu_write(core, indexed.address, value); cycles = 7; break;
 
 		// Register transfers and increments
 		case 0xAA: cpu_load_x(core, cpu->A); cycles = 2; break;
@@ -561,20 +561,20 @@ u32 nes_cpu_step(NES_Emulator *core)
 		case 0xA8: cpu_load_y(core, cpu->A); cycles = 2; break;
 		case 0x98: cpu_load_a(core, cpu->Y); cycles = 2; break;
 		case 0xBA: cpu_load_x(core, cpu->S); cycles = 2; break;
-		case 0x9A: core->cpu.S = (u8)(cpu->X); cycles = 2; break;
-		case 0xE8: core->cpu.X = (u8)(cpu->X + 1); core->cpu.P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->X)); cycles = 2; break;
-		case 0xCA: core->cpu.X = (u8)(cpu->X - 1); core->cpu.P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->X)); cycles = 2; break;
-		case 0xC8: core->cpu.Y = (u8)(cpu->Y + 1); core->cpu.P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->Y)); cycles = 2; break;
-		case 0x88: core->cpu.Y = (u8)(cpu->Y - 1); core->cpu.P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->Y)); cycles = 2; break;
+		case 0x9A: cpu->S = (u8)(cpu->X); cycles = 2; break;
+		case 0xE8: cpu->X = (u8)(cpu->X + 1); cpu->P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->X)); cycles = 2; break;
+		case 0xCA: cpu->X = (u8)(cpu->X - 1); cpu->P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->X)); cycles = 2; break;
+		case 0xC8: cpu->Y = (u8)(cpu->Y + 1); cpu->P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->Y)); cycles = 2; break;
+		case 0x88: cpu->Y = (u8)(cpu->Y - 1); cpu->P = (u8)(cpu_status_with_negative_and_zero(cpu->P, cpu->Y)); cycles = 2; break;
 
 		// Status flags
-		case 0x18: core->cpu.P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_C)); cycles = 2; break;
-		case 0x38: core->cpu.P = (u8)(cpu->P | cpu_status_mask(CPU_STAT_C)); cycles = 2; break;
-		case 0x58: core->cpu.P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_I)); cycles = 2; break;
-		case 0x78: core->cpu.P = (u8)(cpu->P | cpu_status_mask(CPU_STAT_I)); cycles = 2; break;
-		case 0xD8: core->cpu.P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_D)); cycles = 2; break;
-		case 0xF8: core->cpu.P = (u8)(cpu->P | cpu_status_mask(CPU_STAT_D)); cycles = 2; break;
-		case 0xB8: core->cpu.P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_V)); cycles = 2; break;
+		case 0x18: cpu->P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_C)); cycles = 2; break;
+		case 0x38: cpu->P = (u8)(cpu->P | cpu_status_mask(CPU_STAT_C)); cycles = 2; break;
+		case 0x58: cpu->P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_I)); cycles = 2; break;
+		case 0x78: cpu->P = (u8)(cpu->P | cpu_status_mask(CPU_STAT_I)); cycles = 2; break;
+		case 0xD8: cpu->P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_D)); cycles = 2; break;
+		case 0xF8: cpu->P = (u8)(cpu->P | cpu_status_mask(CPU_STAT_D)); cycles = 2; break;
+		case 0xB8: cpu->P = (u8)(cpu->P & ~cpu_status_mask(CPU_STAT_V)); cycles = 2; break;
 
 		// Branches
 		case 0x10: cycles = cpu_branch(core, !cpu_get_flag(core, CPU_STAT_N)); break;
@@ -593,11 +593,11 @@ u32 nes_cpu_step(NES_Emulator *core)
 		case 0x28: cpu_restore_status(core, cpu_pop_byte(core)); cycles = 4; break;
 
 		// Control flow
-		case 0x4C: core->cpu.PC = (u16)(addr_abs(core)); cycles = 3; break;
-		case 0x6C: core->cpu.PC = (u16)(cpu_address_jmp_indirect(core)); cycles = 5; break;
-		case 0x20: address = addr_abs(core); cpu_push_word(core, cpu->PC - 1); core->cpu.PC = (u16)(address); cycles = 6; break;
-		case 0x60: core->cpu.PC = (u16)(cpu_pop_word(core) + 1); cycles = 6; break;
-		case 0x40: cpu_restore_status(core, cpu_pop_byte(core)); core->cpu.PC = (u16)(cpu_pop_word(core)); cycles = 6; break;
+		case 0x4C: cpu->PC = (u16)(addr_abs(core)); cycles = 3; break;
+		case 0x6C: cpu->PC = (u16)(cpu_address_jmp_indirect(core)); cycles = 5; break;
+		case 0x20: address = addr_abs(core); cpu_push_word(core, cpu->PC - 1); cpu->PC = (u16)(address); cycles = 6; break;
+		case 0x60: cpu->PC = (u16)(cpu_pop_word(core) + 1); cycles = 6; break;
+		case 0x40: cpu_restore_status(core, cpu_pop_byte(core)); cpu->PC = (u16)(cpu_pop_word(core)); cycles = 6; break;
 		case 0x00:
 			cpu_push_word(core, cpu->PC + 1);
 			cpu_push_byte(core, cpu_status_for_push(cpu, true));

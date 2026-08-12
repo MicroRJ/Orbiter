@@ -1,5 +1,6 @@
 .vs/
 /build/
+/.bob/
 /dist/
 *.exe
 !/tools/bob/bob.exe

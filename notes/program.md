@@ -8,8 +8,23 @@ CPU every frame.
 
 Even if doing so takes 1-2 ms, we could still do it _once_ after the emulator stops running.
 
-The point of the incremental scan was to refine instruction guesses, count instructions and
-build bridges. It does so incrementally over several frames as the emulator runs.
+The point of the incremental scan was to refine instruction guesses, count instructions and build
+bridges as the emulator runs.
+
+The new approach would work as follows, every X scan the entire visible program, build the
+disassembly listing once.
+
+Since we track the CPU's execution at all times, we can tell when we execute an address that
+hasn't been discovered yet.
+We can then simply mark the listing as dirty or using some sort of revision counter, and force
+the CPU listing to be invalidated.
+
+We could eventually do this incrementally, but doing it once should be plenty fast.
+
+Doing it this way will literally remove 90% of the complexity we have now, and it'll be much
+more robust and easier to maintain.
+
+
 
 
 

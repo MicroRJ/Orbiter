@@ -309,7 +309,7 @@ static rect_f32 ui_virtual_list__child_clip(UI_Box *box, rect_f32 clip)
 {
 	for (AXIS axis = AXIS_X; axis <= AXIS_Y; axis ++)
 	{
-		if (box->desc.overflow[axis] == UI_BOX_OVERFLOW_VISIBLE || box->content_size.xy[axis] <= box->viewport.wh[axis] + 0.001f) continue;
+		if (box->desc.overflow[axis] != UI_BOX_OVERFLOW_CLIP) continue;
 		f32 minimum = Max(clip.xy[axis], box->viewport.xy[axis]);
 		f32 maximum = Min(clip.xy[axis] + clip.wh[axis], box->viewport.xy[axis] + box->viewport.wh[axis]);
 		clip.xy[axis] = minimum;
@@ -975,24 +975,40 @@ static vec2 ui_box__measure_table(UI_Box *box, UI_BoxConstraints constraints)
 static void ui_box__prepare_table_layout(UI_Box *box)
 {
 	UI_BoxTableData *table = box->content;
-	f32 committed_width = table->column_gap * Max((i32)table->column_count - 1, 0);
+	f32 gap_width = table->column_gap * Max((i32)table->column_count - 1, 0);
+	f32 fixed_width = 0.f;
+	f32 content_width = 0.f;
 	f32 flex_weight = 0.f;
 	for (u32 column = 0; column < table->column_count; column++)
 	{
 		UI_BoxTableColumn spec = table->columns[column];
 		if (spec.kind == UI_BOX_TABLE_COLUMN_FIXED) {
 			table->resolved_widths[column] = spec.value;
-			committed_width += spec.value;
+			fixed_width += spec.value;
 		}
 		else if (spec.kind == UI_BOX_TABLE_COLUMN_CONTENT) {
 			table->resolved_widths[column] = table->natural_widths[column];
-			committed_width += table->natural_widths[column];
+			content_width += table->natural_widths[column];
 		}
 		else {
 			flex_weight += spec.value;
 		}
 	}
-	f32 flex_space = Max(0.f, box->viewport.w - committed_width);
+
+	// Fixed columns are rigid. Content columns prefer their natural width, but
+	// must yield when the table is narrower so their raw cell geometry cannot
+	// extend beneath adjacent layout siblings such as a scrollbar.
+	f32 content_space = Max(0.f, box->viewport.w - gap_width - fixed_width);
+	f32 content_scale = content_width > content_space && content_width > 0.f ? content_space / content_width : 1.f;
+	if (content_scale < 1.f)
+	{
+		for (u32 column = 0; column < table->column_count; column++)
+		{
+			if (table->columns[column].kind == UI_BOX_TABLE_COLUMN_CONTENT) table->resolved_widths[column] = table->natural_widths[column] * content_scale;
+		}
+	}
+	f32 resolved_content_width = content_width * content_scale;
+	f32 flex_space = Max(0.f, box->viewport.w - gap_width - fixed_width - resolved_content_width);
 	for (u32 column = 0; column < table->column_count; column++)
 	{
 		UI_BoxTableColumn spec = table->columns[column];

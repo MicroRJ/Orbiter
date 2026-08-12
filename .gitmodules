@@ -1,3 +1,6 @@
 [submodule "platform"]
 	path = platform
 	url = https://github.com/MicroRJ/platform.git
+[submodule "elf"]
+	path = elf
+	url = https://github.com/MicroRJ/elf.git

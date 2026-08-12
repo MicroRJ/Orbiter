@@ -144,20 +144,21 @@ static void cpu_test_explicit_bus_operations(CPU_TestFixture *fixture)
 	NES_MapperClass saved_mapper = fixture->core->mapper;
 	u32 saved_prg_rom_size = fixture->core->prg_rom_size;
 	u32 saved_num_prg_banks = fixture->core->num_prg_banks;
-	u8 saved_mapper_value = fixture->core->values[0];
+	u8 saved_mapper_values[ArrayCount(fixture->core->values)];
+	memory_copy(saved_mapper_values, fixture->core->values, sizeof(saved_mapper_values));
 	fixture->core->mapper.cpu_bus = mmc2_cpu;
 	fixture->core->prg_rom_size = KiB(256);
 	fixture->core->num_prg_banks = 16;
-	fixture->core->values[0] = 5;
+	Assert(mmc2_reset(fixture->core));
+	nes_cpu_bus_write(fixture->core, 0xA000, 5);
 	nes_cpu_bus_read(fixture->core, 0x8000);
-	CPU_EXPECT_EQUAL(5, fixture->core->values[0]);
 	NES_MapAddr mmc2_prg = nes_cpu_bus_map(fixture->core, 0x8000);
 	CPU_EXPECT_EQUAL(NES_DEVICE_PRG_ROM, mmc2_prg.device);
 	CPU_EXPECT_EQUAL(5 * KiB(8), mmc2_prg.offset);
 	fixture->core->mapper = saved_mapper;
 	fixture->core->prg_rom_size = saved_prg_rom_size;
 	fixture->core->num_prg_banks = saved_num_prg_banks;
-	fixture->core->values[0] = saved_mapper_value;
+	memory_copy(fixture->core->values, saved_mapper_values, sizeof(saved_mapper_values));
 
 	fixture->core->ppu.PPUSTATUS = 0xE0;
 	NES_MapAddr status = nes_cpu_bus_map(fixture->core, 0x2002);

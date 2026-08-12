@@ -17,6 +17,7 @@ typedef struct App_Window App_Window;
 typedef struct
 {
 	Orb *orb;
+	Str path;
 }
 App_OrbLibEntry;
 
@@ -28,6 +29,7 @@ struct App
 
 	App_OrbLibEntry *orb_library;
 	u32              orb_library_count;
+	u32              orb_library_capacity;
 
 	f32 ppu_volume;
 	f32 ppu_volume_target;

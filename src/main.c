@@ -14,15 +14,9 @@
 #include "actions.h"
 #include "app.h"
 #include "app_window.h"
+#include "elf.h"
 
-#define TABULA_USE_EXTERNAL_TYPES
-#include "tabula/tabula.h"
-#undef TABULA_USE_EXTERNAL_TYPES
-
-global const char orb_save_path[]         = "data/resume.orb";
 global const char app_user_config_path[]  = "data/user.tab";
-global const char debugger_config_path[]  = "data/debugger.cfg";
-global const char debugger_default_config_path[] = "data/default_debugger.cfg";
 global const char debugger_log_path[]     = "data/debugger.log";
 global const char debugger_program_path[] = "data/program.dump";
 global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
@@ -73,13 +67,11 @@ static b32 app_write_file_atomic(Str path, ByteSpan data)
 	return false;
 }
 
-static void app_log_tabula_diagnostics(const Tabula_Diagnostic *diagnostics, size_t count)
+static void app_log_elf_diagnostic(elf_State *state)
 {
-	for (size_t i = 0; i < count; ++i)
-	{
-		const Tabula_Diagnostic *diagnostic = &diagnostics[i];
-		LOG_ERROR("%s:%llu:%llu: %.*s", app_user_config_path, (u64)diagnostic->range.line, (u64)diagnostic->range.column, (int)diagnostic->message.length, diagnostic->message.data);
-	}
+	elf_Diagnostic diagnostic;
+	if (!elf_get_diagnostic(state, &diagnostic)) LOG_ERROR("failed to parse user config '%s'", app_user_config_path);
+	else LOG_ERROR("%s:%u:%llu: %.*s", app_user_config_path, diagnostic.line, diagnostic.column, (int)diagnostic.message.size, diagnostic.message.data);
 }
 
 static void app_load_user_config(void)
@@ -95,31 +87,30 @@ static void app_load_user_config(void)
 		return;
 	}
 
-	Tabula_Context *context = tabula_context_create(0);
-	Assert(context);
-	Tabula_ParseResult parsed = tabula_parse(context, (Tabula_Source) {
-		.name = { app_user_config_path, sizeof(app_user_config_path) - 1 },
-		.text = { source.data, source.size },
-	});
+	elf_State *state = elf_create_state();
+	Assert(state);
 	b32 restored = false;
-	if (!parsed.success) app_log_tabula_diagnostics(parsed.diagnostics, parsed.diagnostic_count);
-	else
+	b32 parsed = elf_push_constant_expr(state, app_user_config_path, (elf_StrSlice) { source.data, source.size });
+	if (!parsed) app_log_elf_diagnostic(state);
+	else if (elf_type(state, -1) == ELF_VALUE_TYPE_TABLE)
 	{
-		Tabula_EvalResult evaluated = tabula_evaluate(context, parsed.ast, 0);
-		if (!evaluated.success) app_log_tabula_diagnostics(evaluated.diagnostics, evaluated.diagnostic_count);
-		else if (evaluated.value.type == TABULA_VALUE_TABLE)
+		i32 table = elf_abs_index(state, -1);
+		elf_Integer version;
+		if (elf_get_field(state, table, "version"))
 		{
-			const Tabula_Value *version = tabula_table_get(evaluated.value.as.table, TABULA_STRING_LITERAL("version"));
-			const Tabula_Value *window = tabula_table_get(evaluated.value.as.table, TABULA_STRING_LITERAL("window"));
-			if (version && version->type == TABULA_VALUE_INTEGER && version->as.integer == 1 && window && window->type == TABULA_VALUE_TABLE) {
-				restored = app_window_state_from_table(app.window, window->as.table);
+			b32 valid_version = elf_to_int(state, -1, &version) && version == 1;
+			Assert(elf_pop(state, 1));
+			if (valid_version && elf_get_field(state, table, "window"))
+			{
+				restored = app_window_state_read(state, -1, app.window);
+				Assert(elf_pop(state, 1));
 			}
-			if (!restored) LOG_ERROR("invalid user config '%s'", app_user_config_path);
 		}
 	}
+	if (parsed && !restored) LOG_ERROR("invalid user config '%s'", app_user_config_path);
 	if (!restored) app.user_config_save_suppressed = true;
 	else LOG_INFO("restored user config from '%s'", app_user_config_path);
-	tabula_context_destroy(context);
+	elf_destroy_state(state);
 }
 
 static void app_save_user_config(void)
@@ -130,21 +121,24 @@ static void app_save_user_config(void)
 		return;
 	}
 
-	Tabula_Context *context = tabula_context_create(0);
-	Assert(context);
-	Tabula_Table *table = tabula_table_create(context);
-	Assert(table);
-	Assert(tabula_table_set(table, TABULA_STRING_LITERAL("version"), tabula_value_integer(1)));
-	Assert(tabula_table_set(table, TABULA_STRING_LITERAL("window"), (Tabula_Value) {
-		.type = TABULA_VALUE_TABLE,
-		.as.table = app_window_state_to_table(app.window, context),
-	}));
+	elf_State *state = elf_create_state();
+	Assert(state);
+	elf_new_table(state);
+	i32 table = elf_abs_index(state, -1);
+	elf_push_int(state, 1);
+	Assert(elf_set_field(state, table, "version"));
+	app_window_state_push(state, app.window);
+	Assert(elf_set_field(state, table, "window"));
 
-	Tabula_String source = tabula_table_to_source(context, table);
-	b32 saved = source.data && source.length <= MAX_VALUE_U32 && app_write_file_atomic(str_from_cstr(app_user_config_path), byte_span((void *)source.data, source.length));
+	b32 saved = false;
+	if (elf_push_value_source(state, table))
+	{
+		elf_StrSlice source;
+		if (elf_to_str(state, -1, &source) && source.size <= MAX_VALUE_U32) saved = app_write_file_atomic(str_from_cstr(app_user_config_path), byte_span(source.data, (u32)source.size));
+	}
 	if (!saved) LOG_ERROR("failed to save user config '%s'", app_user_config_path);
 	else LOG_INFO("saved user config to '%s'", app_user_config_path);
-	tabula_context_destroy(context);
+	elf_destroy_state(state);
 }
 
 static u64 app_unix_time_ms(void)
@@ -170,7 +164,7 @@ static void app_restore_state()
 {
 }
 
-static void app_save_state();
+static b32 app_save_state();
 
 #define APP_BIND(kind_, activation_, key_, modifiers_) { .action = { .kind = kind_ }, .key_chord = { activation_, key_, modifiers_ } }
 #define APP_BIND_SPLIT(axis_, key_) { .action = { .kind = APP_ACTION_SPLIT_PANEL, .split_panel = { axis_ } }, .key_chord = { APP_KEY_CHORD_ON_RELEASE, key_, OS_MODIFIER_CONTROL } }
@@ -224,6 +218,7 @@ static const App_KeyBinding app_key_bindings[] =
 	APP_BIND(APP_ACTION_TOGGLE_FULLSCREEN, APP_KEY_CHORD_ON_RELEASE, OS_Key_F11, 0),
 	APP_BIND(APP_ACTION_TOGGLE_FULLSCREEN, APP_KEY_CHORD_ON_RELEASE, OS_Key_Enter, OS_MODIFIER_ALT),
 	APP_BIND(APP_ACTION_TOGGLE_RUNNING, APP_KEY_CHORD_ON_RELEASE, OS_Key_F5, 0),
+	APP_BIND(APP_ACTION_TOGGLE_UI_DEBUG_BOUNDS, APP_KEY_CHORD_ON_RELEASE, OS_Key_F6, 0),
 	APP_BIND(APP_ACTION_TOGGLE_CRT, APP_KEY_CHORD_ON_RELEASE, OS_Key_F7, 0),
 	APP_BIND(APP_ACTION_TAKE_PPU_SCREENSHOT, APP_KEY_CHORD_ON_RELEASE, OS_Key_F8, 0),
 	APP_BIND(APP_ACTION_TOGGLE_PPU_CAPTURE, APP_KEY_CHORD_ON_RELEASE, OS_Key_F8, OS_MODIFIER_SHIFT),
@@ -310,10 +305,72 @@ static void app_play_ui_feedback(UI_Feedback feedback)
 
 static void app_transfer_save(Orb_SaveState *save, NES_Emulator *emulator, b32 write);
 
+static b32 app_open_orb(Str path)
+{
+	Assert(path.data && path.size);
+	app_save_state();
+
+	Orb_Store next_store;
+	orb_store_init(&next_store);
+	Orb *orb = orb_from_file(&next_store, path);
+	if (!orb)
+	{
+		LOG_ERROR("could not load orb '%.*s'", path.size, path.data);
+		orb_store_destroy(&next_store);
+		return false;
+	}
+
+	Orb_Game game = orb->game;
+	Orb_GameMetadata metadata = game.metadata;
+	NES_SetupParams setup_params = {
+		.mapper = metadata.mapper,
+		.vmirror = metadata.vmirror,
+		.four_screen = metadata.four_screen,
+		.has_trainer = metadata.has_trainer,
+		.prg_rom = byte_span(game.prg_rom_data, metadata.prg_rom_size),
+		.chr_rom = byte_span(game.chr_rom_data, metadata.chr_rom_size),
+	};
+	if (!nes_supports_setup_params(setup_params))
+	{
+		LOG_ERROR("unsupported cartridge in '%.*s'", path.size, path.data);
+		orb_store_destroy(&next_store);
+		return false;
+	}
+
+	Assert(nes_setup_emulator(&app.emulator, setup_params));
+	orb_store_destroy(&app.orb_store);
+	app.orb_store = next_store;
+	app.active_save = 0;
+
+	debugger_reset(app.debugger);
+	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
+	// TODO(RJ) we can't just do this, it has to be driven based off of intent!
+	app_window_set_library_visible(app.window, false);
+
+	u64 now = app_unix_time_ms();
+	Orb_SaveNode *save = orb->first_save;
+	if (save) app_transfer_save(&save->state, &app.emulator, true);
+	else
+	{
+		save = arena_push_zero(&app.orb_store.arena, sizeof(*save));
+		save->orb = orb;
+		save->metadata.kind = ORB_SAVE_RESUME;
+		save->metadata.created_unix_ms = now;
+		save->metadata.updated_unix_ms = now;
+		orb->first_save = save;
+		orb->last_save = save;
+		orb->save_count = 1;
+	}
+	app.active_save = save;
+	LOG_INFO("opened '%.*s'", path.size, path.data);
+	return true;
+}
+
 static b32 app_handle_actions(App_WindowOutput input)
 {
 	b32 step_requested = false;
 	i32 scrub_direction = 0;
+	b32 scrub_input_active = false;
 	b32 wants_open_file = 0;
 	for (u32 index = 0; index < input.action_count; index++)
 	{
@@ -323,6 +380,12 @@ static b32 app_handle_actions(App_WindowOutput input)
 			case APP_ACTION_OPEN_ROM:
 			{
 				wants_open_file ++;
+			} break;
+			case APP_ACTION_OPEN_LIBRARY_ORB:
+			{
+				u32 index = action.open_library_orb.index;
+				if (index < app.orb_library_count) app_open_orb(app.orb_library[index].path);
+				else LOG_ERROR("invalid library orb index %u", index);
 			} break;
 			case APP_ACTION_RESET:
 			{
@@ -351,6 +414,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 			} break;
 			case APP_ACTION_SCRUB:
 			{
+				scrub_input_active = true;
 				scrub_direction += action.scrub.direction;
 			} break;
 			case APP_ACTION_TAKE_PPU_SCREENSHOT:
@@ -376,7 +440,8 @@ static b32 app_handle_actions(App_WindowOutput input)
 	}
 
 	scrub_direction = CLAMP(scrub_direction, -1, 1);
-	if (nes_emulator_ready_to_run(&app.emulator) && scrub_direction)
+	b32 scrub_modifier_down = !!(input.modifiers & OS_MODIFIER_CONTROL);
+	if (nes_emulator_ready_to_run(&app.emulator) && scrub_input_active)
 	{
 		if (app.transport.state != APP_TRANSPORT_SCRUBBING)
 		{
@@ -388,58 +453,21 @@ static b32 app_handle_actions(App_WindowOutput input)
 	}
 	else if (app.transport.state == APP_TRANSPORT_SCRUBBING)
 	{
-		Assert(app.transport.return_state == APP_TRANSPORT_PAUSED || app.transport.return_state == APP_TRANSPORT_RUNNING);
-		app.transport.state = app.transport.return_state;
-		app.transport.direction = 0;
+		if (scrub_modifier_down) {
+			app.transport.direction = 0;
+		}
+		else
+		{
+			Assert(app.transport.return_state == APP_TRANSPORT_PAUSED || app.transport.return_state == APP_TRANSPORT_RUNNING);
+			app.transport.state = app.transport.return_state;
+			app.transport.direction = 0;
+		}
 	}
 
 	if (wants_open_file)
 	{
 		Str path = os_dialog_open_file(&app.frame_arena);
-		if (path.size)
-		{
-			Orb *orb = orb_from_file(&app.orb_store, path);
-			Orb_Game game = orb->game;
-			Orb_GameMetadata metadata = game.metadata;
-			NES_SetupParams setup_params = {};
-			setup_params.mapper       = metadata.mapper;
-			setup_params.vmirror      = metadata.vmirror;
-			setup_params.four_screen  = metadata.four_screen;
-			setup_params.has_trainer  = metadata.has_trainer;
-			setup_params.prg_rom      = byte_span(game.prg_rom_data, metadata.prg_rom_size);
-			setup_params.chr_rom      = byte_span(game.chr_rom_data, metadata.chr_rom_size);
-			b32 success = nes_setup_emulator(&app.emulator, setup_params);
-			Assert(!success || nes_emulator_ready_to_run(& app.emulator));
-			if (success) {
-				LOG_INFO("emulator setup successfully");
-				debugger_reset(app.debugger);
-				app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
-
-				// TODO(RJ) we need a better way to communicate this!
-				app_window_set_library_visible(app.window, false);
-
-				u64 now = platform_unix_time_ms();
-
-				Orb_SaveNode *save = orb->first_save;
-				if (save) {
-					app_transfer_save(&save->state, &app.emulator, true);
-				}
-				else {
-					save = arena_push_zero(&app.orb_store.arena, sizeof(*save));
-					save->orb = orb;
-					save->metadata.created_unix_ms = now;
-					save->metadata.updated_unix_ms = now;
-					save->metadata.play_time_ms = 0;
-					if (!orb->first_save) orb->first_save = save;
-					else save->next = orb->last_save;
-					orb->last_save = save;
-				}
-				app.active_save = save;
-			}
-			else {
-				LOG_ERROR("could not setup emulator");
-			}
-		}
+		if (path.size) app_open_orb(path);
 	}
 
 	return step_requested;
@@ -627,6 +655,10 @@ static b32 app_init(void)
 		LOG_ERROR("failed to initialize os");
 		return false;
 	}
+	if (!platform_create_directories("data\\orbs")) {
+		LOG_ERROR("failed to create orb storage directory 'data\\orbs'");
+		return false;
+	}
 
 	if (!os_graphical_init()) {
 		LOG_ERROR("failed to initialize graphics");
@@ -695,8 +727,7 @@ static b32 app_init(void)
 		.sampler = GRAPHICS_SAMPLER_POINT,
 		.label = "NES CHR map",
 	});
-	app.dummy_texture = gfx_create_texture_from_image(app.renderer, push_image_rgba_u8_from_file(&app.frame_arena, LIT("data\\ppu_screenshot_001.png")), GRAPHICS_SAMPLER_POINT);
-	Assert(app.dummy_texture);
+	// app.dummy_texture = gfx_create_texture_from_image(app.renderer, push_image_rgba_u8_from_file(&app.frame_arena, LIT("data\\ppu_screenshot_001.png")), GRAPHICS_SAMPLER_POINT);
 
 	app.debugger = debugger_create(&app.arena, &app.emulator);
 	return true;
@@ -746,9 +777,9 @@ static void bytes_to_hex(u8 *bytes, u32 nbytes, char *buf)
 	}
 }
 
-static void app_save_state()
+static b32 app_save_state()
 {
-	if (!app.active_save) return;
+	if (!app.active_save) return true;
 
 	Orb_SaveNode *save = app.active_save;
 	Orb *orb = save->orb;
@@ -761,10 +792,14 @@ static void app_save_state()
 	char hash_str[32*2 + 1] = { };
 	bytes_to_hex(orb->game_hash.bytes, 32, hash_str);
 	Str path = str_push_copy_f(&app.frame_arena, "data\\orbs\\%s.orb", hash_str);
-	LOG_TRACE("orb saved at: %s", path.data);
-	app_write_file_atomic(path, orb_data);
+	b32 orb_saved = app_write_file_atomic(path, orb_data);
+	if (!orb_saved) LOG_ERROR("failed to save orb '%s'", path.data);
+	else LOG_INFO("saved orb to '%s'", path.data);
 
-	app_write_file_atomic(LIT("data\\orbs\\resume.orb"), orb_data);
+	Str resume_path = LIT("data\\orbs\\resume.orb");
+	b32 resume_saved = app_write_file_atomic(resume_path, orb_data);
+	if (!resume_saved) LOG_ERROR("failed to save resume orb '%s'", resume_path.data);
+	return orb_saved && resume_saved;
 }
 
 static void app_shutdown(void)
@@ -824,7 +859,14 @@ static b32 app_for_file(App_FileVisitor *visitor, void *user)
 
 void app_file_visitor(Str path, Platform_File_Info info, void *user)
 {
-	LOG_TRACE("file: %s", path.data);
+	if (!str_ends_nocase(path, LIT(".orb")) || str_ends_nocase(path, LIT("\\resume.orb"))) return;
+	if (app.orb_library_count >= app.orb_library_capacity)
+	{
+		LOG_WARN("orb library capacity reached; skipping '%.*s'", path.size, path.data);
+		return;
+	}
+
+	u64 arena_start = app.arena.position;
 	// TODO(RJ)
 	//	We keep Orb as a shell, Orbs only point into memory, which we already
 	//	do partially.
@@ -833,9 +875,25 @@ void app_file_visitor(Str path, Platform_File_Info info, void *user)
 	//	file data on a separate arena.
 	//	Only one orb needs to be active, so when an orb is loaded, the arena is reset.
 	//	We'd have to make sure to zero the pointers of the orb we just evitected.
-	Str file_str = app_read_file(& app.arena, path.data);
-	Orb *orb = orb_read(& app.arena, byte_span(file_str.data, file_str.size));
-	app.orb_library[app.orb_library_count ++].orb = orb;
+	Str file_str = app_read_file(&app.arena, path.data);
+	Orb *orb = file_str.data ? orb_read(&app.arena, byte_span(file_str.data, file_str.size)) : 0;
+	if (!orb)
+	{
+		app.arena.position = arena_start;
+		LOG_ERROR("could not read orb '%.*s'", path.size, path.data);
+		return;
+	}
+
+	for (u32 index = 0; index < app.orb_library_count; index ++)
+	{
+		if (!hash256_match(app.orb_library[index].orb->game_hash, orb->game_hash)) continue;
+		app.arena.position = arena_start;
+		return;
+	}
+
+	Str stored_path = str_push_copy(&app.arena, path);
+	orb->disk_path = stored_path;
+	app.orb_library[app.orb_library_count ++] = (App_OrbLibEntry) { .orb = orb, .path = stored_path };
 }
 
 int main(void)
@@ -858,8 +916,9 @@ int main(void)
 	}
 
 	app.orb_library_count = 0;
-	app.orb_library = arena_push_zero(&app.arena, 1024 * sizeof(* app.orb_library));
-	app_for_file(app_file_visitor, 0);
+	app.orb_library_capacity = 1024;
+	app.orb_library = arena_push_zero(&app.arena, app.orb_library_capacity * sizeof(*app.orb_library));
+	if (!app_for_file(app_file_visitor, 0)) LOG_ERROR("could not enumerate orb library");
 
 	app.frame_begin = seconds_now();
 	while (app_window_is_open(app.window))

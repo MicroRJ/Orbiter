@@ -16,6 +16,10 @@ Each bank is 16 KiB:
 - 2 banks (32 KiB) correspond to NROM-256.
 */
 
+NES_MAPPER_VALID_FUNC(nrom_valid) {
+	return nes->prg_rom_size == KiB(16) || nes->prg_rom_size == KiB(32);
+}
+
 NES_MAPPER_RSET_FUNC(nrom_reset) {
 	return true;
 }

@@ -7,10 +7,7 @@
 #include "ui_box.h"
 #include "ui_widgets.h"
 #include "views.h"
-
-#define TABULA_USE_EXTERNAL_TYPES
-#include "tabula/tabula.h"
-#undef TABULA_USE_EXTERNAL_TYPES
+#include "elf.h"
 
 enum { APP_WINDOW_ACTION_CAPACITY = 64 };
 
@@ -31,6 +28,7 @@ struct App_Window
 	b32 library_overlay_on;
 	b32 exclusive_ppu;
 	b32 crt_enabled;
+	b32 ui_debug_bounds;
 	f32 volume_animation;
 	f32 frames_per_second;
 	Seconds previous_draw_time;
@@ -92,30 +90,42 @@ void app_window_set_library_visible(App_Window *window, b32 visible)
 	window->library_overlay_on = visible;
 }
 
-Tabula_Table *app_window_state_to_table(const App_Window *window, Tabula_Context *context)
+void app_window_state_push(elf_State *state, const App_Window *window)
 {
+	Assert(state);
 	Assert(window);
-	Assert(context);
-
-	Tabula_Table *table = tabula_table_create(context);
-	Assert(table);
-	Assert(tabula_table_set(table, TABULA_STRING_LITERAL("version"), tabula_value_integer(1)));
-	Assert(tabula_table_set(table, TABULA_STRING_LITERAL("panels"), (Tabula_Value) {
-		.type = TABULA_VALUE_TABLE,
-		.as.table = panels_layout_to_table(window->panels, context),
-	}));
-	return table;
+	i32 top = elf_get_top(state);
+	elf_new_table(state);
+	i32 table = elf_abs_index(state, -1);
+	elf_push_int(state, 1);
+	Assert(elf_set_field(state, table, "version"));
+	panels_layout_push(state, window->panels);
+	Assert(elf_set_field(state, table, "panels"));
+	Assert(elf_get_top(state) == top + 1);
 }
 
-b32 app_window_state_from_table(App_Window *window, const Tabula_Table *table)
+static b32 app_window_state_read_impl(elf_State *state, i32 index, App_Window *window)
 {
-	Assert(window);
-	Assert(table);
+	if (elf_type(state, index) != ELF_VALUE_TYPE_TABLE) return false;
+	i32 table = elf_abs_index(state, index);
+	elf_Integer version;
+	if (!elf_get_field(state, table, "version")) return false;
+	b32 valid = elf_to_int(state, -1, &version) && version == 1;
+	Assert(elf_pop(state, 1));
+	if (!valid || !elf_get_field(state, table, "panels")) return false;
+	valid = panels_layout_read(state, -1, window->panels);
+	Assert(elf_pop(state, 1));
+	return valid;
+}
 
-	const Tabula_Value *version = tabula_table_get(table, TABULA_STRING_LITERAL("version"));
-	const Tabula_Value *panels = tabula_table_get(table, TABULA_STRING_LITERAL("panels"));
-	if (!version || version->type != TABULA_VALUE_INTEGER || version->as.integer != 1 || !panels || panels->type != TABULA_VALUE_TABLE) return false;
-	return panels_layout_from_table(window->panels, panels->as.table);
+b32 app_window_state_read(elf_State *state, i32 index, App_Window *window)
+{
+	Assert(state);
+	Assert(window);
+	i32 top = elf_get_top(state);
+	b32 result = app_window_state_read_impl(state, index, window);
+	Assert(elf_get_top(state) == top);
+	return result;
 }
 
 void app_window_emit_action(App_Window *window, App_Action action)
@@ -187,6 +197,11 @@ static b32 app_window_handle_local_action(App_Window *window, App_Action action)
 		case APP_ACTION_TOGGLE_CRT:
 		{
 			window->crt_enabled = !window->crt_enabled;
+		} break;
+		case APP_ACTION_TOGGLE_UI_DEBUG_BOUNDS:
+		{
+			window->ui_debug_bounds = !window->ui_debug_bounds;
+			LOG_INFO("UI debug bounds %s", window->ui_debug_bounds ? "enabled" : "disabled");
 		} break;
 		case APP_ACTION_ADJUST_UI_FONT_SIZE:
 		{
@@ -264,6 +279,7 @@ App_WindowOutput app_window_begin_frame(App_Window *window, App_KeyMap key_map)
 	}
 
 	u32 modifiers = app_window_modifiers(window);
+	result.modifiers = modifiers;
 	for (u32 bind_index = 0; bind_index < key_map.count; bind_index++)
 	{
 		const App_KeyBinding *binding = &key_map.bindings[bind_index];
@@ -366,32 +382,61 @@ static void app_draw_box_tree(UI_Box *box)
 	}
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef struct
+static void app_draw_ui_debug_bounds(App_Window *window, UI_Box *root, rect_f32 window_rect)
 {
-	Orb *orb;
-	Str    title;
-	Str    path;
-   u64    play_time_ms;
-   u64    id;
-   u32    mapper;
-   b32    is_supported;
-   Str    save_name;
-   GFX_Texture *texture;
-   rect_i32      region;
+	if (!window->ui_debug_bounds) return;
+	UI_Context *ui = window->ui;
+	UI_Box *box = ui_box_find_deepest(root, ui->mouse);
+	if (!box) return;
+
+	rect_f32 hit_rect = box->state ? box->state->hit_rect : rect_f32_intersect(box->rect, box->clip_rect);
+	Color_SRGBA box_color = ui->theme.palette.violet;
+	Color_SRGBA hit_color = ui->theme.palette.cyan;
+	UI_TextStyle label_style = ui->theme.code;
+	label_style.size = 14;
+	label_style.color = COLOR_WHITE;
+	label_style.align = v2(0.f, 0.5f);
+	Str label = str_push_copy_f(&ui->frame_arena,
+		"%.*s  rect %.0f,%.0f %.0fx%.0f  hit %.0f,%.0f %.0fx%.0f  z %d%s%s",
+		(i32)box->name.size, box->name.data,
+		box->rect.x, box->rect.y, box->rect.w, box->rect.h,
+		hit_rect.x, hit_rect.y, hit_rect.w, hit_rect.h,
+		box->paint.z,
+		box->hit_intercept ? "  interactive" : "",
+		box->hit_passthrough ? "  passthrough" : "");
+	vec2 label_size = ui_measure_text(ui, label_style, label);
+	rect_f32 label_rect = {
+		.x = ui->mouse.x + 12.f,
+		.y = ui->mouse.y + 16.f,
+		.w = label_size.x + 12.f,
+		.h = label_size.y + 8.f,
+	};
+	if (label_rect.x + label_rect.w > window_rect.x + window_rect.w) label_rect.x = window_rect.x + window_rect.w - label_rect.w - 4.f;
+	if (label_rect.y + label_rect.h > window_rect.y + window_rect.h) label_rect.y = ui->mouse.y - label_rect.h - 12.f;
+	label_rect.x = Max(label_rect.x, window_rect.x + 4.f);
+	label_rect.y = Max(label_rect.y, window_rect.y + 4.f);
+
+	ui_push_z(ui, UI_Z_OVERLAY + 1000);
+	ui_push_unclipped(ui);
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = hit_rect, .color = color_with_alpha(hit_color, 0.12f) });
+	ui_draw_rect_outline(ui, box->rect, 2.f, box_color);
+	ui_draw_rect_outline(ui, hit_rect, 1.f, hit_color);
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = label_rect, .color = color_with_alpha(COLOR_BLACK, 0.92f), .corner_radii = draw_corner_radii_all(3.f) });
+	ui_draw_rect_outline(ui, label_rect, 1.f, hit_color);
+	ui_draw_text(ui, (rect_f32) { label_rect.x + 6.f, label_rect.y + 4.f, label_size.x, label_size.y }, label_style, label);
+	ui_pop_unclipped(ui);
+	ui_pop_z(ui);
 }
-DisplayCard;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 static UI_Box *app_build_catalog_card(UI_Context *ui, vec2 size, Orb *orb)
 {
-	u32 id = 0;
 	GFX_Texture *texture = 0;
-	u64 play_time_ms = 0;
-	b32 is_supported = 0;
+	u64 play_time_ms = orb->play_time_ms;
 	Str title = orb->title;
-	u32 mapper = 0;
+	u32 mapper = orb->game.metadata.mapper;
 
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_fixed(size.x));
@@ -431,7 +476,6 @@ static UI_Box *app_build_catalog_card(UI_Context *ui, vec2 size, Orb *orb)
 			ui_size(ui, AXIS_X, ui_wrap());
 			ui_size(ui, AXIS_Y, ui_wrap());
 			ui_text_box(ui, 1, style, "MAPPER %u", mapper);
-			if (!is_supported) ui_text(ui, 2, style, LIT("UNSUPPORTED CARTRIDGE"));
 
 			ui_text_box(ui, 3, style, "%lluh %02llum", play_time_ms / (60 * 60 * 1000), play_time_ms / (60 * 1000) % 60);
 		}
@@ -442,7 +486,7 @@ static UI_Box *app_build_catalog_card(UI_Context *ui, vec2 size, Orb *orb)
 }
 
 // TODO(RJ) padding hardclips scrolling lists, we need to fade out the edges!
-static DisplayCard *app_build_catalog_shelf(App_Window *window, UI_Key key, Str title, vec2 card_size)
+static void app_build_catalog_shelf(App_Window *window, UI_Key key, Str title, vec2 card_size)
 {
 	UI_Context *ui = window->ui;
 	ui_box_push_id(ui, key);
@@ -466,23 +510,22 @@ static DisplayCard *app_build_catalog_shelf(App_Window *window, UI_Key key, Str 
 	ui_gap(ui, 16.f);
 	ui_box_begin(ui, 3, LIT(""));
 
-	DisplayCard *selected = 0;
 	for (u32 index = 0; index < window->app->orb_library_count; index ++)
 	{
 		UI_Box *card_box = app_build_catalog_card(ui, card_size, window->app->orb_library[index].orb);
 		if (ui_signal_from_box(card_box).pressed)
 		{
 			ui_feedback_emit(ui, UI_FEEDBACK_PRESS);
+			app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_LIBRARY_ORB, .open_library_orb = { index } });
 		}
 	}
 	ui_box_end(ui);
 
 	ui_scroll_box_end(scroll);
 	ui_box_pop_id(ui);
-	return selected;
 }
 
-static DisplayCard *library_build_ui(App_Window *window, rect_f32 window_rect, const App *app)
+static void library_build_ui(App_Window *window, rect_f32 window_rect)
 {
 	UI_Context *ui = window->ui;
 
@@ -507,8 +550,6 @@ static DisplayCard *library_build_ui(App_Window *window, rect_f32 window_rect, c
 	}
 	ui_box_end(ui);
 	ui_scroll_box_end(scroll);
-	DisplayCard *selected = 0;
-	return selected;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -608,7 +649,13 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 		ui_clean(ui);
 		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
 		ui_size(ui, AXIS_Y, ui_wrap());
-		app_status_text(ui, 3, LIT("<< REWINDING"), style, ui->theme.palette.emission_high * pulse);
+		u64 rewind_marker;
+		u64 replay_marker;
+		u64 rewind_cursor;
+		debugger_get_rewind_markers(window->app->debugger, &rewind_marker, &rewind_cursor, &replay_marker);
+
+		Str str = str_push_copy_f(&ui->frame_arena, "<< REWINDING [%llu, %llu, %llu]", rewind_marker, rewind_cursor, replay_marker);
+		app_status_text(ui, 3, str, style, ui->theme.palette.emission_high * pulse);
 	}
 	else if (app->transport.state == APP_TRANSPORT_SCRUBBING && app->transport.direction == +1)
 	{
@@ -741,7 +788,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 			UI_Box *overlay_root = ui_box_begin(ui, UI_KEY("overlay"), LIT(""));
 			overlay_root->hit_intercept = true;
 
-			library_build_ui(window, window_rect, app);
+			library_build_ui(window, window_rect);
 
 			ui_box_end(ui);
 
@@ -888,6 +935,7 @@ void app_window_render(App_Window *window)
 			.color = window->ui->theme.background,
 		});
 		app_draw_box_tree(shell);
+		app_draw_ui_debug_bounds(window, shell, window_rect);
 		draw_end_pass(window->draw);
 		draw_compose(window->draw, window->text_gfx, frame_texture, window_rect);
 	}

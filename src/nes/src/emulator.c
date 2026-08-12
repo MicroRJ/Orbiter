@@ -8,16 +8,16 @@
 
 static const NES_MapperClass nes_mapper_classes[] =
 {
-	{ "NROM",     nrom_reset,  nrom_cpu,  nrom_ppu },
-	{ "MMC1",     mmc1_reset,  mmc1_cpu,  mmc1_ppu },
-	{ "UxROM",   uxrom_reset, uxrom_cpu, uxrom_ppu },
-	{ "UNKNOWN",           0,         0,         0 },
-	{ "UNKNOWN",           0,         0,         0 },
-	{ "UNKNOWN",           0,         0,         0 },
-	{ "UNKNOWN",           0,         0,         0 },
-	{ "UNKNOWN",           0,         0,         0 },
-	{ "UNKNOWN",           0,         0,         0 },
-	{ "MMC2",     mmc2_reset,  mmc2_cpu,  mmc2_ppu },
+	{ "NROM",     nrom_valid,  nrom_reset,  nrom_cpu,  nrom_ppu },
+	{ "MMC1",     mmc1_valid,  mmc1_reset,  mmc1_cpu,  mmc1_ppu },
+	{ "UxROM",   uxrom_valid, uxrom_reset, uxrom_cpu, uxrom_ppu },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "MMC2",     mmc2_valid,  mmc2_reset,  mmc2_cpu,  mmc2_ppu },
 };
 
 void nes_mapper_set_value(NES_Emulator *core, u32 index, u8 value)
@@ -29,6 +29,7 @@ void nes_mapper_set_value(NES_Emulator *core, u32 index, u8 value)
 static b32 nes_mapper_supported(u32 mapper)
 {
 	if (mapper >= ArrayCount(nes_mapper_classes)) return false;
+	if (!nes_mapper_classes[mapper].valid)        return false;
 	if (!nes_mapper_classes[mapper].reset)        return false;
 	if (!nes_mapper_classes[mapper].cpu_bus)      return false;
 	if (!nes_mapper_classes[mapper].ppu_bus)      return false;
@@ -58,9 +59,7 @@ b32 nes_emulator_valid(const NES_Emulator *emulator)
 	if (emulator->apu.step_index >= (emulator->apu.mode ? 5 : 4))         return false;
 	if (emulator->apu.triangle.wave_phase >= 32)                          return false;
 	if (!nes_mapper_supported(emulator->mapper_number))                   return false;
-	if (emulator->mapper_number == 0 && emulator->num_prg_banks > 2)      return false;
-	if (emulator->mapper_number == 9 && emulator->values[5] != 0xFD && emulator->values[5] != 0xFE) return false;
-	if (emulator->mapper_number == 9 && emulator->values[6] != 0xFD && emulator->values[6] != 0xFE) return false;
+	if (!nes_mapper_classes[emulator->mapper_number].valid(emulator))     return false;
 	return true;
 }
 
@@ -83,19 +82,11 @@ b32 nes_supports_setup_params(NES_SetupParams params)
 	return true;
 }
 
-b32 nes_bootup_emulator(NES_Emulator *emulator)
-{
-	if (!nes_emulator_valid(emulator)) return false;
-	emulator->mapper = nes_mapper_classes[emulator->mapper_number];
-	return true;
-}
-
 b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 {
 	if (!nes_supports_setup_params(params)) return false;
 	// TODO(RJ) only zero the live state
 	memory_zero(emulator, sizeof(* emulator));
-
 	memory_copy(emulator->prg_rom, params.prg_rom.data, params.prg_rom.size);
 	memory_copy(emulator->chr_rom, params.chr_rom.data, params.chr_rom.size);
 	emulator->mapper_number = params.mapper;
@@ -105,7 +96,7 @@ b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 	// TODO(RJ) remove these two
 	emulator->num_prg_banks = params.prg_rom.size / KiB(16);
 	emulator->num_chr_banks = params.chr_rom.size / KiB(8);
-	nes_bootup_emulator(emulator);
+	emulator->mapper = nes_mapper_classes[params.mapper];
 	Assert(emulator->mapper.reset(emulator));
 	nes_ppu_power_on(&emulator->ppu);
 	nes_apu_power_on(&emulator->apu);

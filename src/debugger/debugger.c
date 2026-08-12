@@ -1,5 +1,12 @@
 #include "debugger_internal.h"
 
+void debugger_get_rewind_markers(Debugger *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker)
+{
+	if(rewind_marker) *rewind_marker = debugger->snapshots_rewind_marker;
+	if(replay_marker) *replay_marker = debugger->snapshots_replay_marker;
+	if(rewind_cursor) *rewind_cursor = debugger->snapshots_cursor;
+}
+
 void debugger_capture_snapshot(Debugger *debugger)
 {
 	if (debugger->snapshots_cursor > 0) {

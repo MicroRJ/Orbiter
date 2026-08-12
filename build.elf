@@ -18,19 +18,21 @@ release_compile_options := warnings:clone():extend({
 	"/nologo", "/MT", "/O2", "/Zi",
 })
 
+optimize_emulator ::= false
+
 optimized_object_names := {
-	"nes",
-	"orb_nes_serialize",
-	"nes_bus",
-	"nes_cpu",
-	"nes_ppu",
-	"nes_apu",
-	"nes_nrom",
-	"nes_mmc1",
-	"nes_mmc2",
-	"nes_mmc3",
-	"nes_uxrom",
-	"serialize",
+	"nes"               = optimize_emulator,
+	"orb_nes_serialize" = optimize_emulator,
+	"nes_bus"           = optimize_emulator,
+	"nes_cpu"           = optimize_emulator,
+	"nes_ppu"           = optimize_emulator,
+	"nes_apu"           = optimize_emulator,
+	"nes_nrom"          = optimize_emulator,
+	"nes_mmc1"          = optimize_emulator,
+	"nes_mmc2"          = optimize_emulator,
+	"nes_mmc3"          = optimize_emulator,
+	"nes_uxrom"         = optimize_emulator,
+	"serialize"         = optimize_emulator,
 }
 
 include_directories := {
@@ -52,7 +54,6 @@ include_directories := {
 	"src/lz4",
 	"src/text",
 	"tools/ui_playground",
-	"tabula/include",
 	"platform/include",
 	"src/fonts/ttf/freetype/include",
 }
@@ -106,7 +107,6 @@ objects := {
 	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
 	{ name = "serialize",         input = "src/serialize/serialize.c" },
 	{ name = "orb",               input = "src/orb/orb.c" },
-	{ name = "tabula",            input = "tabula/src/tabula.c" },
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
@@ -125,7 +125,6 @@ objects := {
 }
 
 tests := {
-	{ name = "tabula_test",         input = "tabula/tests/tabula_test.c" },
 	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
 	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
 	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
@@ -184,6 +183,32 @@ release_options := join_prefixed(release_compile_options, "")
 	makes the effective mode depend on argument order. */
 debug_options := f"${common_options} /Od"
 optimized_options := f"${common_options} /O2"
+
+elf_debug_entries := elf.load_file("elf/build.elf", {
+	root = "elf",
+	output_root = "build/elf",
+	library_name = "elf",
+	task_prefix = "Elf debug ",
+	compiler = cc,
+	compile_options = debug_options,
+	platform_include = "platform/include",
+	configuration_inputs = { "build.elf" },
+})
+elf_debug := elf_debug_entries.lib_graph()
+
+elf_release_entries := elf.load_file("elf/build.elf", {
+	root = "elf",
+	output_root = "build/release/elf",
+	library_name = "elf",
+	task_prefix = "Elf release ",
+	compiler = cc,
+	compile_options = release_options,
+	platform_include = "platform/include",
+	configuration_inputs = { "build.elf" },
+})
+elf_release := elf_release_entries.lib_graph()
+
+include_directories:extend(elf_debug.exports.include_dirs)
 includes := join_prefixed(include_directories, "/I")
 release_includes := f" /Ibuild/release/generated${includes}"
 
@@ -212,29 +237,9 @@ for object := objects[...] ? {
 	output := f"build/${object.name}.obj"
 	compiler_pdb := f"build/${object.name}.compiler.pdb"
 	object_options := debug_options
-	for optimized_object_name := optimized_object_names[0 ... optimized_object_names:length()] ? {
-		if object.name == optimized_object_name ? {
-			object_options = optimized_options
-		}
-	}
-	inputs := { "build.elf", object.input }
-	if object.name == "base" ? {
-		inputs:add("src/base/base_hash.h")
-		inputs:add("src/base/base_hash.c")
-		inputs:add("src/base/base_image.h")
-		inputs:add("src/base/base_image.c")
-		inputs:add("src/base/base_profiler.h")
-		inputs:add("src/base/base_profiler.c")
-		inputs:add("src/vendor/stb_image.h")
-	}
-	if object.name == "graphics" ? {
-		inputs:add("src/graphics/graphics.h")
-	}
-	if object.name == "app_window" ? {
-		inputs:add("src/app.h")
-		inputs:add("src/frontend/actions.h")
-		inputs:add("src/frontend/library_ui.c")
-		inputs:add("src/frontend/app_window.h")
+	if optimized_object_names.[object.name] ? {
+		elf.printl("optimized: ", object.name)
+		object_options = optimized_options
 	}
 	dependencies := { prepare_build }
 	if object.name == "renderer" ? {
@@ -245,7 +250,7 @@ for object := objects[...] ? {
 	task := {
 		name = object.name,
 		command_line = f"${cc} -c ${object.input} /Fo${output} /Fd${compiler_pdb}${object_options}${includes}",
-		inputs = inputs,
+		inputs = { "build.elf", object.input },
 		outputs = { output },
 		dependencies = dependencies,
 	}
@@ -260,26 +265,15 @@ for executable := executables[...] ? {
 	compiler_pdb := f"${output}.compiler.pdb"
 	linker_pdb := f"${output}.pdb"
 	incremental_link := f"${output}.ilk"
-	entry_inputs := { "build.elf", executable.input }
-	if executable.name == "ui_playground" ? {
-		entry_inputs:add("tools/ui_playground/demo_basics.c")
-		entry_inputs:add("tools/ui_playground/demo_profiler.c")
-		entry_inputs:add("tools/ui_playground/demo_scroll_history.c")
-	}
-	if executable.name == "main" ? {
-		entry_inputs:add("src/app.h")
-		entry_inputs:add("src/frontend/actions.h")
-		entry_inputs:add("src/frontend/app_window.h")
-	}
 	entry_task := {
 		name = f"${executable.name} entry",
 		command_line = f"${cc} -c ${executable.input} /Fo${entry_object} /Fd${compiler_pdb}${debug_options}${includes}",
-		inputs = entry_inputs,
+		inputs = { "build.elf", executable.input },
 		outputs = { entry_object },
 		dependencies = { prepare_build },
 	}
 
-	link_inputs := { "build.elf", "src/fonts/ttf/freetype/freetype.lib", entry_object }
+	link_inputs := { "build.elf", "src/fonts/ttf/freetype/freetype.lib", elf_debug.exports.library, entry_object }
 	for object_output := object_outputs[...] ? {
 		link_inputs:add(object_output)
 	}
@@ -287,9 +281,10 @@ for executable := executables[...] ? {
 	for object_task := object_tasks[...] ? {
 		link_dependencies:add(object_task)
 	}
+	link_dependencies:extend(elf_debug.targets)
 	link_task := {
 		name = executable.name,
-		command_line = f"${cc} /nologo /Fe${output}.exe ${entry_object}${object_files} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:${linker_pdb} /ILK:${incremental_link}",
+		command_line = f"${cc} /nologo /Fe${output}.exe ${entry_object}${object_files} ${elf_debug.exports.library} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:${linker_pdb} /ILK:${incremental_link}",
 		inputs = link_inputs,
 		outputs = { f"${output}.exe", linker_pdb, incremental_link },
 		dependencies = link_dependencies,
@@ -333,25 +328,6 @@ for shader := shaders[...] ? {
 for object := objects[...] ? {
 	output := f"build/release/${object.name}.obj"
 	compiler_pdb := f"build/release/${object.name}.compiler.pdb"
-	inputs := { "build.elf", object.input }
-	if object.name == "base" ? {
-		inputs:add("src/base/base_hash.h")
-		inputs:add("src/base/base_hash.c")
-		inputs:add("src/base/base_image.h")
-		inputs:add("src/base/base_image.c")
-		inputs:add("src/base/base_profiler.h")
-		inputs:add("src/base/base_profiler.c")
-		inputs:add("src/vendor/stb_image.h")
-	}
-	if object.name == "graphics" ? {
-		inputs:add("src/graphics/graphics.h")
-	}
-	if object.name == "app_window" ? {
-		inputs:add("src/app.h")
-		inputs:add("src/frontend/actions.h")
-		inputs:add("src/frontend/library_ui.c")
-		inputs:add("src/frontend/app_window.h")
-	}
 	dependencies := { prepare_release }
 	if object.name == "renderer" ? {
 		for shader_task := release_shader_tasks[...] ? {
@@ -361,7 +337,7 @@ for object := objects[...] ? {
 	task := {
 		name = f"release ${object.name}",
 		command_line = f"${cc} -c ${object.input} /Fo${output} /Fd${compiler_pdb}${release_options}${release_includes}",
-		inputs = inputs,
+		inputs = { "build.elf", object.input },
 		outputs = { output },
 		dependencies = dependencies,
 	}
@@ -375,7 +351,7 @@ release_entry_compiler_pdb := "build/release/main.entry.compiler.pdb"
 release_entry_task := {
 	name = "release main entry",
 	command_line = f"${cc} -c src/main.c /Fo${release_entry_object} /Fd${release_entry_compiler_pdb}${release_options}${release_includes}",
-	inputs = { "build.elf", "src/main.c", "src/app.h", "src/frontend/actions.h", "src/frontend/app_window.h" },
+	inputs = { "build.elf", "src/main.c" },
 	outputs = { release_entry_object },
 	dependencies = { prepare_release },
 }
@@ -383,6 +359,7 @@ release_entry_task := {
 release_link_inputs := {
 	"build.elf",
 	"src/fonts/ttf/freetype/freetype.lib",
+	elf_release.exports.library,
 	release_entry_object,
 }
 for release_object_output := release_object_outputs[...] ? {
@@ -393,10 +370,11 @@ release_link_dependencies := { release_entry_task }
 for release_object_task := release_object_tasks[...] ? {
 	release_link_dependencies:add(release_object_task)
 }
+release_link_dependencies:extend(elf_release.targets)
 
 release_executable := {
 	name = "Orbiter release",
-	command_line = f"${cc} /nologo /MT /Febuild/release/Orbiter.exe ${release_entry_object}${release_object_files} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:build/release/Orbiter.pdb /PDBALTPATH:Orbiter.pdb /INCREMENTAL:NO /OPT:REF /OPT:ICF /NODEFAULTLIB:MSVCRT /INCLUDE:getenv /INCLUDE:strncpy /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup",
+	command_line = f"${cc} /nologo /MT /Febuild/release/Orbiter.exe ${release_entry_object}${release_object_files} ${elf_release.exports.library} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:build/release/Orbiter.pdb /PDBALTPATH:Orbiter.pdb /INCREMENTAL:NO /OPT:REF /OPT:ICF /NODEFAULTLIB:MSVCRT /INCLUDE:getenv /INCLUDE:strncpy /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup",
 	inputs = release_link_inputs,
 	outputs = { "build/release/Orbiter.exe", "build/release/Orbiter.pdb" },
 	dependencies = release_link_dependencies,
@@ -419,6 +397,7 @@ package_files := {
 	{ source = "data/fonts/Saira/OFL.txt", destination = "licenses/Saira-OFL.txt" },
 	{ source = "licenses/MSF-GIF-MIT.txt", destination = "licenses/MSF-GIF-MIT.txt" },
 	{ source = "licenses/STB-MIT.txt", destination = "licenses/STB-MIT.txt" },
+	{ source = "elf/LICENSE", destination = "licenses/Elf-MIT.txt" },
 	{ source = "platform/LICENSE", destination = "licenses/platform-MIT.txt" },
 }
 

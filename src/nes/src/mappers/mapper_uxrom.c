@@ -2,6 +2,10 @@
 #include "mapper.h"
 #include "../emulator_internal.h"
 
+NES_MAPPER_VALID_FUNC(uxrom_valid) {
+	return nes->chr_rom_size == 0;
+}
+
 NES_MAPPER_RSET_FUNC(uxrom_reset) {
 	return true;
 }

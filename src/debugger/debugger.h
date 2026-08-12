@@ -28,6 +28,7 @@ b32 debugger_breakpoint_hit(const Debugger *debugger);
 void debugger_run_program_crawler(Debugger *debugger, u32 instruction_budget);
 void debugger_update_cpu_mapping(Debugger *debugger);
 
+void debugger_get_rewind_markers(Debugger *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker);
 void debugger_capture_snapshot(Debugger *debugger);
 b32 debugger_undo_snapshot(Debugger *debugger);
 b32 debugger_redo_snapshot(Debugger *debugger);

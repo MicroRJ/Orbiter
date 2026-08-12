@@ -10,6 +10,15 @@ enum {
 	MMC1_LOAD_R,
 };
 
+NES_MAPPER_VALID_FUNC(mmc1_valid) {
+	if (nes->values[MMC1_CONTROL_R] > 0x1F) return false;
+	if (nes->values[MMC1_CHR_BANK0_R] > 0x1F) return false;
+	if (nes->values[MMC1_CHR_BANK1_R] > 0x1F) return false;
+	if (nes->values[MMC1_PRG_BANK0_R] > 0x1F) return false;
+	if (!nes->values[MMC1_LOAD_R] || nes->values[MMC1_LOAD_R] > 0x1F) return false;
+	return true;
+}
+
 NES_MAPPER_RSET_FUNC(mmc1_reset) {
 	nes_mapper_set_value(nes, MMC1_LOAD_R,    0x10);
 	nes_mapper_set_value(nes, MMC1_CONTROL_R, 0x0C);
