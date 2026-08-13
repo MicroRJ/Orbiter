@@ -133,15 +133,12 @@ typedef void UI_BoxPrepareLayout(UI_Box *box);
 // Runs after the box rectangle and viewport are established. A custom layout
 // owns child arrangement; the core still finishes and commits the box state.
 typedef void UI_BoxLayoutChildren(UI_Box *box, rect_f32 clip);
-// Runs after the box and all of its children have current rectangles.
-typedef void UI_BoxFinishLayout(UI_Box *box);
 typedef void UI_BoxPaint(UI_Box *box);
 
 typedef struct
 {
 	UI_BoxMeasure *measure;
 	UI_BoxPrepareLayout *prepare_layout;
-	UI_BoxFinishLayout *finish_layout;
 	UI_BoxPaint *paint;
 }
 UI_BoxHooks;
@@ -169,6 +166,7 @@ struct UI_BoxState
 	u64 last_touched_frame;
 	u64 last_layout_frame;
 	u64 layout_generation;
+	u64 hot_within_frame;
 	rect_f32 rect;
 	rect_f32 hit_rect;
 	rect_f32 viewport;
@@ -177,9 +175,6 @@ struct UI_BoxState
 	// these; widgets such as scroll boxes may use them across frames.
 	vec2 view_offset;
 	vec2 view_target;
-	f32 hot_t;
-	f32 active_t;
-	f32 focus_t;
 };
 
 struct UI_Box
@@ -229,13 +224,10 @@ struct UI_Builder
 	UI_Id id;
 	UI_Id id_stack[UI_BOX_MAX_DEPTH];
 	UI_BoxDesc desc;
-	UI_BoxDesc desc_stack[UI_BOX_MAX_DEPTH];
 	UI_BoxPaintDesc paint;
-	UI_BoxPaintDesc paint_stack[UI_BOX_MAX_DEPTH];
 	i32 box_z_stack[UI_BOX_MAX_DEPTH];
 	u32 parent_count;
 	u32 id_count;
-	u32 desc_count;
 	u32 box_z_count;
 };
 
@@ -264,17 +256,10 @@ void ui_box_pop_id(UI_Context *ui);
 void ui_push_box_z(UI_Context *ui, i32 z);
 void ui_pop_box_z(UI_Context *ui);
 
-
-// TODO(RJ) Make box construction consume and reset the active properties,
-// then remove the descriptor/paint push-pop stack entirely.
-void ui_push(UI_Context *ui);
-void ui_pop(UI_Context *ui);
-
-
+// TODO(RJ) Make box construction consume and reset the active properties.
 void ui_clean(UI_Context *ui);
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size);
 void ui_layout(UI_Context *ui, const UI_LayoutHooks *layout);
-void ui_position(UI_Context *ui, AXIS axis, f32 position);
 void ui_align(UI_Context *ui, AXIS axis, f32 alignment);
 void ui_rect(UI_Context *ui, rect_f32 rect);
 void ui_min_size(UI_Context *ui, AXIS axis, f32 size);
@@ -328,8 +313,6 @@ void ui_builder_push_id(UI_Builder *builder, UI_Key key);
 void ui_builder_pop_id(UI_Builder *builder);
 void ui_builder_push_box_z(UI_Builder *builder, i32 z);
 void ui_builder_pop_box_z(UI_Builder *builder);
-void ui_builder_push(UI_Builder *builder);
-void ui_builder_pop(UI_Builder *builder);
 void ui_builder_clean(UI_Builder *builder);
 void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size);
 void ui_builder_layout(UI_Builder *builder, const UI_LayoutHooks *layout);
@@ -355,5 +338,6 @@ void ui_builder_paint_z(UI_Builder *builder, i32 z);
 vec2 ui_box_measure(UI_Box *box, UI_BoxConstraints constraints);
 void ui_box_layout(UI_Box *box, rect_f32 rect);
 UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point);
+b32 ui_box_contains_hot(UI_Box *box);
 
 #endif

@@ -21,7 +21,9 @@
 /data/*.orb
 /data/*.orbiter
 /data/orbs/
+/data/library/
 /data/*.gif
+/data/*.png
 /data/roms/
 /data/saves/
 /data/dev/

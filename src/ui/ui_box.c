@@ -176,7 +176,6 @@ UI_Box *ui_box_builder_end(UI_Builder *builder)
 	Assert(builder->parent == builder->root);
 	Assert(builder->parent_count == 0);
 	Assert(builder->id_count == 0);
-	Assert(builder->desc_count == 0);
 	Assert(builder->box_z_count == 0);
 	Assert(ui_id_equal(builder->id, builder->root->id));
 	return builder->root;
@@ -209,23 +208,6 @@ void ui_builder_pop_box_z(UI_Builder *builder)
 	Assert(builder);
 	Assert(builder->box_z_count);
 	builder->box_z_count--;
-}
-
-void ui_builder_push(UI_Builder *builder)
-{
-	Assert(builder);
-	Assert(builder->desc_count < ArrayCount(builder->desc_stack));
-	builder->desc_stack[builder->desc_count] = builder->desc;
-	builder->paint_stack[builder->desc_count++] = builder->paint;
-}
-
-void ui_builder_pop(UI_Builder *builder)
-{
-	Assert(builder);
-	Assert(builder->desc_count);
-	builder->desc_count--;
-	builder->desc = builder->desc_stack[builder->desc_count];
-	builder->paint = builder->paint_stack[builder->desc_count];
 }
 
 void ui_builder_size(UI_Builder *builder, AXIS axis, UI_BoxSize size)
@@ -434,7 +416,6 @@ UI_Box *ui_build_end(UI_Context *ui)
 	Assert(builder->parent == ui->content_root);
 	Assert(builder->parent_count == 0);
 	Assert(builder->id_count == 0);
-	Assert(builder->desc_count == 0);
 	Assert(builder->box_z_count == 0);
 	Assert(ui_id_equal(builder->id, builder->root->id));
 	UI_Box *root = builder->root;
@@ -477,16 +458,6 @@ void ui_pop_box_z(UI_Context *ui)
 	ui_builder_pop_box_z(ui_box__builder(ui));
 }
 
-void ui_push(UI_Context *ui)
-{
-	ui_builder_push(ui_box__builder(ui));
-}
-
-void ui_pop(UI_Context *ui)
-{
-	ui_builder_pop(ui_box__builder(ui));
-}
-
 void ui_size(UI_Context *ui, AXIS axis, UI_BoxSize size)
 {
 	ui_builder_size(ui_box__builder(ui), axis, size);
@@ -500,11 +471,6 @@ void ui_layout(UI_Context *ui, const UI_LayoutHooks *layout)
 void ui_clean(UI_Context *ui)
 {
 	ui_builder_clean(ui_box__builder(ui));
-}
-
-void ui_position(UI_Context *ui, AXIS axis, f32 position)
-{
-	ui_builder_position(ui_box__builder(ui), axis, position);
 }
 
 void ui_align(UI_Context *ui, AXIS axis, f32 alignment)
@@ -922,9 +888,6 @@ void ui_box_layout_clipped(UI_Box *box, rect_f32 rect, rect_f32 clip)
 	Assert(box->desc.layout);
 	Assert(box->desc.layout->layout_children);
 	box->desc.layout->layout_children(box, clip);
-	if (box->hooks && box->hooks->finish_layout) {
-		box->hooks->finish_layout(box);
-	}
 
 	if (box->state) {
 		box->state->last_layout_frame = box->ui->frame_index;
@@ -991,4 +954,11 @@ UI_Box *ui_box_find_deepest(UI_Box *box, vec2 point)
 	UI_BoxHit best = {};
 	ui_box__find_deepest(box, point, &order, &best);
 	return best.box;
+}
+
+b32 ui_box_contains_hot(UI_Box *box)
+{
+	Assert(box);
+	Assert(box->ui);
+	return box->state && box->state->hot_within_frame == box->ui->frame_index;
 }

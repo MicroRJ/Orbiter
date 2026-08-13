@@ -9,10 +9,10 @@
 #include "gif_recorder.h"
 #include "nes_target.h"
 #include "orb.h"
-#include "nes_serialize.h"
 #include "os.h"
 #include "actions.h"
 #include "app.h"
+#include "app_library_store.h"
 #include "app_window.h"
 #include "elf.h"
 
@@ -20,6 +20,7 @@ global const char app_user_config_path[]  = "data/user.tab";
 global const char debugger_log_path[]     = "data/debugger.log";
 global const char debugger_program_path[] = "data/program.dump";
 global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
+global const char app_library_path[]      = "data/library/library.elf";
 
 global App app = { };
 global FILE *debugger_log_file;
@@ -61,7 +62,11 @@ static b32 app_write_file_atomic(Str path, ByteSpan data)
 	char temporary_path[1024];
 	i32 length = snprintf(temporary_path, sizeof(temporary_path), "%.*s.tmp", path.size, path.data);
 	if (length <= 0 || (u32) length >= sizeof(temporary_path)) return false;
-	if (!app_write_file(temporary_path, data.data, data.size)) return false;
+	if (!app_write_file(temporary_path, data.data, data.size))
+	{
+		platform_remove_file(temporary_path);
+		return false;
+	}
 	if (platform_move_file(temporary_path, path.data, true)) return true;
 	platform_remove_file(temporary_path);
 	return false;
@@ -149,7 +154,7 @@ static u64 app_unix_time_ms(void)
 
 static u64 app_play_time_ms(void)
 {
-	return (u64)(app.play_time_seconds + 0.5);
+	return (u64)(app.play_time_seconds * 1000.0 + 0.5);
 }
 
 // TODO(RJ) why are we using CRT files for this!?
@@ -160,11 +165,9 @@ static void app_file_log_sink(const LogRecord *record, void *user_data)
 	fflush(file);
 }
 
-static void app_restore_state()
-{
-}
-
-static b32 app_save_state();
+static b32 app_restore_state(void);
+static b32 app_reset_emulator(void);
+static b32 app_save_state(void);
 
 #define APP_BIND(kind_, activation_, key_, modifiers_) { .action = { .kind = kind_ }, .key_chord = { activation_, key_, modifiers_ } }
 #define APP_BIND_SPLIT(axis_, key_) { .action = { .kind = APP_ACTION_SPLIT_PANEL, .split_panel = { axis_ } }, .key_chord = { APP_KEY_CHORD_ON_RELEASE, key_, OS_MODIFIER_CONTROL } }
@@ -274,100 +277,158 @@ static void app_update_emulator_input(const App_WindowOutput *window_output)
 	}
 }
 
-static Audio_Clip app_make_ui_click(Arena *arena, u32 sample_rate)
+static void app_finish_emulator_state_change(void)
 {
-	Assert(arena);
-	Assert(sample_rate);
-	u32 frame_count = Max((u32)(sample_rate * 0.035f), 2);
-	f32 *samples = arena_push(arena, sizeof(*samples) * frame_count);
-	f32 duration = frame_count / (f32)sample_rate;
-	u32 noise_state = 0xB5297A4Du;
-	for (u32 frame = 0; frame < frame_count; frame ++)
-	{
-		f32 t = frame / (f32)sample_rate;
-		f32 u = frame / (f32)(frame_count - 1);
-		f32 attack = Min(frame * 0.25f, 1.f);
-		f32 release = 1.f - u;
-		f32 envelope = attack * release * release * expf(-80.f * t);
-		f32 chirp_phase = 6.28318530718f * (1800.f * t - (900.f / (2.f * duration)) * t * t);
-		noise_state = noise_state * 1664525u + 1013904223u;
-		f32 noise = ((noise_state >> 8) * (1.f / 16777215.f)) * 2.f - 1.f;
-		f32 tone = sinf(chirp_phase) * 0.70f + sinf(6.28318530718f * 320.f * t) * 0.20f + noise * 0.10f;
-		samples[frame] = tone * envelope;
-	}
-	return (Audio_Clip) { .samples = samples, .frame_count = frame_count };
+	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
+	audio_stream_discard(app.audio);
+	debugger_reset(app.debugger);
 }
 
-static void app_play_ui_feedback(UI_Feedback feedback)
+static b32 app_restore_state(void)
 {
-	if (feedback & UI_FEEDBACK_PRESS) audio_mixer_play(app.audio_mixer, app.ui_click, (Audio_PlayDesc) { .gain = 0.35f });
-}
-
-static void app_transfer_save(Orb_SaveState *save, NES_Emulator *emulator, b32 write);
-
-static b32 app_open_orb(Str path)
-{
-	Assert(path.data && path.size);
-	app_save_state();
-
-	Orb_Store next_store;
-	orb_store_init(&next_store);
-	Orb *orb = orb_from_file(&next_store, path);
-	if (!orb)
+	if (!app.active_save)
 	{
-		LOG_ERROR("could not load orb '%.*s'", path.size, path.data);
-		orb_store_destroy(&next_store);
+		LOG_WARN("no active save to restore");
 		return false;
 	}
 
-	Orb_Game game = orb->game;
-	Orb_GameMetadata metadata = game.metadata;
+	Assert(nes_emulator_ready_to_run(&app.emulator));
+	orb_restore_save_state(&app.emulator, &app.active_save_data.state);
+	Assert(nes_emulator_valid(&app.emulator));
+	app_finish_emulator_state_change();
+	LOG_INFO("restored active save");
+	return true;
+}
+
+static b32 app_reset_emulator(void)
+{
+	if (!nes_emulator_ready_to_run(&app.emulator))
+	{
+		LOG_WARN("no active game to reset");
+		return false;
+	}
+
+	nes_reset_emulator(&app.emulator);
+	app_finish_emulator_state_change();
+	LOG_INFO("reset active game");
+	return true;
+}
+
+static App_LibrarySave *app_resume_save(App_LibraryGame *game)
+{
+	for (u32 index = 0; index < game->save_count; index ++) if (game->saves[index].kind == APP_LIBRARY_SAVE_RESUME) return &game->saves[index];
+	return 0;
+}
+
+static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
+{
+	Assert(game);
+	if (save_current && !app_save_state())
+	{
+		LOG_ERROR("could not switch to '%.*s' because the active save could not be written", game->title.size, game->title.data);
+		return false;
+	}
+	App_LibrarySave *save = app_resume_save(game);
+	if (!save)
+	{
+		LOG_ERROR("game '%.*s' has no resume save", game->title.size, game->title.data);
+		return false;
+	}
+
+	Arena next_game_arena = arena_create(0, "next game arena");
+	App_LibraryGameData *data = arena_push_zero(&next_game_arena, sizeof(*data));
+	if (!app_library_store_read_game(app.library_store, &next_game_arena, game, save, data))
+	{
+		LOG_ERROR("could not load game '%.*s'", game->title.size, game->title.data);
+		arena_destroy(&next_game_arena);
+		return false;
+	}
+	Orb_GameMetadata metadata = data->game.metadata;
 	NES_SetupParams setup_params = {
 		.mapper = metadata.mapper,
 		.vmirror = metadata.vmirror,
 		.four_screen = metadata.four_screen,
 		.has_trainer = metadata.has_trainer,
-		.prg_rom = byte_span(game.prg_rom_data, metadata.prg_rom_size),
-		.chr_rom = byte_span(game.chr_rom_data, metadata.chr_rom_size),
+		.prg_rom = byte_span(data->game.prg_rom_data, metadata.prg_rom_size),
+		.chr_rom = byte_span(data->game.chr_rom_data, metadata.chr_rom_size),
 	};
-	if (!nes_supports_setup_params(setup_params))
+	NES_Emulator *next_emulator = arena_push(&app.frame_arena, sizeof(*next_emulator));
+	if (!nes_setup_emulator(next_emulator, setup_params))
 	{
-		LOG_ERROR("unsupported cartridge in '%.*s'", path.size, path.data);
-		orb_store_destroy(&next_store);
+		LOG_ERROR("unsupported cartridge in '%.*s'", game->title.size, game->title.data);
+		arena_destroy(&next_game_arena);
+		return false;
+	}
+	orb_restore_save_state(next_emulator, &data->save.state);
+	if (!nes_emulator_valid(next_emulator))
+	{
+		LOG_ERROR("invalid save state in '%.*s'", game->title.size, game->title.data);
+		arena_destroy(&next_game_arena);
 		return false;
 	}
 
-	Assert(nes_setup_emulator(&app.emulator, setup_params));
-	orb_store_destroy(&app.orb_store);
-	app.orb_store = next_store;
-	app.active_save = 0;
-
-	u64 now = app_unix_time_ms();
-	Orb_SaveNode *save = orb->first_save;
-	if (save) app_transfer_save(&save->state, &app.emulator, true);
-	else
-	{
-		save = arena_push_zero(&app.orb_store.arena, sizeof(*save));
-		save->orb = orb;
-		save->metadata.kind = ORB_SAVE_RESUME;
-		save->metadata.created_unix_ms = now;
-		save->metadata.updated_unix_ms = now;
-		orb->first_save = save;
-		orb->last_save = save;
-		orb->save_count = 1;
-	}
+	arena_destroy(&app.game_arena);
+	app.game_arena = next_game_arena;
+	app.active_game = game;
 	app.active_save = save;
-	debugger_reset(app.debugger);
-	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
+	app.active_save_data = data->save;
+	memory_copy(&app.emulator, next_emulator, sizeof(app.emulator));
+	app.play_time_seconds = 0;
+	debugger_clear_program_breakpoints(app.debugger);
+	app_finish_emulator_state_change();
 	// TODO(RJ) we can't just do this, it has to be driven based off of intent!
 	app_window_set_library_visible(app.window, false);
-	LOG_INFO("opened '%.*s'", path.size, path.data);
+	LOG_INFO("opened '%.*s'", game->title.size, game->title.data);
 	return true;
+}
+
+static b32 app_import_game(Str path)
+{
+	Assert(path.data && path.size);
+	if (!app_save_state())
+	{
+		LOG_ERROR("could not import '%.*s' because the active save could not be written", path.size, path.data);
+		return false;
+	}
+
+	Str title = {};
+	Orb_Game *source = orb_game_from_ines_file(&app.frame_arena, path, &title);
+	if (!source)
+	{
+		LOG_ERROR("could not read iNES game '%.*s'", path.size, path.data);
+		return false;
+	}
+	NES_Emulator *emulator = arena_push(&app.frame_arena, sizeof(*emulator));
+	NES_SetupParams setup = {
+		.mapper = source->metadata.mapper,
+		.vmirror = source->metadata.vmirror,
+		.four_screen = source->metadata.four_screen,
+		.has_trainer = source->metadata.has_trainer,
+		.prg_rom = byte_span(source->prg_rom_data, source->metadata.prg_rom_size),
+		.chr_rom = byte_span(source->chr_rom_data, source->metadata.chr_rom_size),
+	};
+	if (!nes_setup_emulator(emulator, setup))
+	{
+		LOG_ERROR("unsupported cartridge in '%.*s'", path.size, path.data);
+		return false;
+	}
+	App_SaveData save_data = {};
+	orb_capture_save_state(&save_data.state, emulator);
+	App_LibraryGame *game = 0;
+	App_LibrarySave *save = 0;
+	b32 imported = app_library_store_import_game(app.library_store, &app.frame_arena, *source, title, &save_data, &game, &save);
+	if (!imported)
+	{
+		LOG_ERROR("could not add '%.*s' to the library", path.size, path.data);
+		return false;
+	}
+	return app_open_library_game(game, false);
 }
 
 static b32 app_handle_actions(App_WindowOutput input)
 {
 	b32 step_requested = false;
+	b32 emulator_state_changed = false;
 	i32 scrub_direction = 0;
 	b32 scrub_input_active = false;
 	b32 wants_open_file = 0;
@@ -380,18 +441,37 @@ static b32 app_handle_actions(App_WindowOutput input)
 			{
 				wants_open_file ++;
 			} break;
-			case APP_ACTION_OPEN_LIBRARY_ORB:
+			case APP_ACTION_OPEN_LIBRARY_GAME:
 			{
-				u32 index = action.open_library_orb.index;
-				if (index < app.orb_library_count) app_open_orb(app.orb_library[index].path);
-				else LOG_ERROR("invalid library orb index %u", index);
+				u32 index = action.open_library_game.index;
+				App_Library *library = &app.library_store->library;
+				if (index < library->game_count)
+				{
+					if (app_open_library_game(&library->games[index], true))
+					{
+						emulator_state_changed = true;
+						step_requested = false;
+					}
+				}
+				else LOG_ERROR("invalid library game index %u", index);
 			} break;
 			case APP_ACTION_RESET:
 			{
-				// TODO(RJ) reset the active game through the runtime model.
+				if (app_reset_emulator())
+				{
+					emulator_state_changed = true;
+					step_requested = false;
+				}
 			} break;
 			case APP_ACTION_SAVE_STATE: app_save_state(); break;
-			case APP_ACTION_RESTORE_STATE: app_restore_state(); break;
+			case APP_ACTION_RESTORE_STATE:
+			{
+				if (app_restore_state())
+				{
+					emulator_state_changed = true;
+					step_requested = false;
+				}
+			} break;
 			case APP_ACTION_DUMP_PROGRAM:
 			{
 				if (program_dump(app.debugger, debugger_program_path)) LOG_INFO("dumped program model to '%s'", debugger_program_path);
@@ -409,7 +489,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 			} break;
 			case APP_ACTION_STEP:
 			{
-				step_requested = true;
+				if (!emulator_state_changed) step_requested = true;
 			} break;
 			case APP_ACTION_SCRUB:
 			{
@@ -436,6 +516,12 @@ static b32 app_handle_actions(App_WindowOutput input)
 			case APP_ACTION_NONE: break;
 			default: Assert(false);
 		}
+	}
+	if (emulator_state_changed)
+	{
+		step_requested = false;
+		scrub_input_active = false;
+		app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
 	}
 
 	scrub_direction = CLAMP(scrub_direction, -1, 1);
@@ -466,7 +552,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 	if (wants_open_file)
 	{
 		Str path = os_dialog_open_file(&app.frame_arena);
-		if (path.size) app_open_orb(path);
+		if (path.size && app_import_game(path)) step_requested = false;
 	}
 
 	return step_requested;
@@ -627,7 +713,6 @@ static void app_tick(App_WindowOutput input)
 	app_capture_ppu();
 	if (app.transport.state != APP_TRANSPORT_RUNNING) audio_stream_discard(app.audio);
 	app.ppu_volume += (app.ppu_volume_target - app.ppu_volume) * 0.35f;
-	PROF_BLOCK("UI audio feedback") app_play_ui_feedback(input.feedback);
 
 	PROF_BLOCK("mix and output audio") app_mix_and_output_audio();
 
@@ -650,8 +735,8 @@ static b32 app_init(void)
 		LOG_ERROR("failed to initialize os");
 		return false;
 	}
-	if (!platform_create_directories("data\\orbs")) {
-		LOG_ERROR("failed to create orb storage directory 'data\\orbs'");
+	if (!platform_create_directories("data\\library")) {
+		LOG_ERROR("failed to create library storage directory 'data\\library'");
 		return false;
 	}
 
@@ -664,7 +749,12 @@ static b32 app_init(void)
 	app.frame_arena = arena_create(0, "app frame arena");
 	app.game_arena = arena_create(0, "app game arena");
 
-	orb_store_init(&app.orb_store);
+	app.library_store = app_library_store_open(app_library_path);
+	if (!app.library_store)
+	{
+		LOG_ERROR("failed to open game library '%s'", app_library_path);
+		return false;
+	}
 
 	OS_AudioInfo audio_info;
 	app.audio_backend_available = os_audio_init(&audio_info);
@@ -691,7 +781,6 @@ static b32 app_init(void)
 	app.audio_mixer = audio_mixer_create(&app.arena, (Audio_MixerDesc) {
 		.voice_capacity = 32,
 	});
-	app.ui_click = app_make_ui_click(&app.arena, audio_info.sample_rate);
 
 	ttf_init_api();
 	Font_Handle code_font = ttf_load(app_read_file(&app.arena, app_font_path));
@@ -722,7 +811,6 @@ static b32 app_init(void)
 		.sampler = GRAPHICS_SAMPLER_POINT,
 		.label = "NES CHR map",
 	});
-	// app.dummy_texture = gfx_create_texture_from_image(app.renderer, push_image_rgba_u8_from_file(&app.frame_arena, LIT("data\\ppu_screenshot_001.png")), GRAPHICS_SAMPLER_POINT);
 
 	app.debugger = debugger_create(&app.arena, &app.emulator);
 	return true;
@@ -736,72 +824,49 @@ static void app_pace_frame(void)
 	app.frame_begin = seconds_now();
 }
 
-static void app_transfer_memory(void *dst, void *src, u64 size, u32 write) {
-	if (write) {
-		void *tmp = dst;
-		dst = src;
-		src = tmp;
-	}
-	memory_copy(dst, src, size);
-}
-
-static void app_transfer_save(Orb_SaveState *save, NES_Emulator *emulator, b32 write)
-{
-	app_transfer_memory(&save->scheduler_clock, &emulator->scheduler_clock, sizeof(save->scheduler_clock), write);
-	app_transfer_memory(&save->sample_phase, &emulator->sample_phase, sizeof(save->sample_phase), write);
-	app_transfer_memory(&save->values, &emulator->values, sizeof(save->values), write);
-	app_transfer_memory(&save->input_state, &emulator->input_state, sizeof(save->input_state), write);
-	app_transfer_memory(&save->cpu_stall_cycles, &emulator->cpu_stall_cycles, sizeof(save->cpu_stall_cycles), write);
-	app_transfer_memory(&save->cpu, &emulator->cpu, sizeof(save->cpu), write);
-	app_transfer_memory(&save->ppu, &emulator->ppu, sizeof(save->ppu), write);
-	app_transfer_memory(&save->apu, &emulator->apu, sizeof(save->apu), write);
-	app_transfer_memory(&save->controllers, &emulator->controllers, sizeof(save->controllers), write);
-	app_transfer_memory(&save->wram, emulator->_wram, sizeof(save->wram), write);
-	app_transfer_memory(&save->vram, emulator->_vram, sizeof(save->vram), write);
-	app_transfer_memory(&save->chr_ram, emulator->chr_ram, sizeof(save->chr_ram), write);
-	app_transfer_memory(&save->prg_ram, emulator->prg_ram, sizeof(save->prg_ram), write);
-	app_transfer_memory(&save->video, emulator->video, sizeof(save->video), write);
-}
-
-static void bytes_to_hex(u8 *bytes, u32 nbytes, char *buf)
-{
-	for (u32 i = 0; i < nbytes; ++ i)
-	{
-		buf[i*2+0] = "0123456789ABCDEF"[bytes[i] >> 0 & 0xF];
-		buf[i*2+1] = "0123456789ABCDEF"[bytes[i] >> 4 & 0xF];
-	}
-}
-
-static b32 app_save_state()
+static b32 app_save_state(void)
 {
 	if (!app.active_save) return true;
+	Assert(app.active_game);
+	Assert(nes_emulator_ready_to_run(&app.emulator));
 
-	Orb_SaveNode *save = app.active_save;
-	Orb *orb = save->orb;
-
-	u64 now = (u64) platform_unix_time_ms();
-	save->metadata.updated_unix_ms = now;
-	app_transfer_save(&app.active_save->state, &app.emulator, false);
-
-	ByteSpan orb_data = orb_write(&app.frame_arena, orb);
-	char hash_str[32*2 + 1] = { };
-	bytes_to_hex(orb->game_hash.bytes, 32, hash_str);
-	Str path = str_push_copy_f(&app.frame_arena, "data\\orbs\\%s.orb", hash_str);
-	b32 orb_saved = app_write_file_atomic(path, orb_data);
-	if (!orb_saved) LOG_ERROR("failed to save orb '%s'", path.data);
-	else LOG_INFO("saved orb to '%s'", path.data);
-
-	Str resume_path = LIT("data\\orbs\\resume.orb");
-	b32 resume_saved = app_write_file_atomic(resume_path, orb_data);
-	if (!resume_saved) LOG_ERROR("failed to save resume orb '%s'", resume_path.data);
-	return orb_saved && resume_saved;
+	u64 now = Max(app_unix_time_ms(), Max(app.active_game->last_played_unix_ms, app.active_save->updated_unix_ms));
+	u64 elapsed = app_play_time_ms();
+	App_LibrarySave previous_save = *app.active_save;
+	u64 previous_game_updated = app.active_game->last_played_unix_ms;
+	u64 previous_game_play_time = app.active_game->play_time_ms;
+	app.active_save->updated_unix_ms = now;
+	app.active_save->play_time_ms += elapsed;
+	app.active_game->last_played_unix_ms = now;
+	app.active_game->play_time_ms += elapsed;
+	App_SaveData *next_save_data = arena_push(&app.frame_arena, sizeof(*next_save_data));
+	*next_save_data = app.active_save_data;
+	orb_capture_save_state(&next_save_data->state, &app.emulator);
+	if (!app_library_store_write_save(app.library_store, &app.frame_arena, app.active_save, next_save_data))
+	{
+		*app.active_save = previous_save;
+		app.active_game->last_played_unix_ms = previous_game_updated;
+		app.active_game->play_time_ms = previous_game_play_time;
+		LOG_ERROR("failed to write active save '%.*s'", app.active_save->id.size, app.active_save->id.data);
+		return false;
+	}
+	app.active_save_data = *next_save_data;
+	app.play_time_seconds = 0;
+	if (!app_library_store_write_manifest(app.library_store, &app.frame_arena))
+	{
+		LOG_ERROR("saved state but failed to update library metadata; it will be retried on the next save");
+		return false;
+	}
+	LOG_INFO("saved '%.*s'", app.active_game->title.size, app.active_game->title.data);
+	return true;
 }
 
 static void app_shutdown(void)
 {
 	app_save_state();
 	app_save_user_config();
-	orb_store_destroy(&app.orb_store);
+	app_library_store_close(app.library_store);
+	arena_destroy(&app.game_arena);
 	app_window_destroy(app.window);
 	os_audio_shutdown();
 	os_graphical_shutdown();
@@ -812,83 +877,6 @@ static void app_shutdown(void)
 		fclose(debugger_log_file);
 		debugger_log_file = 0;
 	}
-}
-
-
-typedef void App_FileVisitor(Str path, Platform_File_Info info, void *user);
-
-// Paths borrow stack storage and are valid only for the duration of the callback.
-static b32 app_for_file(App_FileVisitor *visitor, void *user)
-{
-	Assert(visitor);
-	Platform_Directory_Open_Result opened = platform_open_directory("data\\orbs");
-	if (opened.error == PLATFORM_ERROR_NOT_FOUND) return true;
-	if (opened.error != PLATFORM_ERROR_NONE) return false;
-
-	b32 success = true;
-	for (;;)
-	{
-		char name[512];
-		Platform_Directory_Next_Result next = platform_next_directory(&opened.directory, name, sizeof(name));
-		if (next.error != PLATFORM_ERROR_NONE)
-		{
-			success = false;
-			break;
-		}
-		if (!next.has_entry) break;
-		if (next.info.is_directory || next.info.is_symbolic_link) continue;
-
-		Str filename = str_from_data(name, (u32)next.name_size);
-		char path[1024];
-		i32 size = snprintf(path, sizeof(path), "data\\orbs\\%s", name);
-		if (size <= 0 || (u32)size >= sizeof(path))
-		{
-			success = false;
-			break;
-		}
-		visitor(str_from_data(path, (u32)size), next.info, user);
-	}
-	platform_close_directory(&opened.directory);
-	return success;
-}
-
-void app_file_visitor(Str path, Platform_File_Info info, void *user)
-{
-	if (!str_ends_nocase(path, LIT(".orb")) || str_ends_nocase(path, LIT("\\resume.orb"))) return;
-	if (app.orb_library_count >= app.orb_library_capacity)
-	{
-		LOG_WARN("orb library capacity reached; skipping '%.*s'", path.size, path.data);
-		return;
-	}
-
-	u64 arena_start = app.arena.position;
-	// TODO(RJ)
-	//	We keep Orb as a shell, Orbs only point into memory, which we already
-	//	do partially.
-	//	Then we can use orbs as both library entries and runtime model.
-	//	We allocate the Orb shell on a persistent library wide arena, and the actual
-	//	file data on a separate arena.
-	//	Only one orb needs to be active, so when an orb is loaded, the arena is reset.
-	//	We'd have to make sure to zero the pointers of the orb we just evitected.
-	Str file_str = app_read_file(&app.arena, path.data);
-	Orb *orb = file_str.data ? orb_read(&app.arena, byte_span(file_str.data, file_str.size)) : 0;
-	if (!orb)
-	{
-		app.arena.position = arena_start;
-		LOG_ERROR("could not read orb '%.*s'", path.size, path.data);
-		return;
-	}
-
-	for (u32 index = 0; index < app.orb_library_count; index ++)
-	{
-		if (!hash256_match(app.orb_library[index].orb->game_hash, orb->game_hash)) continue;
-		app.arena.position = arena_start;
-		return;
-	}
-
-	Str stored_path = str_push_copy(&app.arena, path);
-	orb->disk_path = stored_path;
-	app.orb_library[app.orb_library_count ++] = (App_OrbLibEntry) { .orb = orb, .path = stored_path };
 }
 
 int main(void)
@@ -909,11 +897,6 @@ int main(void)
 		LOG_ERROR("failed to initialize orbiter");
 		return 1;
 	}
-
-	app.orb_library_count = 0;
-	app.orb_library_capacity = 1024;
-	app.orb_library = arena_push_zero(&app.arena, app.orb_library_capacity * sizeof(*app.orb_library));
-	if (!app_for_file(app_file_visitor, 0)) LOG_ERROR("could not enumerate orb library");
 
 	app.frame_begin = seconds_now();
 	while (app_window_is_open(app.window))

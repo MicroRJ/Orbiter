@@ -263,7 +263,7 @@ void chr_map_view_build_ui(ViewFrameData *frame)
 	data->publication = frame->publication;
 	data->texture = frame->chr_texture;
 	data->available = frame->publication->valid && nes_emulator_ready_to_run(frame->emulator);
-	if (data->available && content.content_box->has_previous) {
+	if (data->available && content.content_box->has_previous && ui_box_contains_hot(content.content_box)) {
 		data->selection = chr_map_selection_from_mouse(frame->ui, frame->publication, chr_map_layout(content.content_box->state->viewport));
 	}
 	content.content_box->hooks = &chr_map_box_hooks;

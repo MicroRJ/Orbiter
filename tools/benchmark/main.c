@@ -4,9 +4,8 @@
 #include "orb.h"
 #include "os.h"
 
-static b32 benchmark_setup_emulator(NES_Emulator *emulator, const Orb *orb)
+static b32 benchmark_setup_emulator(NES_Emulator *emulator, const Orb_Game *game)
 {
-	const Orb_Game *game = &orb->game;
 	NES_SetupParams params = {
 		.mapper = game->metadata.mapper,
 		.vmirror = game->metadata.vmirror,
@@ -22,7 +21,7 @@ int main(int argc, char **argv)
 {
 	if (argc != 3)
 	{
-		fprintf(stderr, "usage: %s <game.nes|game.orb> <frames>\n", argv[0]);
+		fprintf(stderr, "usage: %s <game.nes> <frames>\n", argv[0]);
 		return 2;
 	}
 
@@ -36,14 +35,11 @@ int main(int argc, char **argv)
 	if (!os_init()) return 1;
 
 	Arena arena = arena_create(0, "NES benchmark");
-	Orb_Store store;
-	orb_store_init(&store);
-	Orb *orb = orb_from_file(&store, str_from_cstr(argv[1]));
+	Orb_Game *game = orb_game_from_ines_file(&arena, str_from_cstr(argv[1]), 0);
 	NES_Emulator *emulator = arena_push_zero(&arena, sizeof(*emulator));
-	if (!orb || !benchmark_setup_emulator(emulator, orb))
+	if (!game || !benchmark_setup_emulator(emulator, game))
 	{
 		fprintf(stderr, "failed to load game '%s'\n", argv[1]);
-		orb_store_destroy(&store);
 		arena_destroy(&arena);
 		os_shutdown();
 		return 1;
@@ -64,7 +60,6 @@ int main(int argc, char **argv)
 	printf("per frame   %.3f ms\n", elapsed_seconds * 1000.0 / frame_count);
 	printf("throughput  %.2f frames/s\n", frame_count / elapsed_seconds);
 
-	orb_store_destroy(&store);
 	arena_destroy(&arena);
 	os_shutdown();
 	return 0;

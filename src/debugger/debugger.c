@@ -185,8 +185,20 @@ void debugger_reset(Debugger *debugger)
 	execution_path_discard(&debugger->execution_path);
 	execution_graph_reset(&debugger->execution_graph);
 	program_reset(debugger);
+	debugger->breakpoint_hit_address = (NES_MapAddr) {};
+	debugger->breakpoint_hit = false;
+	debugger->breakpoint_resume_pending = false;
 	debugger_clear_snapshots(debugger);
 	debugger_capture_snapshot(debugger);
+}
+
+void debugger_clear_program_breakpoints(Debugger *debugger)
+{
+	Assert(debugger);
+	debugger->program_breakpoint_count = 0;
+	debugger->breakpoint_hit_address = (NES_MapAddr) {};
+	debugger->breakpoint_hit = false;
+	debugger->breakpoint_resume_pending = false;
 }
 
 static void debugger_ensure_has_restore_point_in_case_of_breakpoint(Debugger *debugger)

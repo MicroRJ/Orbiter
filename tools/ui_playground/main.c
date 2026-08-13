@@ -429,6 +429,55 @@ static PlaygroundNestedScrollTest playground_build_nested_test_scroll(UI_Context
 	return test;
 }
 
+typedef struct
+{
+	UI_Box *root;
+	UI_ScrollBox *content;
+	UI_ScrollBox *overlay;
+}
+PlaygroundOverlappingScrollTest;
+
+static UI_ScrollBox *playground_build_overlapping_test_scroll(UI_Context *ui, UI_Key key)
+{
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, key, AXIS_Y);
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_begin(ui, 1, LIT("content"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(400.f));
+	ui_box_make(ui, 1, LIT("body"));
+	ui_box_end(ui);
+	ui_scroll_box_end(scroll);
+	return scroll;
+}
+
+static PlaygroundOverlappingScrollTest playground_build_overlapping_test_scrolls(UI_Context *ui)
+{
+	PlaygroundOverlappingScrollTest test = {};
+	UI_BoxDesc root_desc = playground_fill_desc();
+	root_desc.layout = &UI_FlatLayoutHooks;
+	test.root = ui_build_begin(ui, UI_KEY("overlapping scroll test"), LIT("root"), root_desc);
+	test.content = playground_build_overlapping_test_scroll(ui, 1);
+	ui_push_box_z(ui, UI_Z_OVERLAY);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	UI_Box *overlay_frame = ui_box_begin(ui, 2, LIT("overlay frame"));
+	overlay_frame->hit_intercept = true;
+	test.overlay = playground_build_overlapping_test_scroll(ui, 1);
+	ui_box_end(ui);
+	ui_pop_box_z(ui);
+	ui_clean(ui);
+	ui_build_end(ui);
+	return test;
+}
+
 static UI_Response playground_build_test_signal(Arena *arena, UI_Context *ui, UI_Box **root_out, UI_Box **box_out)
 {
 	(void)arena;
@@ -499,6 +548,64 @@ static int playground_run_tests(void)
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
 		CHECK(ui_box_find_deepest(root, v2(10.f, 10.f)) == front, "hit discovery follows paint z instead of append order");
 		CHECK(ui_box_find_deepest(root, v2(50.f, 50.f)) == back, "an intercept only captures inside its clipped rectangle");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(112, 100), .mouse_position = v2i(50, 50) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		ui_begin_frame(ui);
+		PlaygroundOverlappingScrollTest overlap = playground_build_overlapping_test_scrolls(ui);
+		ui_box_measure(overlap.root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(overlap.root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		ui_end_frame(ui);
+
+		window.mouse_wheel.y = -1;
+		ui_begin_frame(ui);
+		ui->frame_elapsed = 0.f;
+		overlap = playground_build_overlapping_test_scrolls(ui);
+		CHECK(!ui_box_contains_hot(overlap.content->root) && ui_box_contains_hot(overlap.overlay->root), "wheel ownership follows the resolved hot box ancestry");
+		CHECK(playground_near(overlap.content->target, 0.f), "a content scroll box cannot consume wheel input through an overlay");
+		CHECK(playground_near(overlap.overlay->target, 48.f) && ui->mouse_wheel_consumed, "the overlay scroll box receives and consumes wheel input");
+		ui_box_measure(overlap.root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(overlap.root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100), .mouse_position = v2i(10, 10) };
+		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.layout = &UI_FlatLayoutHooks;
+		UI_Box *root = ui_build_begin(ui, UI_KEY("overlay interaction priority"), LIT("overlay interaction priority"), root_desc);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(100.f));
+		ui_size(ui, AXIS_Y, ui_fixed(100.f));
+		UI_Box *underlying = ui_box_make(ui, 1, LIT("underlying"));
+		ui_signal_from_box(underlying);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(100.f));
+		ui_size(ui, AXIS_Y, ui_fixed(100.f));
+		ui_paint_z(ui, UI_Z_OVERLAY);
+		UI_Box *overlay = ui_box_make(ui, 2, LIT("overlay"));
+		ui_signal_from_box(overlay);
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		UI_Id underlying_id = underlying->id;
+		UI_Id overlay_id = overlay->id;
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		CHECK(ui_is_hot(ui, overlay_id), "the previous-frame hit resolver selects the overlay");
+		UI_Response underlying_response = ui_interact(ui, underlying_id, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(!underlying_response.hovered, "a content interaction cannot steal hover from an overlay");
+		CHECK(ui_is_hot(ui, overlay_id), "a rejected content interaction preserves the overlay hot box");
 		ui_end_frame(ui);
 		arena_destroy(&ui->frame_arena);
 	}

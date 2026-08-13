@@ -1,26 +1,12 @@
 #include "orb.h"
-#include "nes_serialize.h"
-
-#define ORB_FOURCC(a, b, c, d) ((u32)(u8)(a) | (u32)(u8)(b) << 8 | (u32)(u8)(c) << 16 | (u32)(u8)(d) << 24)
 
 enum
 {
-	ORB_MAGIC = ORB_FOURCC('O', 'R', 'B', 'S'),
-	ORB_FILE_VERSION = 1,
-	ORB_MAX_SAVE_COUNT = 4096,
-
 	INES_HEADER_SIZE = 16,
 	INES_TRAINER_SIZE = 512,
 	INES_PRG_BANK_SIZE = KiB(16),
 	INES_CHR_BANK_SIZE = KiB(8),
 };
-
-typedef struct
-{
-	u32 magic;
-	u32 version;
-}
-Orb_FileHeader;
 
 static b32 orb_game_memory_is_valid(Orb_Game game)
 {
@@ -56,174 +42,42 @@ Hash256 orb_game_hash(Orb_Game game)
 	return sha256_final(&context);
 }
 
-static void *orb_transfer_memory(ByteStream *stream, void *memory, u64 size)
+void orb_capture_save_state(Orb_SaveState *save, const NES_Emulator *emulator)
 {
-	if (stream->mode == BYTE_STREAM_READ) return size ? byte_stream_take(stream, size).data : 0;
-	byte_transfer_bytes(stream, byte_span(memory, size));
-	return memory;
+	Assert(save && emulator);
+	save->scheduler_clock = emulator->scheduler_clock;
+	save->sample_phase = emulator->sample_phase;
+	save->input_state = emulator->input_state;
+	save->cpu_stall_cycles = emulator->cpu_stall_cycles;
+	save->cpu = emulator->cpu;
+	save->ppu = emulator->ppu;
+	save->apu = emulator->apu;
+	memory_copy(save->values, emulator->values, sizeof(save->values));
+	memory_copy(save->controllers, emulator->controllers, sizeof(save->controllers));
+	memory_copy(save->wram, emulator->_wram, sizeof(save->wram));
+	memory_copy(save->vram, emulator->_vram, sizeof(save->vram));
+	memory_copy(save->chr_ram, emulator->chr_ram, sizeof(save->chr_ram));
+	memory_copy(save->prg_ram, emulator->prg_ram, sizeof(save->prg_ram));
+	memory_copy(save->video, emulator->video, sizeof(save->video));
 }
 
-static void orb_transfer_bool(ByteStream *stream, b32 *value)
+void orb_restore_save_state(NES_Emulator *emulator, const Orb_SaveState *save)
 {
-	u32 encoded = !!*value;
-	byte_transfer_u32(stream, &encoded);
-	if (stream->mode == BYTE_STREAM_READ)
-	{
-		if (encoded > 1) stream->failed = true;
-		*value = encoded == 1;
-	}
-}
-
-static void orb_transfer_string(ByteStream *stream, Str *string)
-{
-	byte_transfer_u32(stream, &string->size);
-	string->data = orb_transfer_memory(stream, string->data, string->size);
-}
-
-static void orb_transfer_file_header(ByteStream *stream, Orb_FileHeader *header)
-{
-	byte_transfer_u32(stream, &header->magic);
-	byte_transfer_u32(stream, &header->version);
-}
-
-static void orb_transfer_metadata(ByteStream *stream, Orb *orb)
-{
-	byte_transfer_u64(stream, &orb->first_played_unix_ms);
-	byte_transfer_u64(stream, &orb->last_played_unix_ms);
-	byte_transfer_u64(stream, &orb->play_time_ms);
-	orb_transfer_string(stream, &orb->title);
-}
-
-static void orb_transfer_game(ByteStream *stream, Orb_Game *game)
-{
-	byte_transfer_u32(stream, &game->metadata.mapper);
-	orb_transfer_bool(stream, &game->metadata.vmirror);
-	orb_transfer_bool(stream, &game->metadata.has_trainer);
-	orb_transfer_bool(stream, &game->metadata.four_screen);
-	byte_transfer_u32(stream, &game->metadata.prg_rom_size);
-	byte_transfer_u32(stream, &game->metadata.chr_rom_size);
-	if (game->metadata.has_trainer) game->trainer_data = orb_transfer_memory(stream, game->trainer_data, INES_TRAINER_SIZE);
-	game->prg_rom_data = orb_transfer_memory(stream, game->prg_rom_data, game->metadata.prg_rom_size);
-	game->chr_rom_data = orb_transfer_memory(stream, game->chr_rom_data, game->metadata.chr_rom_size);
-}
-
-static void orb_transfer_thumbnail(ByteStream *stream, Orb_Thumbnail *thumbnail)
-{
-	byte_transfer_u32(stream, &thumbnail->width);
-	byte_transfer_u32(stream, &thumbnail->height);
-	byte_transfer_u32(stream, &thumbnail->stride);
-	u32 format = thumbnail->format;
-	byte_transfer_u32(stream, &format);
-	thumbnail->format = format;
-	byte_transfer_u64(stream, &thumbnail->pixels.size);
-	thumbnail->pixels.data = orb_transfer_memory(stream, thumbnail->pixels.data, thumbnail->pixels.size);
-}
-
-static void orb_transfer_save_metadata(ByteStream *stream, Orb_SaveMetadata *metadata)
-{
-	byte_transfer_u64(stream, &metadata->kind);
-	byte_transfer_u64(stream, &metadata->flags);
-	byte_transfer_bytes(stream, byte_span(metadata->id.bytes, sizeof(metadata->id.bytes)));
-	byte_transfer_u64(stream, &metadata->created_unix_ms);
-	byte_transfer_u64(stream, &metadata->updated_unix_ms);
-	byte_transfer_u64(stream, &metadata->play_time_ms);
-}
-
-static void orb_transfer_save(ByteStream *stream, Orb_SaveNode *save)
-{
-	orb_transfer_save_metadata(stream, &save->metadata);
-	if (!stream->failed) orb_transfer_save_state(stream, &save->state);
-	u32 has_thumbnail = save->thumbnail.pixels.size != 0;
-	byte_transfer_u32(stream, &has_thumbnail);
-	if (stream->mode == BYTE_STREAM_READ && has_thumbnail > 1) stream->failed = true;
-	if (has_thumbnail == 1) orb_transfer_thumbnail(stream, &save->thumbnail);
-}
-
-static b32 orb_arena_can_push(Arena *arena, u64 size)
-{
-	if (!arena || !arena->memory || arena->position > arena->reserved_size) return false;
-	u64 remaining = arena->reserved_size - arena->position;
-	return size <= remaining && ARENA_DEFAULT_ALIGNMENT - 1 <= remaining - size;
-}
-
-ByteSpan orb_write(Arena *arena, Orb *orb)
-{
-	Assert(arena && orb);
-	Assert(orb_game_memory_is_valid(orb->game));
-	Assert(!orb->title.size || orb->title.data);
-
-	ByteStream stream = byte_stream_arena_writer(arena);
-	Orb_FileHeader header = { .magic = ORB_MAGIC, .version = ORB_FILE_VERSION };
-	orb_transfer_file_header(&stream, &header);
-	orb_transfer_metadata(&stream, orb);
-	orb_transfer_game(&stream, &orb->game);
-
-	u32 save_count = 0;
-	for (Orb_SaveNode *save = orb->first_save; save; save = save->next)
-	{
-		Assert(save_count < ORB_MAX_SAVE_COUNT);
-		save_count ++;
-	}
-	orb->save_count = save_count;
-	byte_transfer_u32(&stream, &save_count);
-	for (Orb_SaveNode *save = orb->first_save; save && !stream.failed; save = save->next) orb_transfer_save(&stream, save);
-	return byte_stream_written(&stream);
-}
-
-Orb *orb_read(Arena *arena, ByteSpan source)
-{
-	if (!arena || !arena->memory || (!source.data && source.size)) return 0;
-	u64 arena_start = arena->position;
-	ByteStream stream = byte_stream_reader(source);
-	Orb_FileHeader header = {};
-	orb_transfer_file_header(&stream, &header);
-	if (stream.failed || header.magic != ORB_MAGIC || header.version != ORB_FILE_VERSION || !orb_arena_can_push(arena, sizeof(Orb)))
-	{
-		arena->position = arena_start;
-		return 0;
-	}
-
-	Orb *orb = arena_push_zero(arena, sizeof(*orb));
-	orb_transfer_metadata(&stream, orb);
-	orb_transfer_game(&stream, &orb->game);
-	byte_transfer_u32(&stream, &orb->save_count);
-	if (orb->save_count > ORB_MAX_SAVE_COUNT) stream.failed = true;
-
-	for (u32 index = 0; index < orb->save_count && !stream.failed; index ++)
-	{
-		if (!orb_arena_can_push(arena, sizeof(Orb_SaveNode)))
-		{
-			stream.failed = true;
-			break;
-		}
-		Orb_SaveNode *save = arena_push_zero(arena, sizeof(*save));
-		save->orb = orb;
-		orb_transfer_save(&stream, save);
-		if (orb->last_save) orb->last_save->next = save;
-		else                orb->first_save = save;
-		orb->last_save = save;
-	}
-
-	if (stream.failed || byte_stream_remaining(&stream) || !orb_game_memory_is_valid(orb->game))
-	{
-		arena->position = arena_start;
-		return 0;
-	}
-	orb->game_hash = orb_game_hash(orb->game);
-	return orb;
-}
-
-void orb_store_init(Orb_Store *store)
-{
-	Assert(store);
-	*store = (Orb_Store) { .arena = arena_create(0, "orb store") };
-}
-
-void orb_store_destroy(Orb_Store *store)
-{
-	if (!store) return;
-	arena_destroy(&store->arena);
-	*store = (Orb_Store) {};
+	Assert(emulator && save);
+	emulator->scheduler_clock = save->scheduler_clock;
+	emulator->sample_phase = save->sample_phase;
+	emulator->input_state = save->input_state;
+	emulator->cpu_stall_cycles = save->cpu_stall_cycles;
+	emulator->cpu = save->cpu;
+	emulator->ppu = save->ppu;
+	emulator->apu = save->apu;
+	memory_copy(emulator->values, save->values, sizeof(save->values));
+	memory_copy(emulator->controllers, save->controllers, sizeof(save->controllers));
+	memory_copy(emulator->_wram, save->wram, sizeof(save->wram));
+	memory_copy(emulator->_vram, save->vram, sizeof(save->vram));
+	memory_copy(emulator->chr_ram, save->chr_ram, sizeof(save->chr_ram));
+	memory_copy(emulator->prg_ram, save->prg_ram, sizeof(save->prg_ram));
+	memory_copy(emulator->video, save->video, sizeof(save->video));
 }
 
 static b32 nes2_ram_layout_is_ines_compatible(u8 layout)
@@ -238,13 +92,14 @@ static b32 nes2_header_is_ines_compatible(const u8 *header)
 		!(header[12] & ~0x03) && (timing == 0 || timing == 2) && !header[13] && !header[14] && header[15] <= 1;
 }
 
-static b32 orb_game_from_ines(ByteStream *stream, Orb_Game *game)
+static b32 orb_game_from_ines(ByteSpan source, Orb_Game *game)
 {
-	Assert(stream && stream->mode == BYTE_STREAM_READ && game);
+	Assert(game);
 	*game = (Orb_Game) {};
+	ByteStream stream = byte_stream_reader(source);
 	const u8 magic[] = { 'N', 'E', 'S', 0x1A };
-	ByteSpan header_bytes = byte_stream_take(stream, INES_HEADER_SIZE);
-	if (stream->failed || !memory_match(header_bytes.data, magic, sizeof(magic))) return false;
+	ByteSpan header_bytes = byte_stream_take(&stream, INES_HEADER_SIZE);
+	if (stream.failed || !memory_match(header_bytes.data, magic, sizeof(magic))) return false;
 	const u8 *header = header_bytes.data;
 	if ((header[7] & 0x0C) == 0x08 && !nes2_header_is_ines_compatible(header)) return false;
 
@@ -258,22 +113,12 @@ static b32 orb_game_from_ines(ByteStream *stream, Orb_Game *game)
 			.chr_rom_size = (u32)header[5] * INES_CHR_BANK_SIZE,
 		},
 	};
-	if (result.metadata.has_trainer) result.trainer_data = byte_stream_take(stream, INES_TRAINER_SIZE).data;
-	result.prg_rom_data = byte_stream_take(stream, result.metadata.prg_rom_size).data;
-	result.chr_rom_data = byte_stream_take(stream, result.metadata.chr_rom_size).data;
-	if (stream->failed) return false;
+	if (result.metadata.has_trainer) result.trainer_data = byte_stream_take(&stream, INES_TRAINER_SIZE).data;
+	result.prg_rom_data = byte_stream_take(&stream, result.metadata.prg_rom_size).data;
+	result.chr_rom_data = byte_stream_take(&stream, result.metadata.chr_rom_size).data;
+	if (stream.failed) return false;
 	*game = result;
 	return true;
-}
-
-Orb *orb_from_game(Orb_Store *store, Orb_Game game)
-{
-	if (!store || !store->arena.memory || !orb_game_memory_is_valid(game) || !orb_arena_can_push(&store->arena, sizeof(Orb))) return 0;
-	Orb *orb = arena_push_zero(&store->arena, sizeof(*orb));
-	orb->game = game;
-	orb->game_hash = orb_game_hash(game);
-	store->orb = orb;
-	return orb;
 }
 
 static ByteSpan orb_read_entire_file(Arena *arena, const char *path)
@@ -302,62 +147,33 @@ static ByteSpan orb_read_entire_file(Arena *arena, const char *path)
 	return byte_span(data, file_size);
 }
 
-static Str orb_title_from_path(Arena *arena, Str path)
+static Str orb_title_from_path(Str path)
 {
 	u32 begin = 0;
-	for (u32 index = 0; index < path.size; index ++)
-	{
-		if (path.data[index] == '/' || path.data[index] == '\\') begin = index + 1;
-	}
-
+	for (u32 index = 0; index < path.size; index ++) if (path.data[index] == '/' || path.data[index] == '\\') begin = index + 1;
 	u32 end = path.size;
 	for (u32 index = end; index > begin; index --)
 	{
-		if (path.data[index - 1] == '.')
-		{
-			if (index - 1 > begin) end = index - 1;
-			break;
-		}
+		if (path.data[index - 1] != '.') continue;
+		if (index - 1 > begin) end = index - 1;
+		break;
 	}
-	return str_push_copy(arena, str_slice(path, begin, end - begin));
+	return str_slice(path, begin, end - begin);
 }
 
-Orb *orb_from_file(Orb_Store *store, Str path)
+Orb_Game *orb_game_from_ines_file(Arena *arena, Str path, Str *title)
 {
-	if (!store || !store->arena.memory || !path.data || !path.size) return 0;
-	arena_reset(&store->arena);
-	store->path = str_push_copy(&store->arena, path);
-	store->orb = 0;
-	ByteSpan source = orb_read_entire_file(&store->arena, store->path.data);
-	if (!source.size) goto failed;
-
-	const u8 orb_magic[] = { 'O', 'R', 'B', 'S' };
-	const u8 ines_magic[] = { 'N', 'E', 'S', 0x1A };
-	Orb *orb = 0;
-	b32 imported_ines = false;
-	if (source.size >= sizeof(orb_magic) && memory_match(source.data, orb_magic, sizeof(orb_magic))) {
-		orb = orb_read(&store->arena, source);
-	}
-	else if (source.size >= sizeof(ines_magic) && memory_match(source.data, ines_magic, sizeof(ines_magic)))
+	if (title) *title = (Str) {};
+	if (!arena || !arena->memory || !path.data || !path.size) return 0;
+	u64 arena_start = arena->position;
+	Str stored_path = str_push_copy(arena, path);
+	Orb_Game *game = arena_push_zero(arena, sizeof(*game));
+	ByteSpan source = orb_read_entire_file(arena, stored_path.data);
+	if (!source.size || !orb_game_from_ines(source, game))
 	{
-		ByteStream stream = byte_stream_reader(source);
-		Orb_Game game;
-		if (orb_game_from_ines(&stream, &game))
-		{
-			orb = orb_from_game(store, game);
-			imported_ines = orb != 0;
-		}
+		arena->position = arena_start;
+		return 0;
 	}
-	if (!orb) goto failed;
-
-	orb->disk_path = store->path;
-	if (imported_ines) orb->title = orb_title_from_path(&store->arena, store->path);
-	store->orb = orb;
-	return orb;
-
-failed:
-	arena_reset(&store->arena);
-	store->path = (Str) {};
-	store->orb = 0;
-	return 0;
+	if (title) *title = orb_title_from_path(stored_path);
+	return game;
 }

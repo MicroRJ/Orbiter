@@ -18,7 +18,7 @@ release_compile_options := warnings:clone():extend({
 	"/nologo", "/MT", "/O2", "/Zi",
 })
 
-optimize_emulator ::= false
+optimize_emulator ::= true
 
 optimized_object_names := {
 	"nes"               = optimize_emulator,
@@ -30,7 +30,6 @@ optimized_object_names := {
 	"nes_nrom"          = optimize_emulator,
 	"nes_mmc1"          = optimize_emulator,
 	"nes_mmc2"          = optimize_emulator,
-	"nes_mmc3"          = optimize_emulator,
 	"nes_uxrom"         = optimize_emulator,
 	"serialize"         = optimize_emulator,
 }
@@ -103,10 +102,12 @@ objects := {
 	{ name = "nes_nrom",         input = "src/nes/src/mappers/mapper_nrom.c" },
 	{ name = "nes_mmc1",         input = "src/nes/src/mappers/mapper_mmc1.c" },
 	{ name = "nes_mmc2",         input = "src/nes/src/mappers/mapper_mmc2.c" },
-	{ name = "nes_mmc3",         input = "src/nes/src/mappers/mapper_mmc3.c" },
 	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
 	{ name = "serialize",         input = "src/serialize/serialize.c" },
 	{ name = "orb",               input = "src/orb/orb.c" },
+	{ name = "app_save",          input = "src/app_save.c" },
+	{ name = "app_library",       input = "src/app_library.c" },
+	{ name = "app_library_store", input = "src/app_library_store.c" },
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
@@ -129,6 +130,8 @@ tests := {
 	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
 	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
 	{ name = "orb_test",            input = "src/tests/orb_test.c" },
+	{ name = "app_library_test",    input = "src/tests/app_library_test.c" },
+	{ name = "app_library_store_test", input = "src/tests/app_library_store_test.c" },
 	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
 	{ name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
 	{ name = "nes_ppu_test",        input = "src/tests/nes_ppu_test.c" },
@@ -391,7 +394,6 @@ package_files := {
 	{ source = "README.md", destination = "README.md" },
 	{ source = "LICENSE", destination = "LICENSE" },
 	{ source = "THIRD_PARTY_NOTICES.md", destination = "THIRD_PARTY_NOTICES.md" },
-	{ source = "data/default_debugger.cfg", destination = "data/default_debugger.cfg" },
 	{ source = "data/fonts/Saira/static/Saira-Medium.ttf", destination = "data/fonts/Saira/static/Saira-Medium.ttf" },
 	{ source = "src/fonts/ttf/freetype/FTL.TXT", destination = "licenses/FreeType-FTL.txt" },
 	{ source = "data/fonts/Saira/OFL.txt", destination = "licenses/Saira-OFL.txt" },

@@ -25,7 +25,7 @@ typedef enum
 
 	// Application actions
 	APP_ACTION_OPEN_ROM,
-	APP_ACTION_OPEN_LIBRARY_ORB,
+	APP_ACTION_OPEN_LIBRARY_GAME,
 	APP_ACTION_RESET,
 	APP_ACTION_SAVE_STATE,
 	APP_ACTION_RESTORE_STATE,
@@ -47,7 +47,7 @@ typedef struct
 	{
 		struct { AXIS axis; } split_panel;
 		struct { u32 index; } open_view;
-		struct { u32 index; } open_library_orb;
+		struct { u32 index; } open_library_game;
 		struct { i32 direction; } scrub;
 		struct { i32 pixels; } ui_font;
 		struct { f32 delta; } volume;

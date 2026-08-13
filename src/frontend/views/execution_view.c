@@ -275,11 +275,12 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	}
 
 	u16 pc = frame->publication->cpu.PC;
-	b32 hovered = rect_f32_contains(frame->rect, ui->mouse);
+	b32 hovered = ui_box_contains_hot(frame->content_box) && rect_f32_contains(frame->rect, ui->mouse);
 	b32 control = !!(ui->window->keys[OS_Key_LeftControl] & OS_KEY_DOWN) || !!(ui->window->keys[OS_Key_RightControl] & OS_KEY_DOWN);
 	i32 wheel = ui->window->mouse_wheel.y;
-	if (hovered && control && wheel)
+	if (!ui->mouse_wheel_consumed && hovered && control && wheel)
 	{
+		ui->mouse_wheel_consumed = true;
 		if (wheel > 0) {
 			state->cell_size = Min(state->cell_size * 2, PRG_ACTIVITY_MAX_CELL_SIZE);
 		} else {
@@ -309,7 +310,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	Color_SRGBA mapped_color = color_srgba_mix(ui->theme.slider_track, ui->theme.text_subtle, 0.05f);
 	u32 hovered_cell = MAX_VALUE_U32;
 	rect_f32 hovered_cell_rect = {};
-	b32 grid_hovered = rect_f32_contains(grid.rect, ui->mouse);
+	b32 grid_hovered = hovered && rect_f32_contains(grid.rect, ui->mouse);
 	for (u32 cell_index = 0; cell_index < cell_count; ++cell_index)
 	{
 		PRGActivityCellLocation location = prg_activity_cell_location(&grid, cell_index);

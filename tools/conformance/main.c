@@ -47,9 +47,8 @@ typedef struct
 }
 Conformance_Summary;
 
-static b32 conformance_setup_emulator(NES_Emulator *emulator, const Orb *orb)
+static b32 conformance_setup_emulator(NES_Emulator *emulator, const Orb_Game *game)
 {
-	const Orb_Game *game = &orb->game;
 	return nes_setup_emulator(emulator, (NES_SetupParams) {
 		.mapper = game->metadata.mapper,
 		.vmirror = game->metadata.vmirror,
@@ -153,10 +152,11 @@ static const char *conformance_result_name(Conformance_ResultKind kind)
 	return "UNKNOWN";
 }
 
-static Conformance_Result conformance_run_path(Orb_Store *store, NES_Emulator *emulator, const char *path, u64 timeout_cycles)
+static Conformance_Result conformance_run_path(Arena *game_arena, NES_Emulator *emulator, const char *path, u64 timeout_cycles)
 {
-	Orb *orb = orb_from_file(store, str_from_cstr(path));
-	if (!orb || !conformance_setup_emulator(emulator, orb)) return (Conformance_Result) { .kind = CONFORMANCE_RESULT_LOAD_ERROR };
+	arena_reset(game_arena);
+	Orb_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), 0);
+	if (!game || !conformance_setup_emulator(emulator, game)) return (Conformance_Result) { .kind = CONFORMANCE_RESULT_LOAD_ERROR };
 	return conformance_run_blargg(emulator, timeout_cycles);
 }
 
@@ -165,10 +165,10 @@ static void conformance_print_usage(const char *executable)
 	fprintf(stderr, "usage: %s [--timeout-seconds N] [--rom-root <directory>] <test.nes> [test.nes ...]\n", executable);
 }
 
-static void conformance_run_and_report(Orb_Store *store, NES_Emulator *emulator, const char *path, u64 timeout_cycles, Conformance_Summary *summary)
+static void conformance_run_and_report(Arena *game_arena, NES_Emulator *emulator, const char *path, u64 timeout_cycles, Conformance_Summary *summary)
 {
 	fprintf(stdout, "[ RUN      ] %s\n", path);
-	Conformance_Result result = conformance_run_path(store, emulator, path, timeout_cycles);
+	Conformance_Result result = conformance_run_path(game_arena, emulator, path, timeout_cycles);
 	fprintf(stdout, "[ %-8s ] %s (status $%02X, %.3f emulated seconds, %u resets)\n", conformance_result_name(result.kind), path, result.status, (f64)result.cpu_cycles / NES_CPU_HZ, result.reset_count);
 	if (result.kind != CONFORMANCE_RESULT_LOAD_ERROR) conformance_print_blargg_output(emulator);
 	summary->total ++;
@@ -238,9 +238,8 @@ int main(int argc, char **argv)
 	}
 
 	Arena arena = arena_create(0, "NES conformance runner");
+	Arena game_arena = arena_create(0, "NES conformance game");
 	NES_Emulator *emulator = arena_push_zero(&arena, sizeof(*emulator));
-	Orb_Store store;
-	orb_store_init(&store);
 	u64 timeout_cycles = (u64)timeout_seconds * NES_CPU_HZ;
 	Conformance_Summary summary = {};
 	b32 invocation_succeeded = true;
@@ -253,7 +252,7 @@ int main(int argc, char **argv)
 			invocation_succeeded = false;
 			break;
 		}
-		conformance_run_and_report(&store, emulator, path, timeout_cycles, &summary);
+		conformance_run_and_report(&game_arena, emulator, path, timeout_cycles, &summary);
 	}
 	if (invocation_succeeded && !summary.total)
 	{
@@ -262,7 +261,7 @@ int main(int argc, char **argv)
 	}
 
 	fprintf(stdout, "%u passed, %u failed\n", summary.total - summary.failures, summary.failures);
-	orb_store_destroy(&store);
+	arena_destroy(&game_arena);
 	arena_destroy(&arena);
 	os_shutdown();
 	if (!invocation_succeeded || summary.errors) return 2;

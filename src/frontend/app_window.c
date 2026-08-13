@@ -1,5 +1,6 @@
 #include "app_window.h"
 #include "app.h"
+#include "app_library_store.h"
 #include "debugger.h"
 #include "gif_recorder.h"
 #include "panels.h"
@@ -431,103 +432,120 @@ static void app_draw_ui_debug_bounds(App_Window *window, UI_Box *root, rect_f32 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static UI_Box *app_build_catalog_card(UI_Context *ui, vec2 size, Orb *orb)
+static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 {
+	App_Window *window = user;
+	App_Library *library = &window->app->library_store->library;
+	Assert(index < library->game_count);
+	App_LibraryGame *game = &library->games[index];
 	GFX_Texture *texture = 0;
-	u64 play_time_ms = orb->play_time_ms;
-	Str title = orb->title;
-	u32 mapper = orb->game.metadata.mapper;
-
-	ui_clean(ui);
-	ui_size(ui, AXIS_X, ui_fixed(size.x));
-	ui_size(ui, AXIS_Y, ui_fixed(size.y));
-	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
-	UI_Box *card_box = ui_begin_vert(ui, (UI_Key){(u64)orb});
-	{
-		ui_clean(ui);
-		ui_size(ui, AXIS_X, ui_fill());
-		ui_size(ui, AXIS_Y, ui_fill());
-		ui_background(ui, ui->theme.panel_outline);
-		ui_roundness(ui, size.x * 0.02f);
-		ui_image_box(ui, UI_KEY("image"), (UI_ImageStyle) {.fit=UI_IMAGE_FIT_COVER,.align=v2(0.5f,0.5f),.tint=(Color_SRGBA){1,1,1,1}}, texture);
-
-		ui_clean(ui);
-		// ui_align(ui, AXIS_Y, 1.f);
-		ui_size(ui, AXIS_X, ui_fill());
-		ui_size(ui, AXIS_Y, ui_wrap());
-		// ui_roundness(ui, size.x * 0.02f);
-		// ui_background(ui, ui->theme.panel_outline);
-		ui_padd(ui, AXIS_X, 8.f, 8.f);
-		ui_padd(ui, AXIS_Y, 8.f, 8.f);
-		ui_gap(ui, 2.f);
-		ui_begin_vert(ui, 1);
-		{
-			ui_clean(ui);
-			ui_size(ui, AXIS_X, ui_wrap());
-			ui_size(ui, AXIS_Y, ui_wrap());
-			UI_TextStyle style = ui->theme.code;
-			style.size = 32;
-			ui_text(ui, 0, style, title);
-
-			style.size = 18;
-			style.color = ui->theme.text_subtle;
-			ui_clean(ui);
-			ui_size(ui, AXIS_X, ui_wrap());
-			ui_size(ui, AXIS_Y, ui_wrap());
-			ui_text_box(ui, 1, style, "MAPPER %u", mapper);
-
-			ui_text_box(ui, 3, style, "%lluh %02llum", play_time_ms / (60 * 60 * 1000), play_time_ms / (60 * 1000) % 60);
-		}
-		ui_box_end(ui);
-	}
-	ui_box_end(ui);
-	return card_box;
-}
-
-// TODO(RJ) padding hardclips scrolling lists, we need to fade out the edges!
-static void app_build_catalog_shelf(App_Window *window, UI_Key key, Str title, vec2 card_size)
-{
-	UI_Context *ui = window->ui;
-	ui_box_push_id(ui, key);
-	UI_TextStyle title_style = ui->theme.code;
-	title_style.color = ui->theme.palette.amber;
-	title_style.size = 64;
-	title_style.align.y = 0.5f;
-	title_style.align.x = 0.5f;
-	ui_clean(ui);
-	ui_text(ui, 1, title_style, title);
-
-	ui_clean(ui);
-	ui_size(ui, AXIS_X, ui_grow(1.f));
-	ui_size(ui, AXIS_Y, ui_wrap());
-	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 2, AXIS_X);
+	u64 play_time_ms = game->play_time_ms;
+	UI_Palette *palette = &ui->theme.palette;
 
 	ui_clean(ui);
 	ui_axis(ui, AXIS_X);
 	ui_size(ui, AXIS_X, ui_fill());
-	ui_size(ui, AXIS_Y, ui_wrap());
-	ui_gap(ui, 16.f);
-	ui_box_begin(ui, 3, LIT(""));
-
-	for (u32 index = 0; index < window->app->orb_library_count; index ++)
+	ui_size(ui, AXIS_Y, ui_fixed(132.f));
+	ui_padd(ui, AXIS_X, 12.f, 18.f);
+	ui_padd(ui, AXIS_Y, 12.f, 12.f);
+	ui_gap(ui, 18.f);
+	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+	ui_background(ui, palette->raised);
+	ui_border(ui, palette->divider, 1.f);
+	ui_roundness(ui, 8.f);
+	UI_Box *card = ui_begin_horz(ui, 1);
+	UI_Response response = ui_signal_from_box(card);
+	if (response.hovered)
 	{
-		UI_Box *card_box = app_build_catalog_card(ui, card_size, window->app->orb_library[index].orb);
-		if (ui_signal_from_box(card_box).pressed)
-		{
-			ui_feedback_emit(ui, UI_FEEDBACK_PRESS);
-			app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_LIBRARY_ORB, .open_library_orb = { index } });
-		}
+		card->paint.background = color_srgba_mix(palette->raised, palette->cyan, 0.12f);
+		card->paint.border = palette->cyan;
+	}
+	if (response.held) card->paint.background = color_srgba_mix(palette->raised, palette->teal, 0.25f);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_fixed(160.f));
+	ui_size(ui, AXIS_Y, ui_fill());
+	ui_background(ui, palette->panel);
+	ui_roundness(ui, 5.f);
+	ui_image_box(ui, 1, (UI_ImageStyle) { .fit = UI_IMAGE_FIT_COVER, .align = v2(0.5f, 0.5f), .tint = texture ? COLOR_WHITE : color_srgba_mix(palette->panel, palette->violet, 0.35f) }, texture);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_fill());
+	ui_size(ui, AXIS_Y, ui_fill());
+	ui_gap(ui, 5.f);
+	ui_begin_vert(ui, 2);
+	{
+		UI_TextStyle title_style = ui->theme.code;
+		title_style.size = 28;
+		title_style.align = v2(0.f, 0.5f);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fill());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+		ui_text(ui, 1, title_style, game->title);
+
+		UI_TextStyle detail_style = ui->theme.code;
+		detail_style.size = 17;
+		detail_style.align = v2(0.f, 0.5f);
+		detail_style.color = palette->text_muted;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fill());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_text_box(ui, 2, detail_style, "MAPPER %u  |  PRG %u KiB  |  CHR %u KiB", game->cartridge.mapper, game->cartridge.prg_size / 1024, game->cartridge.chr_size / 1024);
+
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fill());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_text_box(ui, 3, detail_style, "%lluh %02llum played  |  %u save%s", play_time_ms / (60 * 60 * 1000), play_time_ms / (60 * 1000) % 60, game->save_count, game->save_count == 1 ? "" : "s");
 	}
 	ui_box_end(ui);
+	ui_box_end(ui);
 
-	ui_scroll_box_end(scroll);
-	ui_box_pop_id(ui);
+	if (response.pressed)
+	{
+		ui_feedback_emit(ui, UI_FEEDBACK_PRESS);
+		app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_LIBRARY_GAME, .open_library_game = { index } });
+	}
 }
 
-static void library_build_ui(App_Window *window, rect_f32 window_rect)
+static void library_build_ui(App_Window *window)
 {
 	UI_Context *ui = window->ui;
+	App_Library *library = &window->app->library_store->library;
+	if (!library->game_count)
+	{
+		ui_clean(ui);
+		ui_axis(ui, AXIS_Y);
+		ui_size(ui, AXIS_X, ui_fill());
+		ui_size(ui, AXIS_Y, ui_fill());
+		ui_padd(ui, AXIS_X, 48.f, 48.f);
+		ui_padd(ui, AXIS_Y, 48.f, 48.f);
+		ui_gap(ui, 12.f);
+		ui_begin_vert(ui, UI_KEY("empty library"));
+
+		UI_TextStyle title_style = ui->theme.code;
+		title_style.size = 28;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_wrap());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_text(ui, UI_KEY("empty library title"), title_style, LIT("YOUR LIBRARY IS EMPTY"));
+
+		UI_TextStyle detail_style = ui->theme.code;
+		detail_style.size = 17;
+		detail_style.color = ui->theme.palette.text_muted;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_wrap());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_text(ui, UI_KEY("empty library detail"), detail_style, LIT("Import an iNES ROM to get started."));
+
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_wrap());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		if (ui_button(ui, UI_KEY("empty library import"), LIT("IMPORT ROM  CTRL+O")).pressed) app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_ROM });
+		ui_box_end(ui);
+		return;
+	}
 
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_fill());
@@ -536,19 +554,17 @@ static void library_build_ui(App_Window *window, rect_f32 window_rect)
 
 	ui_clean(ui);
 	ui_axis(ui, AXIS_Y);
-	ui_size(ui, AXIS_X, ui_fill());
-	ui_size(ui, AXIS_Y, ui_fill());
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_padd(ui, AXIS_X, 32.f, 32.f);
 	ui_padd(ui, AXIS_Y, 32.f, 32.f);
-	ui_gap(ui, 16.f);
+	ui_gap(ui, 12.f);
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_box_begin(ui, UI_KEY("library shelves"), LIT("library shelves"));
-	{
-		f32 card_width = window_rect.w * 0.13f;
-		f32 card_height = card_width * 1.35f;
-		app_build_catalog_shelf(window, UI_KEY("saves"), LIT("Recent Saves"), v2(card_width, card_height));
-	}
-	ui_box_end(ui);
+	ui_virtual_list(ui, UI_KEY("library games"), LIT("library games"), (UI_VirtualListDesc) {
+		.item_count = library->game_count,
+		.user = window,
+		.build_item = app_build_library_item,
+	});
 	ui_scroll_box_end(scroll);
 }
 
@@ -788,7 +804,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 			UI_Box *overlay_root = ui_box_begin(ui, UI_KEY("overlay"), LIT(""));
 			overlay_root->hit_intercept = true;
 
-			library_build_ui(window, window_rect);
+			library_build_ui(window);
 
 			ui_box_end(ui);
 
@@ -802,8 +818,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 	app_status_divider(ui, 1, true);
 	app_status_row_begin(ui, 2, LIT("bottom status row"));
 
-	Str rom_name = app->last_rom_path;
-	Str bottom_left = rom_name.size ? str_push_copy_f(&ui->frame_arena, "ROM   %.*s", rom_name.size, rom_name.text) : LIT("NO CARTRIDGE");
+	Str bottom_left = app->active_game ? app->active_game->title : LIT("NO CARTRIDGE");
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));

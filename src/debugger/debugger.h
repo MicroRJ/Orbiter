@@ -16,6 +16,7 @@ enum
 
 Debugger *debugger_create(Arena *arena, NES_Emulator *emulator);
 void debugger_reset(Debugger *debugger);
+void debugger_clear_program_breakpoints(Debugger *debugger);
 u32 debugger_step(Debugger *debugger);
 
 

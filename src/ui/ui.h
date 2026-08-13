@@ -120,6 +120,7 @@ struct UI_Context
 	b32            mouse_wheel_consumed;
 	u32            feedback;
 	UI_Id          hot;
+	i32            hot_z;
 	UI_Id          active;
 	vec2           mouse;
 	vec2           active_press_mouse;
@@ -140,9 +141,11 @@ void ui_pop_z(UI_Context *ui);
 
 b32 ui_is_hot(UI_Context *ui, UI_Id id);
 b32 ui_is_active(UI_Context *ui, UI_Id id);
+b32 ui_pointer_over(UI_Context *ui, rect_f32 rect, i32 z);
 void ui_feedback_emit(UI_Context *ui, UI_Feedback feedback);
 UI_Feedback ui_feedback_take(UI_Context *ui);
 
+UI_Response ui_interact_z(UI_Context *ui, UI_Id id, rect_f32 rect, i32 z);
 UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect);
 UI_Response ui_signal_from_box(UI_Box *box);
 void ui_push_clip(UI_Context *ui, rect_f32 rect);

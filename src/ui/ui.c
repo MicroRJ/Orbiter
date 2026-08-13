@@ -158,10 +158,18 @@ void ui_begin_frame(UI_Context *ui)
 		ui_invalidate_layout(ui);
 	}
 	ui->hot = UI_ID_NONE;
+	ui->hot_z = UI_Z_CONTENT;
 	if (previous_root && previous_root->state && previous_root->state->last_layout_frame + 1 == ui->frame_index && previous_root->state->layout_generation == ui->layout_generation)
 	{
 		UI_Box *hit = ui_box_find_deepest(previous_root, ui->mouse);
-		if (hit) ui->hot = hit->id;
+		if (hit)
+		{
+			ui->hot = hit->id;
+			ui->hot_z = hit->paint.z;
+			for (UI_Box *ancestor = hit; ancestor; ancestor = ancestor->parent) {
+				if (ancestor->state) ancestor->state->hot_within_frame = ui->frame_index;
+			}
+		}
 	}
 	arena_reset(&ui->frame_arena);
 	ui->root = 0;
@@ -320,6 +328,12 @@ b32 ui_is_active(UI_Context *ui, UI_Id id)
 	return ui_id_equal(ui->active, id);
 }
 
+b32 ui_pointer_over(UI_Context *ui, rect_f32 rect, i32 z)
+{
+	Assert(ui);
+	return rect_f32_contains(rect, ui->mouse) && (!ui->hot.value || z >= ui->hot_z);
+}
+
 void ui_feedback_emit(UI_Context *ui, UI_Feedback feedback)
 {
 	Assert(ui);
@@ -334,16 +348,16 @@ UI_Feedback ui_feedback_take(UI_Context *ui)
 	return feedback;
 }
 
-// TODO
-UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
+UI_Response ui_interact_z(UI_Context *ui, UI_Id id, rect_f32 rect, i32 z)
 {
 	Assert(ui);
 	Assert(id.value);
 	OS_KeyState mouse = ui->window->keys[OS_Key_MouseLeft];
 	UI_Response response = {};
-	response.hovered = rect_f32_contains(rect, ui->mouse);
+	response.hovered = ui_pointer_over(ui, rect, z);
 	if (response.hovered) {
 		ui->hot = id;
+		ui->hot_z = z;
 	}
 	if (!ui->active.value && response.hovered && (mouse & OS_KEY_PRESSED))
 	{
@@ -358,6 +372,11 @@ UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
 		response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
 	}
 	return response;
+}
+
+UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
+{
+	return ui_interact_z(ui, id, rect, UI_Z_CONTENT);
 }
 
 UI_Response ui_signal_from_box(UI_Box *box)

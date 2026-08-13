@@ -392,7 +392,7 @@ static void panel_update_interaction(Panels *panels, OS_Window *window, UI_Conte
 {
 	if (panel->kind != PANEL_SPLIT)
 	{
-		if (rect_f32_contains(rect, ui->mouse))
+		if (ui_pointer_over(ui, rect, UI_Z_CONTENT))
 		{
 			panels->focused = panel;
 		}

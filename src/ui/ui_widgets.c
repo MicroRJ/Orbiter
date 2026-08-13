@@ -756,6 +756,7 @@ UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis)
 	ui_layout(ui, &ui_scroll_box__root_layout);
 	scroll->root = ui_box_begin(ui, key, LIT("scroll box"));
 	scroll->root->content = scroll;
+	scroll->root->hit_intercept = true;
 	ui_clean(ui);
 
 	ui_size(ui, AXIS_X, ui_flex(1.f, 1.f));
@@ -865,7 +866,7 @@ void ui_scroll_box_end(UI_ScrollBox *scroll)
 	{
 		f32 scroll_max = Max(viewport_state->content_size.xy[axis] - viewport_state->viewport.wh[axis], 0.f);
 		i32 wheel = ui->window->mouse_wheel.xy[axis];
-		if (wheel && !ui->mouse_wheel_consumed && rect_f32_contains(viewport_state->hit_rect, ui->mouse))
+		if (wheel && !ui->mouse_wheel_consumed && ui_box_contains_hot(scroll->root))
 		{
 			b32 can_scroll = wheel > 0 ? scroll->target > 0.f || scroll->offset > 0.f : scroll->target < scroll_max || scroll->offset < scroll_max;
 			if (can_scroll)

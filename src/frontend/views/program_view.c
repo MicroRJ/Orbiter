@@ -69,7 +69,7 @@ static const char *program_opcode_class_name(NES_OpcodeClass classification)
 static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_rect, ProgramInstruction instruction, NES_InstructionDesc desc, Str formatted_instruction)
 {
 	UI_Context *ui = frame->ui;
-	if (!rect_f32_contains(hit_rect, ui->mouse)) {
+	if (!ui_box_contains_hot(frame->content_box) || !rect_f32_contains(hit_rect, ui->mouse)) {
 		return;
 	}
 	Str lines[3] = {};
@@ -137,14 +137,16 @@ static void program_view_content(ViewFrameData *frame)
 	f32 row_height = font.size;
 
 	u16 cpu_pc = program->cpu_pc;
+	b32 content_hot = ui_box_contains_hot(frame->content_box);
 
 	rect_f32_slice(&main_rect, AXIS_X, 32);
 	f32 scroll_height = frame->header_height + instruction_count * row_height;
 	f32 max_scroll = Max(scroll_height - main_rect.h, 0.f);
 	UI_Id scroll_id = ui_id_child(ui_id_child(UI_ID_NONE, ui_key_child(UI_KEY("program view"), frame->view->id)), 1);
-	b32 wheel_scroll = rect_f32_contains(main_rect, ui->mouse) && ui->window->mouse_wheel.y;
+	b32 wheel_scroll = !ui->mouse_wheel_consumed && content_hot && rect_f32_contains(main_rect, ui->mouse) && ui->window->mouse_wheel.y;
 	if (wheel_scroll) {
 		state->scroll_target = CLAMP(state->scroll_target - ui->window->mouse_wheel.y * 60.f, 0.f, max_scroll);
+		ui->mouse_wheel_consumed = true;
 	}
 	UI_Response scroll_response = {};
 	if (max_scroll > 0.f)
@@ -221,7 +223,7 @@ static void program_view_content(ViewFrameData *frame)
 		rect_f32 content_rect = row_rect;
 		rect_f32 address_rect = rect_f32_slice(&content_rect, AXIS_X, 12 * 7);
 		b32 has_breakpoint = debugger_has_program_breakpoint(debugger, instruction.map_addr);
-		if (listing_current && rect_f32_contains(address_rect, ui->mouse) && ui->window->keys[OS_Key_MouseLeft] & OS_KEY_PRESSED) {
+		if (listing_current && content_hot && rect_f32_contains(address_rect, ui->mouse) && ui->window->keys[OS_Key_MouseLeft] & OS_KEY_PRESSED) {
 			debugger_set_program_breakpoint(debugger, instruction.map_addr, !has_breakpoint);
 			has_breakpoint = !has_breakpoint;
 		}
