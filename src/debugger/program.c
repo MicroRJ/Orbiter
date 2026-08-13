@@ -55,22 +55,14 @@ static void program_add_bridge(Program *program, u32 source_index, u32 destinati
 {
 	u32 first = Min(source_index, destination_index);
 	u32 last = Max(source_index, destination_index);
-	u32 lane = 0;
-	while (lane < 16)
-	{
-		u16 mask = (u16)(1u << lane);
-		b32 occupied = false;
-		for (u32 row_index = first + 1; row_index < last && !occupied; ++row_index) {
-			occupied = !!(program->rows[row_index].bridges & mask);
-		}
-		if (!occupied) break;
-		++lane;
-	}
-	if (lane == 16) return;
 	for (u32 row_index = first + 1; row_index < last; ++row_index)
 	{
-		program->rows[row_index].bridges |= (u16)(1u << lane);
-		program->rows[row_index].indent = (i16)Max(program->rows[row_index].indent, (i16)(lane + 1));
+		ProgramInstruction *row = &program->rows[row_index];
+		if (row->indent < 16)
+		{
+			row->bridges |= (u16)(1u << row->indent);
+			++row->indent;
+		}
 	}
 }
 
@@ -95,6 +87,7 @@ static b32 program_find_exact_cpu_address(const Program *program, u16 cpu_addres
 	return true;
 }
 
+// TODO(RJ) eventually I want to introduce arbitrary connecting lines.
 static void program_build_bridges(Program *program)
 {
 	// Keep the listing evidence-driven: bridges connect confirmed rows, but do not create new boundaries.

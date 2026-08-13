@@ -170,6 +170,7 @@ static b32 app_reset_emulator(void);
 static b32 app_save_state(void);
 
 #define APP_BIND(kind_, activation_, key_, modifiers_) { .action = { .kind = kind_ }, .key_chord = { activation_, key_, modifiers_ } }
+#define APP_BIND_REPEAT(kind_, key_, modifiers_) { .action = { .kind = kind_ }, .key_chord = { APP_KEY_CHORD_ON_PRESS, key_, modifiers_ }, .allow_repeat = true }
 #define APP_BIND_SPLIT(axis_, key_) { .action = { .kind = APP_ACTION_SPLIT_PANEL, .split_panel = { axis_ } }, .key_chord = { APP_KEY_CHORD_ON_RELEASE, key_, OS_MODIFIER_CONTROL } }
 #define APP_BIND_VIEW(index_, key_, modifiers_) { .action = { .kind = APP_ACTION_OPEN_VIEW, .open_view = { index_ } }, .key_chord = { APP_KEY_CHORD_ON_RELEASE, key_, modifiers_ } }
 #define APP_BIND_SCRUB(direction_, key_) { .action = { .kind = APP_ACTION_SCRUB, .scrub = { direction_ } }, .key_chord = { APP_KEY_CHORD_WHILE_DOWN, key_, OS_MODIFIER_CONTROL } }
@@ -227,10 +228,11 @@ static const App_KeyBinding app_key_bindings[] =
 	APP_BIND(APP_ACTION_TOGGLE_PPU_CAPTURE, APP_KEY_CHORD_ON_RELEASE, OS_Key_F8, OS_MODIFIER_SHIFT),
 	APP_BIND(APP_ACTION_TAKE_APP_SCREENSHOT, APP_KEY_CHORD_ON_RELEASE, OS_Key_F9, 0),
 	APP_BIND(APP_ACTION_TOGGLE_APP_CAPTURE, APP_KEY_CHORD_ON_RELEASE, OS_Key_F9, OS_MODIFIER_SHIFT),
-	APP_BIND(APP_ACTION_STEP, APP_KEY_CHORD_ON_RELEASE, OS_Key_F10, 0),
+	APP_BIND_REPEAT(APP_ACTION_STEP, OS_Key_F10, 0),
 };
 
 #undef APP_BIND
+#undef APP_BIND_REPEAT
 #undef APP_BIND_SPLIT
 #undef APP_BIND_VIEW
 #undef APP_BIND_SCRUB
