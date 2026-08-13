@@ -495,6 +495,12 @@ static UI_Response playground_build_test_signal(Arena *arena, UI_Context *ui, UI
 	return response;
 }
 
+static UI_Context *playground_test_ui_create(Arena *arena, OS_Window *window)
+{
+	Input_State *input = arena_push_zero(arena, sizeof(*input));
+	return ui_create(arena, window, input, (Text_Context *)1, 0, (UI_Theme) {});
+}
+
 static int playground_run_tests(void)
 {
 	Arena arena = arena_create(0, "UI playground tests");
@@ -524,10 +530,28 @@ static int playground_run_tests(void)
 		CHECK(ui_id_equal(ui_id_child(UI_ID_NONE, profiler), ui_id_child(UI_ID_NONE, UI_KEY("profiler"))), "string keys produce deterministic UI IDs");
 	}
 
+	{
+		OS_Event events[] = {
+			{ .type = OS_EVENT_KEY_PRESS, .key = OS_Key_A },
+			{ .type = OS_EVENT_KEY_PRESS, .key = OS_Key_A, .repeat = true },
+		};
+		OS_Window window = { .events = events, .event_count = ArrayCount(events), .event_capacity = ArrayCount(events) };
+		Input_State input = {};
+		input_state_update(&input, &window);
+		CHECK((input.keys[OS_Key_A] & (INPUT_KEY_DOWN | INPUT_KEY_PRESSED | INPUT_KEY_REPEAT)) == (INPUT_KEY_DOWN | INPUT_KEY_PRESSED | INPUT_KEY_REPEAT), "input state observes press and repeat events");
+		window.event_count = 0;
+		input_state_update(&input, &window);
+		CHECK(input.keys[OS_Key_A] == INPUT_KEY_DOWN, "input state retains only held keys between frames");
+		events[0] = (OS_Event) { .type = OS_EVENT_WINDOW_FOCUS_LOST };
+		window.event_count = 1;
+		input_state_update(&input, &window);
+		CHECK(input.keys[OS_Key_A] == INPUT_KEY_RELEASED, "focus loss releases every held key");
+	}
+
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_defaults();
 		root_desc.layout = &UI_FlatLayoutHooks;
@@ -555,7 +579,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(112, 100), .mouse_position = v2i(50, 50) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		PlaygroundOverlappingScrollTest overlap = playground_build_overlapping_test_scrolls(ui);
 		ui_box_measure(overlap.root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
@@ -578,7 +602,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100), .mouse_position = v2i(10, 10) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_defaults();
 		root_desc.layout = &UI_FlatLayoutHooks;
@@ -613,7 +637,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(200, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
 		ui_clean(ui);
@@ -648,7 +672,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(30, 20) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		UI_Box *root = ui_build_begin(ui, UI_KEY("frame clipping"), LIT("frame clipping"), ui_defaults());
 		ui_clean(ui);
@@ -677,7 +701,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(112, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 
 		ui_begin_frame(ui);
 		UI_Box *root = 0;
@@ -707,8 +731,8 @@ static int playground_run_tests(void)
 
 		window.mouse_wheel.y = 0;
 		window.mouse_position = v2i(106, 18);
-		window.keys[OS_Key_MouseLeft] = OS_KEY_PRESSED | OS_KEY_DOWN;
 		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
 		ui->frame_elapsed = 0.f;
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
@@ -717,16 +741,14 @@ static int playground_run_tests(void)
 		ui_end_frame(ui);
 
 		window.mouse_position.y += 50;
-		window.keys[OS_Key_MouseLeft] = OS_KEY_DOWN;
 		ui_begin_frame(ui);
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
 		CHECK(playground_near(scroll->offset, 24.f + 50.f * 300.f / 70.f), "thumb dragging maps mouse travel into the persistent logical range");
-		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_RELEASED;
 		ui_end_frame(ui);
 
-		window.keys[OS_Key_MouseLeft] = 0;
 		ui_begin_frame(ui);
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		UI_Id unrelated_active = ui_id_child(UI_ID_NONE, UI_KEY("unrelated active"));
@@ -749,17 +771,16 @@ static int playground_run_tests(void)
 		ui_end_frame(ui);
 
 		window.mouse_position = v2i(106, 80);
-		window.keys[OS_Key_MouseLeft] = OS_KEY_PRESSED | OS_KEY_DOWN;
 		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
 		ui->frame_elapsed = 0.f;
 		scroll = playground_build_test_scroll(&arena, ui, &root);
 		CHECK(ui_is_active(ui, scroll->track->id) && playground_near(scroll->target, 85.f), "the scrollbar track is an ordinary signaled box with page-step behavior");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
-		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_RELEASED;
 		ui_end_frame(ui);
 
-		window.keys[OS_Key_MouseLeft] = 0;
 		ui_begin_frame(ui);
 		ui->frame_elapsed = 0.f;
 		scroll = playground_build_test_scroll(&arena, ui, &root);
@@ -775,7 +796,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(200, 200), .mouse_position = v2i(50, 150) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 
 		ui_begin_frame(ui);
 		PlaygroundNestedScrollTest nested = playground_build_nested_test_scroll(ui);
@@ -812,7 +833,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100), .mouse_position = v2i(10, 10) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		UI_Box *root = 0;
 		UI_Box *box = 0;
 
@@ -824,8 +845,8 @@ static int playground_run_tests(void)
 		CHECK(playground_near(box->state->hit_rect.w, 50.f) && playground_near(box->state->hit_rect.h, 30.f), "layout persists the box's clipped interaction rectangle");
 		ui_end_frame(ui);
 
-		window.keys[OS_Key_MouseLeft] = OS_KEY_PRESSED | OS_KEY_DOWN;
 		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
 		response = playground_build_test_signal(&arena, ui, &root, &box);
 		CHECK(response.hovered && response.pressed && response.held && ui_is_active(ui, box->id), "a box signal presses and exclusively captures through previous geometry");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
@@ -833,7 +854,6 @@ static int playground_run_tests(void)
 		ui_end_frame(ui);
 
 		window.mouse_position = v2i(20, 15);
-		window.keys[OS_Key_MouseLeft] = OS_KEY_DOWN;
 		ui_begin_frame(ui);
 		response = playground_build_test_signal(&arena, ui, &root, &box);
 		CHECK(response.hovered && response.held && !response.pressed && playground_near(response.drag_delta.x, 10.f) && playground_near(response.drag_delta.y, 5.f), "a captured box reports held state and drag displacement");
@@ -841,8 +861,8 @@ static int playground_run_tests(void)
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
 		ui_end_frame(ui);
 
-		window.keys[OS_Key_MouseLeft] = OS_KEY_RELEASED;
 		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_RELEASED;
 		response = playground_build_test_signal(&arena, ui, &root, &box);
 		CHECK(response.released && !response.held, "a captured box reports release before capture is cleared");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
@@ -851,8 +871,8 @@ static int playground_run_tests(void)
 		CHECK(!ui->active.value, "mouse release clears the exclusive capture at frame end");
 
 		ui_invalidate_layout(ui);
-		window.keys[OS_Key_MouseLeft] = OS_KEY_PRESSED | OS_KEY_DOWN;
 		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
 		response = playground_build_test_signal(&arena, ui, &root, &box);
 		CHECK(!box->has_previous && !response.hovered && !response.pressed, "layout invalidation rejects stale box geometry for interaction");
 		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
@@ -864,7 +884,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(120, 80) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_defaults();
@@ -959,7 +979,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_defaults();
 		root_desc.axis = AXIS_X;
@@ -1093,7 +1113,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(300, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
 		UI_BoxTableColumn columns[] = {
@@ -1306,7 +1326,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_defaults();
 		ui_build_begin(ui, 1, LIT("root"), root_desc);
@@ -1330,7 +1350,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		UI_BoxDesc root_desc = ui_defaults();
 		ui_build_begin(ui, 1, LIT("root"), root_desc);
@@ -1361,7 +1381,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 100) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		u32 build_count = 0;
 		ui_begin_frame(ui);
 		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
@@ -1382,7 +1402,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 60) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
 		ui_clean(ui);
@@ -1405,7 +1425,7 @@ static int playground_run_tests(void)
 	SCRATCH_SCOPE(&arena)
 	{
 		OS_Window window = { .size = v2i(100, 60) };
-		UI_Context *ui = ui_create(&arena, &window, (Text_Context *)1, 0, (UI_Theme) {});
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
 		ui_begin_frame(ui);
 		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
 		ui_clean(ui);
@@ -1431,6 +1451,16 @@ static int playground_run_tests(void)
 	}
 	printf("UI playground: all layout tests passed\n");
 	return 0;
+}
+
+static b32 playground_key_pressed(const OS_Window *window, OS_Key key)
+{
+	for (u32 event_index = 0; event_index < os_window_event_count(window); ++event_index)
+	{
+		const OS_Event *event = os_window_event(window, event_index);
+		if (event->type == OS_EVENT_KEY_PRESS && event->key == key && !event->repeat) return true;
+	}
+	return false;
 }
 
 static int playground_run_window(void)
@@ -1473,7 +1503,8 @@ static int playground_run_window(void)
 	Draw_Context *draw = draw_create(&arena, renderer);
 	Text_Context *text = text_create(&arena);
 	Text_GFX *text_gfx = text_gfx_create(&arena, renderer, text);
-	UI_Context *ui = ui_create(&arena, window, text, draw, ui_default_theme(font));
+	Input_State input = {};
+	UI_Context *ui = ui_create(&arena, window, &input, text, draw, ui_default_theme(font));
 	text_preload_ascii(text, font, 14);
 	text_preload_ascii(text, font, 16);
 
@@ -1488,16 +1519,17 @@ static int playground_run_window(void)
 		if (!os_window_is_open(window)) {
 			break;
 		}
-		if (window->keys[OS_Key_Space] & OS_KEY_PRESSED) {
+		input_state_update(&input, window);
+		if (playground_key_pressed(window, OS_Key_Space)) {
 			density_index = (density_index + 1) % ArrayCount(playground_densities);
 			ui_invalidate_layout(ui);
 		}
-		if (window->keys[OS_Key_Tab] & OS_KEY_PRESSED) {
+		if (playground_key_pressed(window, OS_Key_Tab)) {
 			mode = (mode + 1) % PLAYGROUND_MODE_COUNT;
 			ui_invalidate_layout(ui);
 		}
-		if ((window->keys[OS_Key_R] & OS_KEY_PRESSED) && mode == PLAYGROUND_MODE_SCROLL_HISTORY) reset_scroll_history = true;
-		if (window->keys[OS_Key_Backspace] & OS_KEY_PRESSED) {
+		if (playground_key_pressed(window, OS_Key_R) && mode == PLAYGROUND_MODE_SCROLL_HISTORY) reset_scroll_history = true;
+		if (playground_key_pressed(window, OS_Key_Backspace)) {
 			selected_id = UI_ID_NONE;
 		}
 		if (window->size.x <= 0 || window->size.y <= 0) {
@@ -1524,14 +1556,14 @@ static int playground_run_window(void)
 				default: Assert(false); break;
 			}
 			vec2 mouse = v2_from_v2i(window->mouse_position);
-			OS_KeyState mouse_left = window->keys[OS_Key_MouseLeft];
+			Input_KeyState mouse_left = input.keys[OS_Key_MouseLeft];
 
 			vec2 size = v2_from_v2i(window->size);
 			ui_box_measure(scene.root, (UI_BoxConstraints) { .min = size, .max = size });
 			ui_box_layout(scene.root, rect_f32_from_size(size));
 			UI_Box *hot = ui_box_find_deepest(scene.root, mouse);
 			if (hot && (!hot->user || ui_is_active(ui, hot->id))) hot = 0;
-			if (hot && (mouse_left & OS_KEY_PRESSED)) {
+			if (hot && (mouse_left & INPUT_KEY_PRESSED)) {
 				selected_id = hot->id;
 			}
 

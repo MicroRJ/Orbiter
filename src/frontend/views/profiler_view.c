@@ -72,7 +72,7 @@ static const Prof_Frame *profiler_build_graph(UI_Context *ui, Profiler_View_Stat
 
 	UI_Response response = ui_signal_from_box(box);
 
-	b32 control = ui->window->keys[OS_Key_LeftControl] & OS_KEY_DOWN || ui->window->keys[OS_Key_RightControl] & OS_KEY_DOWN;
+	b32 control = ui->input->keys[OS_Key_LeftControl] & INPUT_KEY_DOWN || ui->input->keys[OS_Key_RightControl] & INPUT_KEY_DOWN;
 	i32 zoom = control ? ui->window->mouse_wheel.y : 0;
 	i32 scroll = !control ? ui->window->mouse_wheel.y : 0;
 

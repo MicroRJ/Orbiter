@@ -111,15 +111,16 @@ UI_Theme ui_default_theme(Font_Handle code_font)
 	return theme;
 }
 
-UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
-	Draw_Context *draw, UI_Theme theme)
+UI_Context *ui_create(Arena *owner, OS_Window *window, const Input_State *input, Text_Context *text, Draw_Context *draw, UI_Theme theme)
 {
 	Assert(owner);
 	Assert(window);
+	Assert(input);
 	Assert(text);
 	UI_Context *ui = arena_push_zero(owner, sizeof(*ui));
 	ui->owner = owner;
 	ui->window = window;
+	ui->input = input;
 	ui->text = text;
 	ui->draw = draw;
 	ui->frame_arena = arena_create(0, "UI frame arena");
@@ -149,6 +150,7 @@ void ui_begin_frame(UI_Context *ui)
 	ui->frame_elapsed = (f32)Max(frame_time.seconds - ui->previous_frame_time.seconds, 0.0);
 	ui->previous_frame_time = frame_time;
 	ui->frame_index++;
+
 	ui->mouse_wheel_consumed = false;
 	ui->feedback = UI_FEEDBACK_NONE;
 	ui->mouse = v2_from_v2i(ui->window->mouse_position);
@@ -238,7 +240,7 @@ void ui_end_frame(UI_Context *ui)
 {
 	Assert(ui);
 	Assert(!ui->builder);
-	if (!(ui->window->keys[OS_Key_MouseLeft] & OS_KEY_DOWN))
+	if (!(ui->input->keys[OS_Key_MouseLeft] & INPUT_KEY_DOWN))
 	{
 		ui->active = UI_ID_NONE;
 	}
@@ -352,14 +354,14 @@ UI_Response ui_interact_z(UI_Context *ui, UI_Id id, rect_f32 rect, i32 z)
 {
 	Assert(ui);
 	Assert(id.value);
-	OS_KeyState mouse = ui->window->keys[OS_Key_MouseLeft];
+	Input_KeyState mouse = ui->input->keys[OS_Key_MouseLeft];
 	UI_Response response = {};
 	response.hovered = ui_pointer_over(ui, rect, z);
 	if (response.hovered) {
 		ui->hot = id;
 		ui->hot_z = z;
 	}
-	if (!ui->active.value && response.hovered && (mouse & OS_KEY_PRESSED))
+	if (!ui->active.value && response.hovered && (mouse & INPUT_KEY_PRESSED))
 	{
 		ui->active = id;
 		ui->active_press_mouse = ui->mouse;
@@ -367,8 +369,8 @@ UI_Response ui_interact_z(UI_Context *ui, UI_Id id, rect_f32 rect, i32 z)
 	}
 	if (ui_id_equal(ui->active, id))
 	{
-		response.held = !!(mouse & OS_KEY_DOWN);
-		response.released = !!(mouse & OS_KEY_RELEASED);
+		response.held = !!(mouse & INPUT_KEY_DOWN);
+		response.released = !!(mouse & INPUT_KEY_RELEASED);
 		response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
 	}
 	return response;
@@ -389,8 +391,8 @@ UI_Response ui_signal_from_box(UI_Box *box)
 	UI_Context *ui = box->ui;
 	UI_Response response = {};
 	response.hovered = ui_id_equal(ui->hot, box->id);
-	OS_KeyState left_mouse_button = ui->window->keys[OS_Key_MouseLeft];
-	if (!ui->active.value && response.hovered && (left_mouse_button & OS_KEY_PRESSED))
+	Input_KeyState left_mouse_button = ui->input->keys[OS_Key_MouseLeft];
+	if (!ui->active.value && response.hovered && (left_mouse_button & INPUT_KEY_PRESSED))
 	{
 		ui->active = box->id;
 		ui->active_press_mouse = ui->mouse;
@@ -398,8 +400,8 @@ UI_Response ui_signal_from_box(UI_Box *box)
 	}
 	if (ui_id_equal(ui->active, box->id))
 	{
-		response.held = !!(left_mouse_button & OS_KEY_DOWN);
-		response.released = !!(left_mouse_button & OS_KEY_RELEASED);
+		response.held = !!(left_mouse_button & INPUT_KEY_DOWN);
+		response.released = !!(left_mouse_button & INPUT_KEY_RELEASED);
 		response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
 	}
 	return response;

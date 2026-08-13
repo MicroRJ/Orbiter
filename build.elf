@@ -82,6 +82,7 @@ objects := {
 	{ name = "renderer",          input = "src/graphics/d3d11.c" },
 	{ name = "graphics",          input = "src/graphics/graphics.c" },
 	{ name = "base",              input = "src/base/base.c" },
+	{ name = "input",             input = "src/input/input.c" },
 	{ name = "draw",              input = "src/graphics/draw.c" },
 	{ name = "ui",                input = "src/ui/ui.c" },
 	{ name = "ui_box",            input = "src/ui/ui_box.c" },

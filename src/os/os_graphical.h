@@ -29,17 +29,6 @@ OS_Key;
 
 typedef enum
 {
-	OS_KEY_DOWN     = 1 << 0,
-	OS_KEY_PRESSED  = 1 << 1,
-	OS_KEY_RELEASED = 1 << 2,
-	OS_KEY_REPEAT   = 1 << 3,
-}
-OS_KeyStateFlags;
-
-typedef u8 OS_KeyState;
-
-typedef enum
-{
 	OS_MODIFIER_NONE    = 0,
 	OS_MODIFIER_SHIFT   = 1 << 0,
 	OS_MODIFIER_CONTROL = 1 << 1,
@@ -96,14 +85,13 @@ struct OS_Window
 	vec2i size;
 	vec2i mouse_position;
 	vec2i mouse_wheel;
-	OS_KeyState keys[OS_Key_COUNT];
 	OS_Event *events;
 	u32 event_count;
 	u32 event_capacity;
 };
 
 // Events and any Str data they reference remain valid until the next
-// os_poll_windows call. Persistent key and mouse state remains on the window.
+// os_poll_windows call. Persistent input state is maintained by event observers.
 
 typedef struct
 {

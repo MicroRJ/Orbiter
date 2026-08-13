@@ -223,7 +223,7 @@ static void program_view_content(ViewFrameData *frame)
 		rect_f32 content_rect = row_rect;
 		rect_f32 address_rect = rect_f32_slice(&content_rect, AXIS_X, 12 * 7);
 		b32 has_breakpoint = debugger_has_program_breakpoint(debugger, instruction.map_addr);
-		if (listing_current && content_hot && rect_f32_contains(address_rect, ui->mouse) && ui->window->keys[OS_Key_MouseLeft] & OS_KEY_PRESSED) {
+		if (listing_current && content_hot && rect_f32_contains(address_rect, ui->mouse) && ui->input->keys[OS_Key_MouseLeft] & INPUT_KEY_PRESSED) {
 			debugger_set_program_breakpoint(debugger, instruction.map_addr, !has_breakpoint);
 			has_breakpoint = !has_breakpoint;
 		}

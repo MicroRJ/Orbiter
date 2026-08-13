@@ -2,6 +2,7 @@
 #define UI_H
 
 #include "graphics.h"
+#include "input/input.h"
 #include "os_graphical.h"
 #include "ui_id.h"
 #include "text.h"
@@ -99,6 +100,7 @@ struct UI_Context
 {
 	Arena         *owner;
 	OS_Window     *window;
+	const Input_State *input;
 	Text_Context  *text;
 	Draw_Context  *draw;
 	Arena          frame_arena;
@@ -129,7 +131,7 @@ struct UI_Context
 
 UI_Palette ui_default_palette(void);
 UI_Theme ui_default_theme(Font_Handle code_font);
-UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text, Draw_Context *draw, UI_Theme theme);
+UI_Context *ui_create(Arena *owner, OS_Window *window, const Input_State *input, Text_Context *text, Draw_Context *draw, UI_Theme theme);
 
 void ui_begin_frame(UI_Context *ui);
 void ui_end_frame(UI_Context *ui);

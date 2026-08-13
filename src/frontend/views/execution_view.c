@@ -276,7 +276,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 
 	u16 pc = frame->publication->cpu.PC;
 	b32 hovered = ui_box_contains_hot(frame->content_box) && rect_f32_contains(frame->rect, ui->mouse);
-	b32 control = !!(ui->window->keys[OS_Key_LeftControl] & OS_KEY_DOWN) || !!(ui->window->keys[OS_Key_RightControl] & OS_KEY_DOWN);
+	b32 control = !!(ui->input->keys[OS_Key_LeftControl] & INPUT_KEY_DOWN) || !!(ui->input->keys[OS_Key_RightControl] & INPUT_KEY_DOWN);
 	i32 wheel = ui->window->mouse_wheel.y;
 	if (!ui->mouse_wheel_consumed && hovered && control && wheel)
 	{

@@ -16,6 +16,7 @@ struct App_Window
 {
 	App *app;
 	OS_Window *os;
+	Input_State input;
 	GFX_Window *gfx;
 	Draw_Context *draw;
 	UI_Context *ui;
@@ -65,7 +66,7 @@ App_Window *app_window_create(Arena *owner, App *app, App_WindowDesc desc)
 	Assert(window->os);
 	window->gfx = gfx_create_window(owner, window->renderer, window->os);
 	window->draw = draw_create(owner, window->renderer);
-	window->ui = ui_create(owner, window->os, app->text, window->draw, desc.theme);
+	window->ui = ui_create(owner, window->os, &window->input, app->text, window->draw, desc.theme);
 	window->panels = panels_create(owner);
 	window->library_overlay_on = true;
 	window->crt_enabled = true;
@@ -139,11 +140,10 @@ void app_window_emit_action(App_Window *window, App_Action action)
 
 static u32 app_window_modifiers(const App_Window *window)
 {
-	const OS_KeyState *keys = window->os->keys;
 	u32 modifiers = 0;
-	if ((keys[OS_Key_LeftShift]   | keys[OS_Key_RightShift])   & OS_KEY_DOWN) modifiers |= OS_MODIFIER_SHIFT;
-	if ((keys[OS_Key_LeftControl] | keys[OS_Key_RightControl]) & OS_KEY_DOWN) modifiers |= OS_MODIFIER_CONTROL;
-	if ((keys[OS_Key_LeftAlt]     | keys[OS_Key_RightAlt])     & OS_KEY_DOWN) modifiers |= OS_MODIFIER_ALT;
+	if (window->input.keys[OS_Key_LeftShift] & INPUT_KEY_DOWN || window->input.keys[OS_Key_RightShift] & INPUT_KEY_DOWN) modifiers |= OS_MODIFIER_SHIFT;
+	if (window->input.keys[OS_Key_LeftControl] & INPUT_KEY_DOWN || window->input.keys[OS_Key_RightControl] & INPUT_KEY_DOWN) modifiers |= OS_MODIFIER_CONTROL;
+	if (window->input.keys[OS_Key_LeftAlt] & INPUT_KEY_DOWN || window->input.keys[OS_Key_RightAlt] & INPUT_KEY_DOWN) modifiers |= OS_MODIFIER_ALT;
 	return modifiers;
 }
 
@@ -235,20 +235,19 @@ static void app_window_route_action(App_Window *window, App_Action action)
 static App_GameInput app_window_keyboard_input(const App_Window *window, u32 player)
 {
 	if (player != 0) return 0;
-	const OS_KeyState *keys = window->os->keys;
 	App_GameInput input = 0;
-	if (keys[OS_Key_Up]    & OS_KEY_DOWN) input |= APP_GAME_INPUT_UP;
-	if (keys[OS_Key_Down]  & OS_KEY_DOWN) input |= APP_GAME_INPUT_DOWN;
-	if (keys[OS_Key_Left]  & OS_KEY_DOWN) input |= APP_GAME_INPUT_LEFT;
-	if (keys[OS_Key_Right] & OS_KEY_DOWN) input |= APP_GAME_INPUT_RIGHT;
-	if (keys[OS_Key_W] & OS_KEY_DOWN) input |= APP_GAME_INPUT_UP;
-	if (keys[OS_Key_S] & OS_KEY_DOWN) input |= APP_GAME_INPUT_DOWN;
-	if (keys[OS_Key_A] & OS_KEY_DOWN) input |= APP_GAME_INPUT_LEFT;
-	if (keys[OS_Key_D] & OS_KEY_DOWN) input |= APP_GAME_INPUT_RIGHT;
-	if (keys[OS_Key_Z] & OS_KEY_DOWN) input |= APP_GAME_INPUT_A;
-	if (keys[OS_Key_X] & OS_KEY_DOWN) input |= APP_GAME_INPUT_B;
-	if (keys[OS_Key_C] & OS_KEY_DOWN) input |= APP_GAME_INPUT_START;
-	if (keys[OS_Key_V] & OS_KEY_DOWN) input |= APP_GAME_INPUT_SELECT;
+	if (window->input.keys[OS_Key_Up] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_UP;
+	if (window->input.keys[OS_Key_Down] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_DOWN;
+	if (window->input.keys[OS_Key_Left] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_LEFT;
+	if (window->input.keys[OS_Key_Right] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_RIGHT;
+	if (window->input.keys[OS_Key_W] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_UP;
+	if (window->input.keys[OS_Key_S] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_DOWN;
+	if (window->input.keys[OS_Key_A] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_LEFT;
+	if (window->input.keys[OS_Key_D] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_RIGHT;
+	if (window->input.keys[OS_Key_Z] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_A;
+	if (window->input.keys[OS_Key_X] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_B;
+	if (window->input.keys[OS_Key_C] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_START;
+	if (window->input.keys[OS_Key_V] & INPUT_KEY_DOWN) input |= APP_GAME_INPUT_SELECT;
 	return input;
 }
 
@@ -258,6 +257,8 @@ App_WindowOutput app_window_begin_frame(App_Window *window, App_KeyMap key_map)
 	Assert(!key_map.count || key_map.bindings);
 
 	App_WindowOutput result = { .feedback = ui_feedback_take(window->ui) };
+	input_state_update(&window->input, window->os);
+	ui_begin_frame(window->ui);
 	window->output_action_count = 0;
 	for (u32 index = 0; index < window->pending_action_count; index++) app_window_route_action(window, window->pending_actions[index]);
 	window->pending_action_count = 0;
@@ -285,7 +286,7 @@ App_WindowOutput app_window_begin_frame(App_Window *window, App_KeyMap key_map)
 	{
 		const App_KeyBinding *binding = &key_map.bindings[bind_index];
 		if (binding->key_chord.activation != APP_KEY_CHORD_WHILE_DOWN || binding->key_chord.modifiers != modifiers) continue;
-		if (window->os->keys[binding->key_chord.key] & OS_KEY_DOWN) app_window_route_action(window, binding->action);
+		if (window->input.keys[binding->key_chord.key] & INPUT_KEY_DOWN) app_window_route_action(window, binding->action);
 	}
 
 	result.actions = window->output_actions;
@@ -295,7 +296,6 @@ App_WindowOutput app_window_begin_frame(App_Window *window, App_KeyMap key_map)
 	{
 		for (u32 player = 0; player < ArrayCount(result.keyboard_input); player++) result.keyboard_input[player] = app_window_keyboard_input(window, player);
 	}
-	ui_begin_frame(window->ui);
 	return result;
 }
 
