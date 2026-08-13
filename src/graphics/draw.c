@@ -5,6 +5,7 @@
 
 enum
 {
+	DRAW_COMMAND_ARENA_CAPACITY       = MB(256),
 	DRAW_PASS_ARENA_CAPACITY          = MB(256),
 	DRAW_BATCH_ARENA_CAPACITY         = MB(256),
 	DRAW_INSTANCE_ARENA_CAPACITY      = MB(256),
@@ -130,6 +131,26 @@ struct Draw_Context
 	b32 pass_active;
 };
 
+static b32 draw__arena_has_capacity(const Arena *arena, u64 size, u64 alignment)
+{
+	Assert(arena);
+	Assert(arena->memory);
+	Assert(alignment && !(alignment & (alignment - 1)));
+	if (arena->position > arena->reserved_size) return false;
+	u64 address = (u64)(uintptr_t)arena->memory + arena->position;
+	u64 misalignment = address & (alignment - 1);
+	u64 padding = misalignment ? alignment - misalignment : 0;
+	u64 remaining = arena->reserved_size - arena->position;
+	return padding <= remaining && size <= remaining - padding;
+}
+
+static void draw__require_arena_capacity(Draw_Context *draw, Arena *arena, u64 size, u64 alignment, const char *allocation)
+{
+	if (draw__arena_has_capacity(arena, size, alignment)) return;
+	LOG_FATAL("draw overflow allocating %s from '%s': request=%llu used=%llu capacity=%llu passes=%u batches=%u instances=%u runs=%u commands=%u", allocation, arena->name, size, arena->position, arena->reserved_size, draw->pass_count, draw->batch_count, draw->instance_count, draw->frame.run_count, draw->frame.command_count);
+	Assert(!"draw arena overflow");
+}
+
 static b32 draw__batch_descs_equal(GFX_BatchDesc a, GFX_BatchDesc b)
 {
 	return a.texture == b.texture &&
@@ -148,6 +169,7 @@ static void draw__flush_batch(Draw_Context *draw)
 		return;
 	}
 
+	draw__require_arena_capacity(draw, &draw->batch_arena, sizeof(GFX_Batch), 1, "batch");
 	GFX_Batch *batch = arena_push_aligned(&draw->batch_arena, sizeof(*batch), 1);
 	*batch = (GFX_Batch) {
 		.desc = draw->active_batch,
@@ -187,8 +209,8 @@ static void draw__set_batch_desc(Draw_Context *draw, GFX_BatchDesc desc)
 
 static void draw__push_instance(Draw_Context *draw, GFX_Inst instance)
 {
-	GFX_Inst *destination = arena_push_aligned(&draw->instance_arena,
-		sizeof(*destination), 1);
+	draw__require_arena_capacity(draw, &draw->instance_arena, sizeof(GFX_Inst), 1, "instance");
+	GFX_Inst *destination = arena_push_aligned(&draw->instance_arena, sizeof(*destination), 1);
 	*destination = instance;
 	draw->instance_count++;
 }
@@ -259,7 +281,7 @@ Draw_Context *draw_create(Arena *owner, GFX_Renderer *renderer)
 	draw->pass_arena = arena_create(DRAW_PASS_ARENA_CAPACITY, "draw pass arena");
 	draw->batch_arena = arena_create(DRAW_BATCH_ARENA_CAPACITY, "draw batch arena");
 	draw->instance_arena = arena_create(DRAW_INSTANCE_ARENA_CAPACITY, "draw instance arena");
-	draw->command_arena = arena_create(0, "draw command arena");
+	draw->command_arena = arena_create(DRAW_COMMAND_ARENA_CAPACITY, "draw command arena");
 	return draw;
 }
 
@@ -320,6 +342,7 @@ void draw_end_pass(Draw_Context *draw)
 	Assert(draw->clip_depth == 0);
 	draw->batch_metrics.pass_ends += draw->instance_count != draw->active_batch_offset;
 	draw__flush_batch(draw);
+	draw__require_arena_capacity(draw, &draw->pass_arena, sizeof(GFX_Pass), 1, "pass");
 	GFX_Pass *pass = arena_push_aligned(&draw->pass_arena, sizeof(*pass), 1);
 	*pass = (GFX_Pass) {
 		.desc = draw->active_pass,
@@ -748,6 +771,7 @@ static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kin
 	Draw_Run *run = draw->frame.last;
 	if (!run || !draw__run_states_equal(run->state, state))
 	{
+		draw__require_arena_capacity(draw, &draw->command_arena, sizeof(Draw_Run), ARENA_DEFAULT_ALIGNMENT, "run");
 		run = arena_push_zero(&draw->command_arena, sizeof(*run));
 		run->state = state;
 		draw->frame.run_count++;
@@ -761,6 +785,7 @@ static Draw_Command *draw__push_command(Draw_Context *draw, Draw_CommandKind kin
 		draw->frame.last = run;
 	}
 
+	draw__require_arena_capacity(draw, &draw->command_arena, sizeof(Draw_Command), ARENA_DEFAULT_ALIGNMENT, "command");
 	Draw_Command *command = arena_push_zero(&draw->command_arena, sizeof(*command));
 	command->kind = kind;
 	prof_add_metric(PROF_METRIC_DRAW_COMMANDS, 1);
@@ -1069,7 +1094,9 @@ void draw_compose(Draw_Context *draw, Text_GFX *text_gfx, GFX_Texture *output, r
 	PROF_BLOCK("draw_compose")
 	{
 		u32 run_count = draw->frame.run_count;
-		Draw_Run **runs = run_count ? arena_push(&draw->command_arena, sizeof(*runs) * run_count) : 0;
+		u64 runs_size = (u64)sizeof(Draw_Run *) * run_count;
+		if (runs_size) draw__require_arena_capacity(draw, &draw->command_arena, runs_size, ARENA_DEFAULT_ALIGNMENT, "composition run index");
+		Draw_Run **runs = run_count ? arena_push(&draw->command_arena, runs_size) : 0;
 		u32 run_index = 0;
 		for (Draw_Run *run = draw->frame.first; run; run = run->next) {
 			runs[run_index++] = run;

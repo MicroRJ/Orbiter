@@ -140,6 +140,42 @@ struct GFX_Window {
 #define GET_BUFFER_DATA(v) ((v)->lpVtbl->GetBufferPointer(v))
 #define GET_BUFFER_SIZE(v) ((v)->lpVtbl->GetBufferSize(v))
 
+static void d3d_check_debug_messages(GFX_Renderer *renderer, const char *operation)
+{
+	if (!g.info) return;
+
+	UINT64 message_count = ID3D11InfoQueue_GetNumStoredMessagesAllowedByRetrievalFilter(g.info);
+	b32 error = false;
+	for (UINT64 message_index = 0; message_index < message_count; ++message_index)
+	{
+		SIZE_T size = 0;
+		HRESULT hr = ID3D11InfoQueue_GetMessage(g.info, message_index, 0, &size);
+		Assert(SUCCEEDED(hr));
+		D3D11_MESSAGE *message = malloc(size);
+		Assert(message);
+		hr = ID3D11InfoQueue_GetMessage(g.info, message_index, message, &size);
+		Assert(SUCCEEDED(hr));
+
+		switch (message->Severity)
+		{
+			case D3D11_MESSAGE_SEVERITY_CORRUPTION:
+			case D3D11_MESSAGE_SEVERITY_ERROR:
+			{
+				LOG_ERROR("D3D11 %s [%u]: %s", operation, message->ID, message->pDescription);
+				error = true;
+			} break;
+			case D3D11_MESSAGE_SEVERITY_WARNING:
+			{
+				LOG_WARN("D3D11 %s [%u]: %s", operation, message->ID, message->pDescription);
+			} break;
+			default: break;
+		}
+		free(message);
+	}
+	ID3D11InfoQueue_ClearStoredMessages(g.info);
+	Assert(!error && "D3D11 validation error");
+}
+
 static void
 d3d_ensure_vertex_buffer_capacity(GFX_Renderer *renderer, u32 required)
 {
@@ -248,9 +284,10 @@ GFX_Renderer *gfx_create_renderer(Arena *owner) {
 				Assert(SUCCEEDED(hr));
 			}
 
-			ID3D11InfoQueue_SetBreakOnSeverity(g.info, D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-			ID3D11InfoQueue_SetBreakOnSeverity(g.info, D3D11_MESSAGE_SEVERITY_WARNING,    TRUE);
-			ID3D11InfoQueue_SetBreakOnSeverity(g.info, D3D11_MESSAGE_SEVERITY_ERROR,      TRUE);
+			// SetBreakOnSeverity raises a D3D debug exception. Without a debugger
+			// attached that terminates the process before Orbiter can log the message.
+			// Drain the queue at explicit renderer boundaries instead.
+			d3d_check_debug_messages(renderer, "renderer initialization");
 		}
 	}
 
@@ -501,9 +538,6 @@ GFX_Renderer *gfx_create_renderer(Arena *owner) {
 	ID3D11DeviceContext_VSSetShader(g.context, g.vshader, 0, 0);
 	ID3D11DeviceContext_IASetInputLayout(g.context, g.ilayout);
 
-	u32 stride = sizeof(GFX_Inst);
-	u32 offset = 0;
-	ID3D11DeviceContext_IASetVertexBuffers(g.context, 0, 1, &g.vbuffer, &stride, &offset);
 	return renderer;
 }
 
@@ -590,6 +624,7 @@ void gfx_present_window(GFX_Window *window)
 {
 	GFX_Renderer *renderer = window->renderer;
 	IDXGISwapChain_Present(window->swapchain, 0, 0);
+	d3d_check_debug_messages(renderer, "present");
 	// output target is unbound on present
 	g.state.output = 0;
 }
@@ -598,7 +633,14 @@ static void update_pipeline_state(GFX_Renderer *renderer, D3D_Pipeline state) {
 	Assert(state.sampler != GRAPHICS_SAMPLER_NONE);
 	Assert(state.pshader != 0);
 	Assert(state.texture);
+	Assert(state.vbuffer);
 
+	if (g.state.vbuffer != state.vbuffer)
+	{
+		u32 stride = sizeof(GFX_Inst);
+		u32 offset = 0;
+		ID3D11DeviceContext_IASetVertexBuffers(g.context, 0, 1, &state.vbuffer, &stride, &offset);
+	}
 
 	if (g.state.output != state.output) {
 
@@ -723,6 +765,7 @@ void gfx_submit_draw(GFX_Renderer *renderer, GFX_DrawData draw) {
 		ID3D11DeviceContext_DrawInstanced(g.context, 4, length, 0, offset);
 		}
 	}
+	d3d_check_debug_messages(renderer, "draw submission");
 }
 
 void gfx_update_texture(GFX_Texture *pub, GFX_UpdateTextureParams p)
@@ -773,6 +816,7 @@ void gfx_update_texture(GFX_Texture *pub, GFX_UpdateTextureParams p)
 		ID3D11DeviceContext_UpdateSubresource(g.context, res, 0, &box,
 			p.data, p.stride, 0);
 	}
+	d3d_check_debug_messages(renderer, "texture update");
 }
 
 b32 gfx_read_texture(GFX_Texture *pub, void *data, u32 stride)
@@ -943,6 +987,7 @@ static b32 gfx_texture_desc_match(GFX_TextureDesc a, GFX_TextureDesc b)
 void gfx_renderer_begin_frame(GFX_Renderer *renderer)
 {
 	Assert(renderer);
+	d3d_check_debug_messages(renderer, "frame boundary");
 	g.frame_index += 1;
 	Assert(g.frame_index);
 }
