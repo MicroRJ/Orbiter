@@ -31,6 +31,7 @@ struct App_Window
 	b32 exclusive_ppu;
 	b32 crt_enabled;
 	b32 ui_debug_bounds;
+	b32 ui_frame_active;
 	f32 volume_animation;
 	f32 frames_per_second;
 	Seconds previous_draw_time;
@@ -255,10 +256,15 @@ App_WindowOutput app_window_begin_frame(App_Window *window, App_KeyMap key_map)
 {
 	Assert(window);
 	Assert(!key_map.count || key_map.bindings);
+	Assert(!window->ui_frame_active);
 
 	App_WindowOutput result = { .feedback = ui_feedback_take(window->ui) };
 	input_state_update(&window->input, window->os);
-	ui_begin_frame(window->ui);
+	if (!(window->os->status & OS_WINDOW_MINIMIZED) && window->os->size.x > 1 && window->os->size.y > 1)
+	{
+		ui_begin_frame(window->ui);
+		window->ui_frame_active = true;
+	}
 	window->output_action_count = 0;
 	for (u32 index = 0; index < window->pending_action_count; index++) app_window_route_action(window, window->pending_actions[index]);
 	window->pending_action_count = 0;
@@ -910,6 +916,11 @@ static void app_window_capture_frame(App_Window *window, GFX_Texture *texture)
 void app_window_render(App_Window *window)
 {
 	Assert(window);
+	if (!window->ui_frame_active)
+	{
+		window->previous_draw_time = seconds_now();
+		return;
+	}
 	App *app = window->app;
 	Assert(app);
 	Assert(app->debugger);
@@ -974,4 +985,5 @@ void app_window_render(App_Window *window)
 	PROF_BLOCK("present wait") gfx_present_window(window->gfx);
 
 	ui_end_frame(window->ui);
+	window->ui_frame_active = false;
 }

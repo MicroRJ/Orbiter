@@ -22,7 +22,11 @@ global const char debugger_program_path[] = "data/program.dump";
 global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
 global const char app_library_path[]      = "data/library/library.elf";
 
-global App app = { };
+global App app = {
+	.ppu_volume = 0.3f,
+	.ppu_volume_target = 0.3f,
+	.ppu_volume_restore = 0.3f,
+};
 global FILE *debugger_log_file;
 
 // TODO(RJ) why doesn't this return a bytespan instead!
@@ -510,10 +514,16 @@ static b32 app_handle_actions(App_WindowOutput input)
 			case APP_ACTION_ADJUST_VOLUME:
 			{
 				app.ppu_volume_target = CLAMP(app.ppu_volume_target + action.volume.delta, 0.f, 1.f);
+				if (app.ppu_volume_target > 0.f) app.ppu_volume_restore = app.ppu_volume_target;
 			} break;
 			case APP_ACTION_MUTE:
 			{
-				app.ppu_volume_target = 0.f;
+				if (app.ppu_volume_target > 0.f)
+				{
+					app.ppu_volume_restore = app.ppu_volume_target;
+					app.ppu_volume_target = 0.f;
+				}
+				else app.ppu_volume_target = Max(app.ppu_volume_restore, 0.1f);
 			} break;
 			case APP_ACTION_NONE: break;
 			default: Assert(false);

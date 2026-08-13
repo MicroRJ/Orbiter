@@ -29,6 +29,7 @@ struct App
 
 	f32 ppu_volume;
 	f32 ppu_volume_target;
+	f32 ppu_volume_restore;
 	Arena arena;
 	Arena frame_arena;
 	Arena game_arena;
