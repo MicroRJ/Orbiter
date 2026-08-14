@@ -3,12 +3,8 @@
 #include "../ppu/ppu.h"
 #include "../apu/apu.h"
 
-// address wiring
 
-NES_MAPPER_INIT_FUNC(none_init)  { return false; }
-NES_MAPPER_RSET_FUNC(none_reset) { return false; }
-NES_BusAccess none_cpu(NES_Emulator *nes, NES_BusAccess access) { return access; }
-NES_BusAccess none_ppu(NES_Emulator *nes, NES_BusAccess access) { return access; }
+
 
 static NES_BusAccess nes_cpu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 {
@@ -22,7 +18,7 @@ static NES_BusAccess nes_cpu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 	{
 		case 0: case 1:
 		{
-			return wram_mem(nes, access);
+			return nes_wram_access(nes, access);
 		}
 
 		case 2: case 3:
@@ -78,7 +74,7 @@ static NES_BusAccess nes_cpu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 								.value = (u8)source,
 							});
 						}
-						nes->core.cpu_stall_cycles += 513;
+						nes->cpu_stall_cycles += 513;
 					}
 				} break;
 			}
@@ -93,13 +89,13 @@ static NES_BusAccess nes_cpu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 					{
 						if (access.value & 1)
 						{
-							nes->core.controllers[i] = nes->core.input_state.inputs[i];
+							nes->controllers[i] = nes->input_state.inputs[i];
 						}
 					}
 					else
 					{
-						access.value = nes->core.controllers[i] & 1;
-						nes->core.controllers[i] >>= 1;
+						access.value = nes->controllers[i] & 1;
+						nes->controllers[i] >>= 1;
 					}
 				} break;
 			}
@@ -118,10 +114,6 @@ NES_MappedRead nes_cpu_bus_read_mapped(NES_Emulator *core, u16 address)
 	return (NES_MappedRead) { access.mapped, access.value };
 }
 
-u8 nes_cpu_bus_read(NES_Emulator *core, u16 address)
-{
-	return nes_cpu_bus_read_mapped(core, address).value;
-}
 
 void nes_cpu_bus_write(NES_Emulator *core, u16 address, u8 value)
 {
@@ -168,7 +160,7 @@ static NES_BusAccess nes_ppu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 	if (access.address >= 0x3F00)
 	{
 		access.address &= 0x1F;
-		return pram_mem(nes, access);
+		return nes_pram_access(nes, access);
 	}
 
 	return nes->mapper.ppu_bus(nes, access);
@@ -212,21 +204,21 @@ NES_MapAddr nes_ppu_bus_map(NES_Emulator *core, u16 address)
 	return access.mapped;
 }
 
-NES_BusAccess oam_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_oam_mem_access(NES_Emulator *nes, NES_BusAccess access)
 {
 	access = nes_bus_access_mapped(access, NES_DEVICE_OAM);
 	if (access.kind == NES_BUS_ACCESS_WRITE)
 	{
-		nes->core.ppu._oam[access.address] = access.value;
+		nes->ppu._oam[access.address] = access.value;
 	}
 	else
 	{
-		access.value = nes->core.ppu._oam[access.address];
+		access.value = nes->ppu._oam[access.address];
 	}
 	return access;
 }
 
-NES_BusAccess pram_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_pram_access(NES_Emulator *nes, NES_BusAccess access)
 {
 	// address should be 0 - 31
 	// includes its own little mirroring thing
@@ -235,88 +227,88 @@ NES_BusAccess pram_mem(NES_Emulator *nes, NES_BusAccess access)
 	access = nes_bus_access_mapped(access, NES_DEVICE_PRAM);
 	if (access.kind == NES_BUS_ACCESS_WRITE)
 	{
-		nes->core.ppu._pram[access.address] = access.value & 63;
+		nes->ppu._pram[access.address] = access.value & 63;
 	}
 	else
 	{
-		access.value = nes->core.ppu._pram[access.address] & 63;
+		access.value = nes->ppu._pram[access.address] & 63;
 	}
 	return access;
 }
 
-NES_BusAccess vram_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_vram_access(NES_Emulator *nes, NES_BusAccess access)
 {
 	access = nes_bus_access_mapped(access, NES_DEVICE_VRAM);
 	if (access.kind == NES_BUS_ACCESS_WRITE)
 	{
-		nes->core._vram[access.address] = access.value;
+		nes->_vram[access.address] = access.value;
 	}
 	else
 	{
-		access.value = nes->core._vram[access.address];
+		access.value = nes->_vram[access.address];
 	}
 	return access;
 }
 
-NES_BusAccess wram_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_wram_access(NES_Emulator *nes, NES_BusAccess access)
 {
 	access.address &= 0x7FF;
 	access = nes_bus_access_mapped(access, NES_DEVICE_WRAM);
 	if (access.kind == NES_BUS_ACCESS_WRITE)
 	{
-		nes->core._wram[access.address] = access.value;
+		nes->_wram[access.address] = access.value;
 	}
 	else
 	{
-		access.value = nes->core._wram[access.address];
+		access.value = nes->_wram[access.address];
 	}
 	return access;
 }
 
-NES_BusAccess chr_rom_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_chr_rom_access(NES_Emulator *nes, NES_BusAccess access)
 {
-	Assert(access.address < nes->core.chr_rom_size);
+	Assert(access.address < nes->chr_rom_size);
 	access = nes_bus_access_mapped(access, NES_DEVICE_CHR_ROM);
 	if (access.kind != NES_BUS_ACCESS_WRITE) {
-		access.value = nes->core.chr_rom[access.address];
+		access.value = nes->chr_rom[access.address];
 	}
 	return access;
 }
 
-NES_BusAccess prg_rom_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_prg_rom_access(NES_Emulator *nes, NES_BusAccess access)
 {
-	Assert(access.address < nes->core.prg_rom_size);
+	Assert(access.address < nes->prg_rom_size);
 	access = nes_bus_access_mapped(access, NES_DEVICE_PRG_ROM);
 	if (access.kind != NES_BUS_ACCESS_WRITE) {
-		access.value = nes->core.prg_rom[access.address];
+		access.value = nes->prg_rom[access.address];
 	}
 	return access;
 }
 
-NES_BusAccess chr_ram_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_chr_ram_access(NES_Emulator *nes, NES_BusAccess access)
 {
 	access = nes_bus_access_mapped(access, NES_DEVICE_CHR_RAM);
 	if (access.kind == NES_BUS_ACCESS_WRITE)
 	{
-		nes->core.chr_ram[access.address] = access.value;
+		nes->chr_ram[access.address] = access.value;
 	}
 	else
 	{
-		access.value = nes->core.chr_ram[access.address];
+		access.value = nes->chr_ram[access.address];
 	}
 	return access;
 }
 
-NES_BusAccess prg_ram_mem(NES_Emulator *nes, NES_BusAccess access)
+NES_BusAccess nes_prg_ram_access(NES_Emulator *nes, NES_BusAccess access)
 {
 	access = nes_bus_access_mapped(access, NES_DEVICE_PRG_RAM);
 	if (access.kind == NES_BUS_ACCESS_WRITE)
 	{
-		nes->core.prg_ram[access.address] = access.value;
+		nes->prg_ram[access.address] = access.value;
 	}
 	else
 	{
-		access.value = nes->core.prg_ram[access.address];
+		access.value = nes->prg_ram[access.address];
 	}
 	return access;
 }

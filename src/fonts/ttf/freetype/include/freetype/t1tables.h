@@ -438,7 +438,7 @@ FT_BEGIN_HEADER
    *   FreeType error code.  0~means success.
    *
    * @note:
-   *   String pointers within the @PS_FontInfoRec structure are owned by the
+   *   Str pointers within the @PS_FontInfoRec structure are owned by the
    *   face and don't need to be freed by the caller.  Missing entries in the
    *   font's FontInfo dictionary are represented by `NULL` pointers.
    *

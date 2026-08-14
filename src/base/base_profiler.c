@@ -1,12 +1,14 @@
 
-#define TIMELINE_SIZE (1024*16)
-#define TIMELINE_MASK (TIMELINE_SIZE - 1)
+#define PROF_TIMELINE_MASK (PROF_TIMELINE_CAPACITY - 1)
 
 struct
 {
-	u32         id;
-	Prof_Frame  timeline[TIMELINE_SIZE];
+	Str         field_names[PROF_MAX_SCOPES];
+	u64         next_field_index;
+	Prof_Frame  timeline[PROF_TIMELINE_CAPACITY];
 	u64         timeline_index;
+	Prof_Frame  frame;
+	Prof_Field  totals[PROF_MAX_SCOPES];
 }
 thread_decl Prof;
 
@@ -17,49 +19,61 @@ static f64 prof_seconds_now(void)
 	return frequency ? platform_counter() / (f64)frequency : 0.0;
 }
 
-i64 prof_timeline_index() {
+Str prof_get_field_name(u32 index) {
+	Assert(index < PROF_MAX_SCOPES);
+	return Prof.field_names[index];
+}
+
+Prof_Field prof_get_total(u32 index) {
+	Assert(index < PROF_MAX_SCOPES);
+	return Prof.totals[index];
+}
+
+u64 prof_timeline_cursor() {
 	return Prof.timeline_index;
 }
 
-Prof_Frame *prof_timeline_frame(i64 index) {
-	if (index < 0) index += Prof.timeline_index + 1;
-	return & Prof.timeline[index & TIMELINE_MASK];
-}
-
-Prof_Frame *prof_frame() {
-	return & Prof.timeline[Prof.timeline_index & TIMELINE_MASK];
+const Prof_Frame *prof_timeline_frame(u64 index) {
+	return & Prof.timeline[index & PROF_TIMELINE_MASK];
 }
 
 void prof_begin_frame() {
-	memory_zero(prof_frame(), sizeof(* prof_frame()));
-	prof_frame()->id = Prof.timeline_index;
-	prof_frame()->time.seconds -= prof_seconds_now();
+	memory_zero(& Prof.frame, sizeof(Prof.frame));
+	Prof.frame.id = Prof.timeline_index;
+	Prof.frame.time -= prof_seconds_now();
 }
 
 void prof_close_frame()
 {
-	prof_frame()->time.seconds += prof_seconds_now();
-	Prof.timeline_index ++;
+	Prof.frame.time += prof_seconds_now();
+	Prof.timeline[Prof.timeline_index ++ & PROF_TIMELINE_MASK] = Prof.frame;
+	for (u32 i = 0; i < Prof.frame.nfields; ++ i)
+	{
+		Prof.totals[i].freq += Prof.frame.fields[i].freq;
+		Prof.totals[i].time += Prof.frame.fields[i].time;
+	}
 }
 
 void prof_add_metric(Prof_Metric metric, i64 size) {
-	prof_frame()->metrics.fields[metric] += size;
+	Prof.frame.metrics.fields[metric] += size;
 }
 
-void prof_begin_scope(Prof_Scope *scope, String name) {
+void prof_begin_scope(Prof_Scope *scope, Str name) {
 	Assert(name.data);
 	Assert(name.size);
-	if (scope->id == 0) {
-		Assert(Prof.id < ArrayCount(prof_frame()->fields));
-		scope->id = ++ Prof.id;
+	if (!scope->has_field_index) {
+		Assert(Prof.next_field_index < ArrayCount(Prof.frame.fields));
+		u32 field_index = Prof.next_field_index ++;
+		Prof.field_names[field_index] = name;
+		scope->field_index = field_index;
+		scope->has_field_index = true;
 	}
-	prof_frame()->nfields = Max(prof_frame()->nfields, scope->id);
-	prof_frame()->fields[scope->id - 1].freq ++;
-	prof_frame()->fields[scope->id - 1].name = name;
-	prof_frame()->fields[scope->id - 1].time.seconds -= prof_seconds_now();
+	Prof.frame.nfields = Max(Prof.frame.nfields, scope->field_index + 1);
+	Prof.frame.fields[scope->field_index].freq ++;
+	Prof.frame.fields[scope->field_index].time -= prof_seconds_now();
 }
 
 void prof_close_scope(Prof_Scope *scope) {
-	Assert(scope->id > 0);
-	prof_frame()->fields[scope->id - 1].time.seconds += prof_seconds_now();
+	Assert(scope->has_field_index);
+	Prof.frame.fields[scope->field_index].time += prof_seconds_now();
 }

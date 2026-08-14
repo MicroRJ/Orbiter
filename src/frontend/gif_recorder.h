@@ -16,6 +16,7 @@ typedef struct
 }
 GifRecorder;
 
+b32 screenshot_write_png(Color_RGBA8 *pixels, vec2i size, u32 stride, const char *name);
 b32 gif_recorder_begin(GifRecorder *recorder, vec2i size, const char *name);
 b32 gif_recorder_frame(GifRecorder *recorder, Color_RGBA8 *pixels, u32 stride);
 b32 gif_recorder_end(GifRecorder *recorder);

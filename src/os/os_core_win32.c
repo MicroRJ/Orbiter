@@ -30,6 +30,28 @@ void os_win32_report_last_error(const char *operation)
 	if (system_message) LocalFree(system_message);
 }
 
+b32 os_set_current_directory_to_executable(void)
+{
+	char path[4096];
+	DWORD size = GetModuleFileNameA(0, path, ArrayCount(path));
+	if (!size || size >= ArrayCount(path)) {
+		os_win32_report_last_error("finding executable path");
+		return false;
+	}
+
+	while (size && path[size - 1] != '\\' && path[size - 1] != '/') {
+		--size;
+	}
+	if (!size) return false;
+	path[size - 1] = 0;
+
+	if (!SetCurrentDirectoryA(path)) {
+		os_win32_report_last_error("setting working directory to executable");
+		return false;
+	}
+	return true;
+}
+
 b32 os_init(void)
 {
 	memory_zero(&os_win32, sizeof(os_win32));

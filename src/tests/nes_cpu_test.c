@@ -21,7 +21,7 @@ static NES_BusAccess cpu_test_expansion_bus(NES_Emulator *core,
 	if (access.address == 0x4020 &&
 		access.kind == NES_BUS_ACCESS_WRITE)
 	{
-		core->core.values[31] = access.value;
+		core->values[31] = access.value;
 	}
 	return access;
 }
@@ -50,9 +50,9 @@ static CPU_TestFixture cpu_test_fixture_create(void)
 	prg_rom[0x3FFC] = 0x00;
 	prg_rom[0x3FFD] = 0x80;
 
-	fixture.core = nes_emulator_create(&fixture.arena, (NES_EmulatorDesc) {});
+	fixture.core = arena_push_zero(&fixture.arena, sizeof(NES_Emulator));
 	Assert(fixture.core);
-	Assert(nes_emulator_load_cartridge(fixture.core, (NES_CartridgeDesc) {
+	Assert(nes_setup_emulator(fixture.core, (NES_SetupParams) {
 		.prg_rom = byte_span(prg_rom, KiB(16)),
 		.chr_rom = byte_span(chr_rom, KiB(8)),
 	}));
@@ -61,29 +61,29 @@ static CPU_TestFixture cpu_test_fixture_create(void)
 
 static NES_CPUState *cpu_test_state(CPU_TestFixture *fixture)
 {
-	return &fixture->core->core.cpu;
+	return &fixture->core->cpu;
 }
 
 static void cpu_test_prepare(CPU_TestFixture *fixture)
 {
 	NES_Emulator *core = fixture->core;
-	memory_zero(&core->core.cpu, sizeof(core->core.cpu));
-	memory_zero(&core->core.input_state, sizeof(core->core.input_state));
-	memory_zero(&core->core.controllers, sizeof(core->core.controllers));
-	memory_zero(core->core._wram, sizeof(core->core._wram));
-	memory_zero(core->core.prg_rom, core->core.prg_rom_size);
-	core->core.prg_rom[0x3FFC] = 0x00;
-	core->core.prg_rom[0x3FFD] = 0x80;
-	core->core.cpu.PC = 0x8000;
-	core->core.cpu.S = 0xFD;
+	memory_zero(&core->cpu, sizeof(core->cpu));
+	memory_zero(&core->input_state, sizeof(core->input_state));
+	memory_zero(&core->controllers, sizeof(core->controllers));
+	memory_zero(core->_wram, sizeof(core->_wram));
+	memory_zero(core->prg_rom, core->prg_rom_size);
+	core->prg_rom[0x3FFC] = 0x00;
+	core->prg_rom[0x3FFD] = 0x80;
+	core->cpu.PC = 0x8000;
+	core->cpu.S = 0xFD;
 }
 
 static void cpu_test_program(CPU_TestFixture *fixture, u16 address, const u8 *program, u32 size)
 {
 	Assert(address >= 0x8000);
 	u32 offset = (address - 0x8000) & 0x3FFF;
-	Assert(offset + size <= fixture->core->core.prg_rom_size);
-	memory_copy(fixture->core->core.prg_rom + offset, program, size);
+	Assert(offset + size <= fixture->core->prg_rom_size);
+	memory_copy(fixture->core->prg_rom + offset, program, size);
 }
 
 #define CPU_TEST_PROGRAM(fixture, address, ...) do \
@@ -131,41 +131,42 @@ static void cpu_test_explicit_bus_operations(CPU_TestFixture *fixture)
 	CPU_EXPECT_EQUAL(0, routed.mapped.offset);
 
 	NES_BusFunc saved_cpu_bus = fixture->core->mapper.cpu_bus;
-	u8 saved_expansion_value = fixture->core->core.values[31];
+	u8 saved_expansion_value = fixture->core->values[31];
 	fixture->core->mapper.cpu_bus = cpu_test_expansion_bus;
 	nes_cpu_bus_write(fixture->core, 0x4020, 0x6C);
-	CPU_EXPECT_EQUAL(0x6C, fixture->core->core.values[31]);
+	CPU_EXPECT_EQUAL(0x6C, fixture->core->values[31]);
 	fixture->core->mapper.cpu_bus = saved_cpu_bus;
-	fixture->core->core.values[31] = saved_expansion_value;
+	fixture->core->values[31] = saved_expansion_value;
 
 	// A real read also carries internal side-effect policy. MMC2 used to test
 	// the complete mode as a boolean, misclassify that read as a write, and
 	// overwrite its selected PRG bank with the read placeholder byte.
 	NES_MapperClass saved_mapper = fixture->core->mapper;
-	u32 saved_prg_rom_size = fixture->core->core.prg_rom_size;
-	u32 saved_num_prg_banks = fixture->core->core.num_prg_banks;
-	u8 saved_mapper_value = fixture->core->core.values[0];
+	u32 saved_prg_rom_size = fixture->core->prg_rom_size;
+	u32 saved_num_prg_banks = fixture->core->num_prg_banks;
+	u8 saved_mapper_values[ArrayCount(fixture->core->values)];
+	memory_copy(saved_mapper_values, fixture->core->values, sizeof(saved_mapper_values));
 	fixture->core->mapper.cpu_bus = mmc2_cpu;
-	fixture->core->core.prg_rom_size = KiB(256);
-	fixture->core->core.num_prg_banks = 16;
-	fixture->core->core.values[0] = 5;
+	fixture->core->prg_rom_size = KiB(256);
+	fixture->core->num_prg_banks = 16;
+	Assert(mmc2_reset(fixture->core));
+	nes_cpu_bus_write(fixture->core, 0xA000, 5);
 	nes_cpu_bus_read(fixture->core, 0x8000);
-	CPU_EXPECT_EQUAL(5, fixture->core->core.values[0]);
 	NES_MapAddr mmc2_prg = nes_cpu_bus_map(fixture->core, 0x8000);
 	CPU_EXPECT_EQUAL(NES_DEVICE_PRG_ROM, mmc2_prg.device);
 	CPU_EXPECT_EQUAL(5 * KiB(8), mmc2_prg.offset);
 	fixture->core->mapper = saved_mapper;
-	fixture->core->core.prg_rom_size = saved_prg_rom_size;
-	fixture->core->core.num_prg_banks = saved_num_prg_banks;
-	fixture->core->core.values[0] = saved_mapper_value;
+	fixture->core->prg_rom_size = saved_prg_rom_size;
+	fixture->core->num_prg_banks = saved_num_prg_banks;
+	memory_copy(fixture->core->values, saved_mapper_values, sizeof(saved_mapper_values));
 
-	fixture->core->core.ppu.PPUSTATUS = 0xE0;
+	fixture->core->ppu.PPUSTATUS = 0xE0;
 	NES_MapAddr status = nes_cpu_bus_map(fixture->core, 0x2002);
 	CPU_EXPECT_EQUAL(NES_DEVICE_PPU, status.device);
 	CPU_EXPECT_EQUAL(2, status.offset);
-	CPU_EXPECT_EQUAL(0xE0, fixture->core->core.ppu.PPUSTATUS);
+	CPU_EXPECT_EQUAL(0xE0, fixture->core->ppu.PPUSTATUS);
 	CPU_EXPECT_EQUAL(0xE0, nes_cpu_bus_read(fixture->core, 0x2002));
-	CPU_EXPECT_EQUAL(0x60, fixture->core->core.ppu.PPUSTATUS);
+	CPU_EXPECT_EQUAL(0x60, fixture->core->ppu.PPUSTATUS);
 }
 
 static void cpu_test_input_and_controllers(CPU_TestFixture *fixture)
@@ -191,12 +192,34 @@ static void cpu_test_reset_vector(CPU_TestFixture *fixture)
 {
 	cpu_test_name = "reset vector";
 	cpu_test_prepare(fixture);
-	fixture->core->core.prg_rom[0x3FFC] = 0x23;
-	fixture->core->core.prg_rom[0x3FFD] = 0x81;
-	nes_emulator_reset(fixture->core);
-	CPU_EXPECT_EQUAL(0x8123, cpu_test_state(fixture)->PC);
-	CPU_EXPECT_EQUAL(0xFD, cpu_test_state(fixture)->S);
-	CPU_EXPECT_EQUAL(0x24, cpu_test_state(fixture)->P);
+	fixture->core->prg_rom[0x3FFC] = 0x23;
+	fixture->core->prg_rom[0x3FFD] = 0x81;
+	NES_CPUState *cpu = cpu_test_state(fixture);
+	cpu->A = 0x11;
+	cpu->X = 0x22;
+	cpu->Y = 0x33;
+	cpu->S = 0x44;
+	cpu->P = cpu_status_mask(CPU_STAT_C);
+	nes_cpu_power_on(fixture->core);
+	CPU_EXPECT_EQUAL(0, cpu->A);
+	CPU_EXPECT_EQUAL(0, cpu->X);
+	CPU_EXPECT_EQUAL(0, cpu->Y);
+	CPU_EXPECT_EQUAL(0x8123, cpu->PC);
+	CPU_EXPECT_EQUAL(0xFD, cpu->S);
+	CPU_EXPECT_EQUAL(0x24, cpu->P);
+
+	cpu->A = 0x11;
+	cpu->X = 0x22;
+	cpu->Y = 0x33;
+	cpu->S = 0x80;
+	cpu->P = cpu_status_mask(CPU_STAT_C) | cpu_status_mask(CPU_STAT_V) | cpu_status_mask(CPU_STAT_1);
+	nes_cpu_reset(fixture->core);
+	CPU_EXPECT_EQUAL(0x11, cpu->A);
+	CPU_EXPECT_EQUAL(0x22, cpu->X);
+	CPU_EXPECT_EQUAL(0x33, cpu->Y);
+	CPU_EXPECT_EQUAL(0x8123, cpu->PC);
+	CPU_EXPECT_EQUAL(0x7D, cpu->S);
+	CPU_EXPECT_EQUAL(0x65, cpu->P);
 }
 
 static void cpu_test_load_flags(CPU_TestFixture *fixture)
@@ -389,8 +412,8 @@ static void cpu_test_brk_rti(CPU_TestFixture *fixture)
 	cpu_test_prepare(fixture);
 	CPU_TEST_PROGRAM(fixture, 0x8000, 0x00, 0xEA); // BRK has a padding byte
 	CPU_TEST_PROGRAM(fixture, 0x8100, 0x40);       // RTI
-	fixture->core->core.prg_rom[0x3FFE] = 0x00;
-	fixture->core->core.prg_rom[0x3FFF] = 0x81;
+	fixture->core->prg_rom[0x3FFE] = 0x00;
+	fixture->core->prg_rom[0x3FFF] = 0x81;
 	NES_CPUState *cpu = cpu_test_state(fixture);
 	cpu->P = 1 << CPU_STAT_C;
 

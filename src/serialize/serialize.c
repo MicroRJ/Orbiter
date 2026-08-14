@@ -1,76 +1,5 @@
 #include "serialize.h"
 
-typedef struct
-{
-	u8 *memory;
-	u64 capacity;
-	u64 cursor;
-}
-SerializeStream;
-
-static SerializeStream serialize_stream(ByteSpan span)
-{
-	return (SerializeStream) { span.data, span.size, 0 };
-}
-
-static void *serialize_stream_take(SerializeStream *stream, u64 size)
-{
-	Assert(stream->cursor + size <= stream->capacity);
-	void *result = stream->memory + stream->cursor;
-	stream->cursor += size;
-	return result;
-}
-
-static void serialize_stream_write(SerializeStream *stream, const void *data, u64 size)
-{
-	memory_copy(serialize_stream_take(stream, size), data, size);
-}
-
-static void serialize_stream_read(SerializeStream *stream, void *data, u64 size)
-{
-	memory_copy(data, serialize_stream_take(stream, size), size);
-}
-
-static void serialize_stream_write_u16(SerializeStream *stream, u16 value)
-{
-	serialize_stream_write(stream, &value, sizeof(value));
-}
-
-static void serialize_stream_write_u32(SerializeStream *stream, u32 value)
-{
-	serialize_stream_write(stream, &value, sizeof(value));
-}
-
-static u16 serialize_stream_read_u16(SerializeStream *stream)
-{
-	u16 value = 0;
-	serialize_stream_read(stream, &value, sizeof(value));
-	return value;
-}
-
-static u32 serialize_stream_read_u32(SerializeStream *stream)
-{
-	u32 value = 0;
-	serialize_stream_read(stream, &value, sizeof(value));
-	return value;
-}
-
-typedef struct
-{
-	u32 magic;
-	u16 version;
-	u16 type;
-	u32 size;
-}
-SerializeChunkHeader;
-
-enum
-{
-	SERIALIZE_MAGIC        = 0x31524553,
-	SERIALIZE_VERSION      = 1,
-	SERIALIZE_CHUNK_RECORD = 1,
-};
-
 STATIC_ASSERT(SERIALIZE_WIRE_COUNT <= 16);
 
 b32 serialize_wire_type_is_integer(SerializeWireType type)
@@ -98,21 +27,39 @@ static u32 serialize_enabled_field_count(const SerializeRecord *record)
 	return count;
 }
 
-static void serialize_write_record_body(SerializeStream *writer, const SerializeRecordMap *map, const SerializeRecord *record, const u8 *value)
+static const SerializeField *serialize_record_field_from_id(
+	const SerializeRecord *record, u32 field_id, u32 *field_index)
 {
-	serialize_stream_write_u16(writer, record->id);
-	serialize_stream_write_u16(writer, (u16)serialize_enabled_field_count(record));
+	for (u32 index = 0; index < record->field_count; ++index)
+	{
+		const SerializeField *field = &record->fields[index];
+		if (field->id != field_id) continue;
+		if (field_index) *field_index = index;
+		return field;
+	}
+	return 0;
+}
+
+static void serialize_write_record_body(ByteStream *writer, const SerializeRecordMap *map, const SerializeRecord *record, const u8 *value)
+{
+	Assert(record->field_count <= 64);
+	u16 record_id = record->id;
+	u16 enabled_field_count = (u16)serialize_enabled_field_count(record);
+	byte_transfer_u16(writer, &record_id);
+	byte_transfer_u16(writer, &enabled_field_count);
 	for (u32 field_index = 0; field_index < record->field_count; ++field_index)
 	{
 		const SerializeField *field = &record->fields[field_index];
 		if (!(field->flags & SERIALIZE_FIELD_ENABLED)) continue;
-		Assert(field_index <= MAX_VALUE_U16 >> 4);
-		serialize_stream_write_u16(writer, (u16)(field_index << 4 | field->wire_type));
+		Assert(field->id && field->id <= MAX_VALUE_U16 >> 4);
+		u16 field_header = (u16)(field->id << 4 | field->wire_type);
+		byte_transfer_u16(writer, &field_header);
 		if (field->wire_type == SERIALIZE_WIRE_RECORD)
 		{
 			const SerializeRecord *nested = serialize_record_from_id(map, field->record_id);
 			Assert(nested && nested->size * field->count == field->size);
-			serialize_stream_write_u32(writer, field->count);
+			u32 count = field->count;
+			byte_transfer_u32(writer, &count);
 			for (u32 index = 0; index < field->count; ++index) {
 				serialize_write_record_body(writer, map, nested, value + field->offset + index * nested->size);
 			}
@@ -120,69 +67,85 @@ static void serialize_write_record_body(SerializeStream *writer, const Serialize
 		else
 		{
 			Assert(!field->record_id);
-			serialize_stream_write_u32(writer, field->size);
-			serialize_stream_write(writer, value + field->offset, field->size);
+			u32 size = field->size;
+			byte_transfer_u32(writer, &size);
+			byte_transfer_bytes(writer, byte_span((u8 *)value + field->offset, field->size));
 		}
 	}
 }
 
-static b32 serialize_read_record_body(SerializeStream *reader, const SerializeRecordMap *map, const SerializeRecord *expected, u8 *value)
+static b32 serialize_read_record_body(ByteStream *reader,
+	const SerializeRecordMap *map, const SerializeRecord *expected, u8 *value)
 {
-	u16 record_id = serialize_stream_read_u16(reader);
-	u32 field_count = serialize_stream_read_u16(reader);
+	u16 record_id = 0;
+	u16 serialized_field_count = 0;
+	byte_transfer_u16(reader, &record_id);
+	byte_transfer_u16(reader, &serialized_field_count);
+	u32 field_count = serialized_field_count;
+	if (reader->failed || expected->field_count > 64 ||
+		field_count > expected->field_count) return false;
 	const SerializeRecord *record = serialize_record_from_id(map, record_id);
 	if (!record || record != expected) return false;
+	u64 seen_fields = 0;
 	for (u32 serialized_index = 0; serialized_index < field_count; ++serialized_index)
 	{
-		u32 field_header = serialize_stream_read_u16(reader);
+		u16 field_header = 0;
+		byte_transfer_u16(reader, &field_header);
+		if (reader->failed) return false;
 		SerializeWireType wire_type = (SerializeWireType)(field_header & 15);
-		u32 field_index = field_header >> 4;
-		if (field_index >= record->field_count) return false;
-		const SerializeField *field = &record->fields[field_index];
+		u32 field_key = field_header >> 4;
+		u32 field_index = 0;
+		const SerializeField *field = serialize_record_field_from_id(record, field_key, &field_index);
+		if (!field) return false;
+		u64 field_bit = (u64)1 << field_index;
+		if (seen_fields & field_bit) return false;
+		seen_fields |= field_bit;
 		if (!(field->flags & SERIALIZE_FIELD_ENABLED) || wire_type != field->wire_type) return false;
 		if (wire_type == SERIALIZE_WIRE_RECORD)
 		{
 			const SerializeRecord *nested = serialize_record_from_id(map, field->record_id);
-			u32 count = serialize_stream_read_u32(reader);
-			if (!nested || count != field->count || nested->size * count != field->size) return false;
+			u32 count = 0;
+			byte_transfer_u32(reader, &count);
+			if (reader->failed || !nested || count != field->count ||
+				nested->size * count != field->size) return false;
 			for (u32 index = 0; index < count; ++index) {
 				if (!serialize_read_record_body(reader, map, nested, value + field->offset + index * nested->size)) return false;
 			}
 		}
 		else
 		{
-			u32 size = serialize_stream_read_u32(reader);
-			if (field->record_id || size != field->size) return false;
-			serialize_stream_read(reader, value + field->offset, size);
+			u32 size = 0;
+			byte_transfer_u32(reader, &size);
+			if (reader->failed || field->record_id || size != field->size)
+				return false;
+			byte_transfer_bytes(reader, byte_span(value + field->offset, size));
+			if (reader->failed) return false;
 		}
 	}
-	return true;
+	u64 required_fields = 0;
+	for (u32 index = 0; index < record->field_count; ++index)
+	{
+		if (record->fields[index].flags & SERIALIZE_FIELD_ENABLED) {
+			required_fields |= (u64)1 << index;
+		}
+	}
+	return seen_fields == required_fields;
 }
 
-u64 serialize_write_record(ByteSpan destination, const SerializeRecordMap *map, u16 record_id, const void *value)
+void serialize_write_record(ByteStream *writer, const SerializeRecordMap *map, u16 record_id, const void *value)
 {
+	Assert(writer && writer->mode == BYTE_STREAM_WRITE && !writer->failed && !writer->ended);
 	const SerializeRecord *record = serialize_record_from_id(map, record_id);
-	Assert(destination.data && record && value);
-	SerializeStream writer = serialize_stream(destination);
-	SerializeChunkHeader *header = serialize_stream_take(&writer, sizeof(*header));
-	header->magic = SERIALIZE_MAGIC;
-	header->version = SERIALIZE_VERSION;
-	header->type = SERIALIZE_CHUNK_RECORD;
-	header->size = 0;
-	u64 start = writer.cursor;
-	serialize_write_record_body(&writer, map, record, value);
-	Assert(writer.cursor - start <= MAX_VALUE_U32);
-	header->size = (u32)(writer.cursor - start);
-	return writer.cursor;
+	Assert(record && value);
+	serialize_write_record_body(writer, map, record, value);
 }
 
-b32 serialize_read_record(ByteSpan source, const SerializeRecordMap *map, u16 record_id, void *value)
+b32 serialize_read_record(ByteStream *reader, const SerializeRecordMap *map, u16 record_id, void *value)
 {
+	Assert(reader && reader->mode == BYTE_STREAM_READ && !reader->failed && !reader->ended);
 	const SerializeRecord *record = serialize_record_from_id(map, record_id);
-	if (!source.data || !record || !value) return false;
-	SerializeStream reader = serialize_stream(source);
-	SerializeChunkHeader header = {};
-	serialize_stream_read(&reader, &header, sizeof(header));
-	if (header.magic != SERIALIZE_MAGIC || header.version != SERIALIZE_VERSION || header.type != SERIALIZE_CHUNK_RECORD) return false;
-	return serialize_read_record_body(&reader, map, record, value);
+	Assert(record && value);
+	b32 success = serialize_read_record_body(reader, map, record, value);
+	if (!success) reader->failed = true;
+	return success;
 }

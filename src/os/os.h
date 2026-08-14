@@ -8,5 +8,6 @@
 
 b32 os_init(void);
 void os_shutdown(void);
+b32 os_set_current_directory_to_executable(void);
 
 #endif

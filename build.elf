@@ -1,9 +1,8 @@
+cc ::= "clang-cl"
+orbiter_version ::= "0.1.0"
+workers ::= 6
 
-common_compile_options := {
-	"/nologo",
-	"/MD",
-	"/D_DEBUG",
-	"-Zi",
+warnings := {
 	"-Wfloat-conversion",
 	"-Wint-conversion",
 	"-Wuninitialized",
@@ -12,20 +11,28 @@ common_compile_options := {
 	"-Wshift-negative-value",
 }
 
+common_compile_options := warnings:clone():extend({
+	"/nologo", "/MD", "/D_DEBUG", "-Zi",
+})
+
+release_compile_options := warnings:clone():extend({
+	"/nologo", "/MT", "/O2", "/Zi",
+})
+
+optimize_emulator ::= true
+
 optimized_object_names := {
-	"nes",
-	"nes_state_meta",
-	"nes_bus",
-	"nes_cpu",
-	"nes_ppu",
-	"nes_apu",
-	"nes_nrom",
-	"nes_mmc1",
-	"nes_mmc2",
-	"nes_uxrom",
-	"nes_cartridge",
-	"nes_runtime",
-	"serialize",
+	"nes"               = optimize_emulator,
+	"orb_nes_serialize" = optimize_emulator,
+	"nes_bus"           = optimize_emulator,
+	"nes_cpu"           = optimize_emulator,
+	"nes_ppu"           = optimize_emulator,
+	"nes_apu"           = optimize_emulator,
+	"nes_nrom"          = optimize_emulator,
+	"nes_mmc1"          = optimize_emulator,
+	"nes_mmc2"          = optimize_emulator,
+	"nes_uxrom"         = optimize_emulator,
+	"serialize"         = optimize_emulator,
 }
 
 include_directories := {
@@ -43,6 +50,7 @@ include_directories := {
 	"src/ui",
 	"src/base",
 	"src/audio",
+	"src/orb",
 	"src/lz4",
 	"src/text",
 	"tools/ui_playground",
@@ -68,16 +76,19 @@ shaders := {
 objects := {
 	{ name = "platform",          input = "platform/src/platform_win32.c" },
 	{ name = "audio_stream",      input = "src/audio/audio_stream.c" },
+	{ name = "audio_mixer",       input = "src/audio/audio_mixer.c" },
 	{ name = "text",              input = "src/text/text.c" },
 	{ name = "text_cache",        input = "src/text/text_cache.c" },
 	{ name = "ttf",               input = "src/fonts/ttf/ttf.c" },
 	{ name = "renderer",          input = "src/graphics/d3d11.c" },
+	{ name = "graphics",          input = "src/graphics/graphics.c" },
 	{ name = "base",              input = "src/base/base.c" },
+	{ name = "input",             input = "src/input/input.c" },
 	{ name = "draw",              input = "src/graphics/draw.c" },
 	{ name = "ui",                input = "src/ui/ui.c" },
 	{ name = "ui_box",            input = "src/ui/ui_box.c" },
 	{ name = "ui_widgets",        input = "src/ui/ui_widgets.c" },
-	{ name = "text_gfx",          input = "src/frontend/text_gfx.c" },
+	{ name = "text_gfx",          input = "src/graphics/text_gfx.c" },
 	{ name = "os_core",           input = "src/os/os_core_win32.c" },
 	{ name = "os_graphical",      input = "src/os/os_graphical.c" },
 	{ name = "os_window",         input = "src/os/os_window_win32.c" },
@@ -85,7 +96,7 @@ objects := {
 	{ name = "os_controller",     input = "src/os/os_controller_win32.c" },
 	{ name = "os_dialog",         input = "src/os/os_dialog_win32.c" },
 	{ name = "nes",              input = "src/nes/src/emulator.c" },
-	{ name = "nes_state_meta",   input = "src/nes/src/state_meta.c" },
+	{ name = "orb_nes_serialize", input = "src/orb/nes_serialize.c" },
 	{ name = "nes_bus",          input = "src/nes/src/bus/bus.c" },
 	{ name = "nes_cpu",          input = "src/nes/src/cpu/cpu.c" },
 	{ name = "nes_ppu",          input = "src/nes/src/ppu/ppu.c" },
@@ -94,146 +105,180 @@ objects := {
 	{ name = "nes_mmc1",         input = "src/nes/src/mappers/mapper_mmc1.c" },
 	{ name = "nes_mmc2",         input = "src/nes/src/mappers/mapper_mmc2.c" },
 	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
-	{ name = "nes_cartridge",    input = "src/nes/src/cartridge.c" },
-	{ name = "nes_runtime",      input = "src/nes/src/runtime/scheduler.c" },
 	{ name = "serialize",         input = "src/serialize/serialize.c" },
+	{ name = "orb",               input = "src/orb/orb.c" },
+	{ name = "app_save",          input = "src/app_save.c" },
+	{ name = "app_library",       input = "src/app_library.c" },
+	{ name = "app_library_store", input = "src/app_library_store.c" },
 	{ name = "debugger",          input = "src/debugger/debugger.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
+	{ name = "nes_target",         input = "src/frontend/nes_target.c" },
 	{ name = "execution_activity", input = "src/frontend/execution_activity.c" },
 	{ name = "gif_recorder",      input = "src/frontend/gif_recorder.c" },
 	{ name = "views",             input = "src/frontend/views.c" },
-	{ name = "view_cpu",          input = "src/frontend/view_cpu.c" },
-	{ name = "view_program",      input = "src/frontend/view_program.c" },
-	{ name = "view_profiler",     input = "src/frontend/view_profiler.c" },
-	{ name = "view_cpu_mapping",  input = "src/frontend/view_cpu_mapping.c" },
-	{ name = "view_prg_activity", input = "src/frontend/view_prg_activity.c" },
-	{ name = "view_video",        input = "src/frontend/view_video.c" },
-	{ name = "view_chr_map",      input = "src/frontend/view_chr_map.c" },
 	{ name = "panels",            input = "src/frontend/panels.c" },
+	{ name = "app_window",         input = "src/frontend/app_window.c" },
+	{ name = "program_view",      input = "src/frontend/views/program_view.c" },
+	{ name = "cpu_view",          input = "src/frontend/views/cpu_view.c" },
+	{ name = "profiler_view",     input = "src/frontend/views/profiler_view.c" },
+	{ name = "execution_view",    input = "src/frontend/views/execution_view.c" },
+	{ name = "video_view",        input = "src/frontend/views/video_view.c" },
+	{ name = "char_map_view",     input = "src/frontend/views/char_map_view.c" },
 }
 
-executables := {
+tests := {
+	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
+	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
+	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
+	{ name = "orb_test",            input = "src/tests/orb_test.c" },
+	{ name = "app_library_test",    input = "src/tests/app_library_test.c" },
+	{ name = "app_library_store_test", input = "src/tests/app_library_store_test.c" },
 	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },
-	{ name = "nes_cpu_test",    input = "src/tests/nes_cpu_test.c" },
-	{ name = "nes_ppu_test",    input = "src/tests/nes_ppu_test.c" },
-	{ name = "nes_mapper_test", input = "src/tests/nes_mapper_test.c" },
-	{ name = "nes_apu_test",    input = "src/tests/nes_apu_test.c" },
-	{ name = "nes_audio_test",  input = "src/tests/nes_audio_test.c" },
-	{ name = "nes_test_runner", input = "src/tests/nes_test_runner.c" },
-	{ name = "nes_headless",    input = "tools/headless/main.c" },
-	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
-	{ name = "ui_playground",   input = "tools/ui_playground/main.c" },
-	{ name = "main",              input = "src/main.c" },
+	{ name = "nes_cpu_test",        input = "src/tests/nes_cpu_test.c" },
+	{ name = "nes_ppu_test",        input = "src/tests/nes_ppu_test.c" },
+	{ name = "nes_mapper_test",     input = "src/tests/nes_mapper_test.c" },
+	{ name = "nes_apu_test",        input = "src/tests/nes_apu_test.c" },
+	{ name = "nes_audio_test",      input = "src/tests/nes_audio_test.c" },
 }
+
+conformance_tests := {
+	"instr_test-v5/official_only.nes",
+	"cpu_interrupts_v2/cpu_interrupts.nes",
+	"cpu_reset/ram_after_reset.nes",
+	"cpu_reset/registers.nes",
+	"ppu_vbl_nmi/ppu_vbl_nmi.nes",
+	"ppu_open_bus/ppu_open_bus.nes",
+	"apu_test/apu_test.nes",
+	"apu_reset/4015_cleared.nes",
+	"apu_reset/4017_timing.nes",
+	"apu_reset/4017_written.nes",
+	"apu_reset/irq_flag_cleared.nes",
+	"apu_reset/len_ctrs_enabled.nes",
+	"apu_reset/works_immediately.nes",
+}
+
+executables := tests:clone():extend({
+	// { name = "nes_headless",    input = "tools/headless/main.c" },
+	{ name = "nes_benchmark",   input = "tools/benchmark/main.c" },
+	{ name = "nes_conformance", input = "tools/conformance/main.c" },
+	// { name = "ui_playground",   input = "tools/ui_playground/main.c" },
+	{ name = "main",            input = "src/main.c" },
+})
 
 shader_tasks := {}
 object_tasks := {}
 object_outputs := {}
 executable_tasks := {}
+test_executable_tasks := {}
+conformance_executable_tasks := {}
 object_files := ""
-
-add_task := fun(name, command_line, inputs, outputs, dependencies) {
-	task := {
-		name = name,
-		command_line = command_line,
-		inputs = inputs,
-		outputs = outputs,
-		dependencies = dependencies,
-	}
-	ret task
-}
 
 join_prefixed := fun(values, prefix) {
 	result := ""
-	for value := values[0 ... values:length()] ? {
-		result += " " + prefix + value
+	for value := values[...] ? {
+		result += f" ${prefix}${value}"
 	}
 	ret result
 }
 
 common_options := join_prefixed(common_compile_options, "")
+release_options := join_prefixed(release_compile_options, "")
 /* Select one optimization mode per translation unit; combining /Od and /O2
 	makes the effective mode depend on argument order. */
-debug_options := common_options + " /Od"
-optimized_options := common_options + " /O2"
-includes := join_prefixed(include_directories, "/I")
+debug_options := f"${common_options} /Od"
+optimized_options := f"${common_options} /O2"
 
-prepare_build := add_task(
-	"prepare build directory",
-	"cmd /c if not exist build\\generated mkdir build\\generated",
-	{},
-	{ "build/generated" },
-	{}
-)
+elf_debug_entries := elf.load_file("elf/build.elf", {
+	root = "elf",
+	output_root = "build/elf",
+	library_name = "elf",
+	task_prefix = "Elf debug ",
+	compiler = cc,
+	compile_options = debug_options,
+	platform_include = "platform/include",
+	configuration_inputs = { "build.elf" },
+})
+elf_debug := elf_debug_entries.lib_graph()
+
+elf_release_entries := elf.load_file("elf/build.elf", {
+	root = "elf",
+	output_root = "build/release/elf",
+	library_name = "elf",
+	task_prefix = "Elf release ",
+	compiler = cc,
+	compile_options = release_options,
+	platform_include = "platform/include",
+	configuration_inputs = { "build.elf" },
+})
+elf_release := elf_release_entries.lib_graph()
+
+include_directories:extend(elf_debug.exports.include_dirs)
+includes := join_prefixed(include_directories, "/I")
+release_includes := f" /Ibuild/release/generated${includes}"
+
+prepare_build := {
+	name = "prepare build directory",
+	command_line = "cmd /c if not exist build\\generated mkdir build\\generated",
+	inputs = {},
+	outputs = { "build/generated" },
+	dependencies = {},
+}
 
 for shader := shaders[...] ? {
-	output := "build/generated/" + shader.output
-	listing := "build/generated/" + shader.name + ".cod"
-	task := add_task(
-		shader.name,
-		"fxc /nologo /Od /Zi /Fc" + listing +
-		" /T" + shader.model +
-		" src/graphics/shaders.hlsl" +
-		" /Fh" + output +
-		" /E" + shader.entry,
-		{ "build.elf", "src/graphics/shaders.hlsl" },
-		{ output, listing },
-		{ prepare_build }
-	)
+	output := f"build/generated/${shader.output}"
+	listing := f"build/generated/${shader.name}.cod"
+	task := {
+		name = shader.name,
+		command_line = f"fxc /nologo /Od /Zi /Fc${listing} /T${shader.model} src/graphics/shaders.hlsl /Fh${output} /E${shader.entry}",
+		inputs = { "build.elf", "src/graphics/shaders.hlsl" },
+		outputs = { output, listing },
+		dependencies = { prepare_build },
+	}
 	shader_tasks:add(task)
 }
 
 for object := objects[...] ? {
-	output := "build/" + object.name + ".obj"
-	compiler_pdb := "build/" + object.name + ".compiler.pdb"
+	output := f"build/${object.name}.obj"
+	compiler_pdb := f"build/${object.name}.compiler.pdb"
 	object_options := debug_options
-	for optimized_object_name := optimized_object_names[0 ... optimized_object_names:length()] ? {
-		if object.name == optimized_object_name ? {
-			object_options = optimized_options
-		}
+	if optimized_object_names.[object.name] ? {
+		elf.printl("optimized: ", object.name)
+		object_options = optimized_options
 	}
-	inputs := { "build.elf", object.input }
 	dependencies := { prepare_build }
 	if object.name == "renderer" ? {
 		for shader_task := shader_tasks[...] ? {
 			dependencies:add(shader_task)
 		}
 	}
-	task := add_task(
-		object.name,
-		"clang-cl -c " + object.input +
-		" /Fo" + output +
-		" /Fd" + compiler_pdb +
-		object_options + includes,
-		inputs,
-		{ output },
-		dependencies
-	)
+	task := {
+		name = object.name,
+		command_line = f"${cc} -c ${object.input} /Fo${output} /Fd${compiler_pdb}${object_options}${includes}",
+		inputs = { "build.elf", object.input },
+		outputs = { output },
+		dependencies = dependencies,
+	}
 	object_tasks:add(task)
 	object_outputs:add(output)
-	object_files += " " + output
+	object_files += f" ${output}"
 }
 
 for executable := executables[...] ? {
-	output := "build/" + executable.name
-	entry_object := output + ".entry.obj"
-	compiler_pdb := output + ".compiler.pdb"
-	linker_pdb := output + ".pdb"
-	incremental_link := output + ".ilk"
-	entry_inputs := { "build.elf", executable.input }
-	entry_task := add_task(
-		executable.name + " entry",
-		"clang-cl -c " + executable.input +
-		" /Fo" + entry_object +
-		" /Fd" + compiler_pdb +
-		debug_options + includes,
-		entry_inputs,
-		{ entry_object },
-		{ prepare_build }
-	)
+	output := f"build/${executable.name}"
+	entry_object := f"${output}.entry.obj"
+	compiler_pdb := f"${output}.compiler.pdb"
+	linker_pdb := f"${output}.pdb"
+	incremental_link := f"${output}.ilk"
+	entry_task := {
+		name = f"${executable.name} entry",
+		command_line = f"${cc} -c ${executable.input} /Fo${entry_object} /Fd${compiler_pdb}${debug_options}${includes}",
+		inputs = { "build.elf", executable.input },
+		outputs = { entry_object },
+		dependencies = { prepare_build },
+	}
 
-	link_inputs := { "build.elf", "src/fonts/ttf/freetype/freetype.lib", entry_object }
+	link_inputs := { "build.elf", "src/fonts/ttf/freetype/freetype.lib", elf_debug.exports.library, entry_object }
 	for object_output := object_outputs[...] ? {
 		link_inputs:add(object_output)
 	}
@@ -241,24 +286,261 @@ for executable := executables[...] ? {
 	for object_task := object_tasks[...] ? {
 		link_dependencies:add(object_task)
 	}
-	link_task := add_task(
-		executable.name,
-		"clang-cl /nologo" +
-		" /Fe" + output + ".exe" +
-		" " + entry_object + object_files +
-		" src/fonts/ttf/freetype/freetype.lib" +
-		" /link /DEBUG /PDB:" + linker_pdb +
-		" /ILK:" + incremental_link,
-		link_inputs,
-		{ output + ".exe", linker_pdb, incremental_link },
-		link_dependencies
-	)
+	link_dependencies:extend(elf_debug.targets)
+	link_task := {
+		name = executable.name,
+		command_line = f"${cc} /nologo /Fe${output}.exe ${entry_object}${object_files} ${elf_debug.exports.library} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:${linker_pdb} /ILK:${incremental_link}",
+		inputs = link_inputs,
+		outputs = { f"${output}.exe", linker_pdb, incremental_link },
+		dependencies = link_dependencies,
+	}
 	executable_tasks:add(link_task)
+	for test := tests[...] ? {
+		if executable.name == test.name ? {
+			test_executable_tasks:add(link_task)
+		}
+	}
+	if executable.name == "nes_conformance" ? {
+		conformance_executable_tasks:add(link_task)
+	}
+}
+
+release_object_tasks := {}
+release_object_outputs := {}
+release_object_files := ""
+release_shader_tasks := {}
+
+prepare_release := {
+	name = "prepare release build directory",
+	command_line = "cmd /c if not exist build\\release\\generated mkdir build\\release\\generated",
+	inputs = {},
+	outputs = { "build/release", "build/release/generated" },
+	dependencies = {},
+}
+
+for shader := shaders[...] ? {
+	output := f"build/release/generated/${shader.output}"
+	task := {
+		name = f"release ${shader.name}",
+		command_line = f"fxc /nologo /O3 /Qstrip_debug /T${shader.model} src/graphics/shaders.hlsl /Fh${output} /E${shader.entry}",
+		inputs = { "build.elf", "src/graphics/shaders.hlsl" },
+		outputs = { output },
+		dependencies = { prepare_release },
+	}
+	release_shader_tasks:add(task)
+}
+
+for object := objects[...] ? {
+	output := f"build/release/${object.name}.obj"
+	compiler_pdb := f"build/release/${object.name}.compiler.pdb"
+	dependencies := { prepare_release }
+	if object.name == "renderer" ? {
+		for shader_task := release_shader_tasks[...] ? {
+			dependencies:add(shader_task)
+		}
+	}
+	task := {
+		name = f"release ${object.name}",
+		command_line = f"${cc} -c ${object.input} /Fo${output} /Fd${compiler_pdb}${release_options}${release_includes}",
+		inputs = { "build.elf", object.input },
+		outputs = { output },
+		dependencies = dependencies,
+	}
+	release_object_tasks:add(task)
+	release_object_outputs:add(output)
+	release_object_files += f" ${output}"
+}
+
+release_entry_object := "build/release/main.entry.obj"
+release_entry_compiler_pdb := "build/release/main.entry.compiler.pdb"
+release_entry_task := {
+	name = "release main entry",
+	command_line = f"${cc} -c src/main.c /Fo${release_entry_object} /Fd${release_entry_compiler_pdb}${release_options}${release_includes}",
+	inputs = { "build.elf", "src/main.c" },
+	outputs = { release_entry_object },
+	dependencies = { prepare_release },
+}
+
+release_link_inputs := {
+	"build.elf",
+	"src/fonts/ttf/freetype/freetype.lib",
+	elf_release.exports.library,
+	release_entry_object,
+}
+for release_object_output := release_object_outputs[...] ? {
+	release_link_inputs:add(release_object_output)
+}
+
+release_link_dependencies := { release_entry_task }
+for release_object_task := release_object_tasks[...] ? {
+	release_link_dependencies:add(release_object_task)
+}
+release_link_dependencies:extend(elf_release.targets)
+
+release_executable := {
+	name = "Orbiter release",
+	command_line = f"${cc} /nologo /MT /Febuild/release/Orbiter.exe ${release_entry_object}${release_object_files} ${elf_release.exports.library} src/fonts/ttf/freetype/freetype.lib /link /DEBUG /PDB:build/release/Orbiter.pdb /PDBALTPATH:Orbiter.pdb /INCREMENTAL:NO /OPT:REF /OPT:ICF /NODEFAULTLIB:MSVCRT /INCLUDE:getenv /INCLUDE:strncpy /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup",
+	inputs = release_link_inputs,
+	outputs = { "build/release/Orbiter.exe", "build/release/Orbiter.pdb" },
+	dependencies = release_link_dependencies,
+}
+
+package_name := f"Orbiter-${orbiter_version}-windows-x64"
+package_stage := f"build/package/${package_name}"
+package_archive_name := f"${package_name}.zip"
+package_archive := f"dist/${package_archive_name}"
+package_checksum := f"dist/${package_name}.sha256"
+
+package_files := {
+	{ source = "build/release/Orbiter.exe", destination = "Orbiter.exe" },
+	{ source = "README.md", destination = "README.md" },
+	{ source = "LICENSE", destination = "LICENSE" },
+	{ source = "THIRD_PARTY_NOTICES.md", destination = "THIRD_PARTY_NOTICES.md" },
+	{ source = "data/fonts/Saira/static/Saira-Medium.ttf", destination = "data/fonts/Saira/static/Saira-Medium.ttf" },
+	{ source = "src/fonts/ttf/freetype/FTL.TXT", destination = "licenses/FreeType-FTL.txt" },
+	{ source = "data/fonts/Saira/OFL.txt", destination = "licenses/Saira-OFL.txt" },
+	{ source = "licenses/MSF-GIF-MIT.txt", destination = "licenses/MSF-GIF-MIT.txt" },
+	{ source = "licenses/STB-MIT.txt", destination = "licenses/STB-MIT.txt" },
+	{ source = "elf/LICENSE", destination = "licenses/Elf-MIT.txt" },
+	{ source = "platform/LICENSE", destination = "licenses/platform-MIT.txt" },
+}
+
+package_fail := fun(message) {
+	elf.printl(f"[ FAIL ] ${message}")
+	elf.process.exit(1)
+}
+
+package_require := fun(condition, message) {
+	if condition == 0 ? {
+		package_fail(message)
+	}
+}
+
+package_run := fun(name, command_line) {
+	elf.printl(f"[ RUN  ] ${name}")
+	result := elf.process.run(command_line)
+	elf.print(result.stdout)
+	elf.print(result.stderr)
+	if result.success == 0 ? {
+		package_fail(name)
+	}
+	elf.printl(f"[ PASS ] ${name}")
 }
 
 entries := {}
 entries.build = fun() {
-	success := bob.build({targets=executable_tasks,workers=8})
+	success := bob.build({targets=executable_tasks,workers=workers})
+	ret success
+}
+
+entries.test = fun() {
+	if tests:length() == 0 ? {
+		elf.printl("Test suite is empty")
+		elf.process.exit(1)
+		ret false
+	}
+	success := bob.build({targets=test_executable_tasks,workers=workers})
+	if success == 0 ? {
+		ret false
+	}
+
+	failures := 0
+	for test := tests[...] ? {
+		elf.printl(f"[ RUN  ] ${test.name}")
+		result := elf.process.run(f"build\\${test.name}.exe")
+		elf.print(result.stdout)
+		elf.print(result.stderr)
+
+		if result.success == 1 ? {
+			elf.printl(f"[ PASS ] ${test.name}")
+		}
+		if result.success == 0 ? {
+			elf.printl(f"[ FAIL ] ${test.name}: exited with code ${result.exit_code}")
+			failures += 1
+		}
+		elf.printl("")
+	}
+
+	if failures == 0 ? {
+		elf.printl(f"Test suite passed: all ${tests:length()} test executables passed")
+		ret true
+	}
+
+	elf.printl(f"Test suite failed: ${failures} of ${tests:length()} test executables failed")
+	elf.process.exit(1)
+	ret false
+}
+
+entries.conformance = fun() {
+	if conformance_tests:length() == 0 ? {
+		elf.printl("Conformance suite is empty")
+		elf.process.exit(1)
+		ret false
+	}
+	success := bob.build({targets=conformance_executable_tasks,workers=workers})
+	if success == 0 ? {
+		ret false
+	}
+
+	failures := 0
+	for test := conformance_tests[...] ? {
+		result := elf.process.run(f"build\\nes_conformance.exe ${test}")
+		elf.print(result.stdout)
+		elf.print(result.stderr)
+		if result.exit_code == 2 ? {
+			elf.process.exit(result.exit_code)
+			ret false
+		}
+		if result.success == 0 ? {
+			failures += 1
+		}
+	}
+	if failures != 0 ? {
+		elf.printl(f"Conformance suite failed: ${failures} of ${conformance_tests:length()} ROMs failed")
+		elf.process.exit(1)
+		ret false
+	}
+	elf.printl(f"Conformance suite passed: all ${conformance_tests:length()} ROMs passed")
+	ret true
+}
+
+entries.package = fun() {
+	elf.printl(f"Packaging ${package_name}")
+
+	package_require(elf.fs.remove_tree("build/release"), "could not clean release directory")
+	success := bob.build({targets={release_executable},workers=workers})
+	if success == 0 ? {
+		ret false
+	}
+
+	package_require(elf.fs.remove_tree(package_stage), "could not clean package staging directory")
+	package_require(elf.fs.create_directories(package_stage), "could not create package staging directory")
+
+	for package_file := package_files[...] ? {
+		package_require(elf.fs.file_exists(package_file.source), f"missing package input '${package_file.source}'")
+		destination := f"${package_stage}/${package_file.destination}"
+		package_require(elf.fs.create_directories(elf.path.parent(destination)), f"could not create directory for '${package_file.destination}'")
+		package_require(elf.fs.copy_file(package_file.source, destination), f"could not stage '${package_file.source}'")
+	}
+
+	package_require(elf.fs.create_directories("dist"), "could not create distribution directory")
+	package_require(elf.fs.remove_file(package_archive), "could not remove the previous package archive")
+	package_require(elf.fs.remove_file(package_checksum), "could not remove the previous package checksum")
+
+	zip_command := f"powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"& { $ErrorActionPreference = 'Stop'; Compress-Archive -LiteralPath '${package_stage}' -DestinationPath '${package_archive}' -CompressionLevel Optimal -Force }\""
+	package_run("create package archive", zip_command)
+
+	hash_command := f"powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"& { $ErrorActionPreference = 'Stop'; $archive = '${package_archive}'; $checksum = '${package_checksum}'; $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant(); $name = [IO.Path]::GetFileName($archive); $line = '{0}  {1}' -f $hash, $name; [IO.File]::WriteAllText($checksum, $line + [char]10, [Text.Encoding]::ASCII) }\""
+	package_run("write SHA-256 checksum", hash_command)
+
+	elf.printl("")
+	elf.printl(f"Package:  ${package_archive}")
+	elf.printl(f"Checksum: ${package_checksum}")
+	ret true
+}
+
+entries.release = fun() {
+	success := bob.build({targets={release_executable},workers=workers})
 	ret success
 }
 

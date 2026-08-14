@@ -1,5 +1,5 @@
-#ifndef FRONTEND_PROGRAM_H
-#define FRONTEND_PROGRAM_H
+#ifndef DEBUGGER_PROGRAM_H
+#define DEBUGGER_PROGRAM_H
 
 #include "base.h"
 #include "nes/emulator.h"
@@ -8,22 +8,8 @@ typedef struct Debugger Debugger;
 
 enum
 {
-	PROGRAM_BYTE_UNKNOWN  = 0xFF,
-	PROGRAM_BUCKET_SIZE   = KiB(4),
-	PROGRAM_MAX_PRG_SIZE  = MB(1),
-	PROGRAM_PRG_RAM_SIZE  = KiB(8),
-	PROGRAM_MAX_SIZE      = PROGRAM_MAX_PRG_SIZE + PROGRAM_PRG_RAM_SIZE,
-	PROGRAM_BUCKET_COUNT  = PROGRAM_MAX_SIZE / PROGRAM_BUCKET_SIZE,
+	PROGRAM_MAX_SIZE = NES_MAX_PRG_ROM_SIZE + NES_MAX_PRG_RAM_SIZE,
 };
-
-typedef enum
-{
-	PROGRAM_NONE        = 0,
-	PROGRAM_INSTRUCTION = 1,
-}
-ProgramTagsEnum;
-
-typedef u8 ProgramTags;
 
 typedef enum
 {
@@ -32,49 +18,14 @@ typedef enum
 }
 ProgramInstructionFlags;
 
-typedef struct
+enum
 {
-	// Zero marks an instruction start, one or two point back to its start,
-	// and PROGRAM_BYTE_UNKNOWN marks an unclassified PRG-ROM byte.
-	u8  offset_to_start;
-	u8  flags;
-	u16 bridges;
-	u16 next_bridges;
-	u8  indent;
-	u8  next_indent;
-	u8  next_branch_seen;
-	u8  value;
-	u8  value_valid;
-}
-ProgramByte;
-
-typedef struct
-{
-	u64 revision;
-	u64 executed_instruction_count;
-	u64 instruction_conflict_count;
-	u64 executed_instruction_conflict_count;
-	u64 discontinuous_instruction_count;
-	u32 instruction_count;
-	u32 byte_count;
-	u32 prg_rom_byte_count;
-	u32 prg_ram_byte_count;
-	u32 instruction_bucket_count;
-	u32 instruction_buckets[PROGRAM_BUCKET_COUNT];
-	u32 refinement_cpu_cursor;
-	u64 refinement_pass_count;
-	ProgramByte bytes[PROGRAM_MAX_SIZE];
-}
-Program;
-
-typedef enum
-{
-	PROGRAM_ROW_NONE,
 	PROGRAM_ROW_INSTRUCTION,
 	PROGRAM_ROW_GUESS,
 	PROGRAM_ROW_ERROR,
-}
-ProgramRowStatus;
+};
+
+typedef u8 ProgramRowStatus;
 
 typedef struct
 {
@@ -82,29 +33,34 @@ typedef struct
 	u16 cpu_address;
 	i16 indent;
 	u16 bridges;
-	u16 type;
 	u16 data;
-	u16 advance;
+	u8 type;
+	u8 flags;
 	ProgramRowStatus status;
 }
 ProgramInstruction;
 
 typedef struct
 {
-	ProgramInstruction *items;
-	u32 count;
+	// Persistent physical-address evidence. The listing below is a disposable snapshot rebuilt while paused.
+	u32 prg_rom_byte_count;
+	u32 prg_ram_byte_count;
+	u32 row_count;
+	b32 listing_dirty;
+	u16 cpu_pc;
+	NES_MapAddr cpu_pc_mapping;
+	u8 evidence[PROGRAM_MAX_SIZE];
+	u8 prg_ram_evidence_bytes[NES_MAX_PRG_RAM_SIZE];
+	ProgramInstruction rows[NES_CPU_ADDRESS_SPACE];
 }
-ProgramSlice;
+Program;
 
-ProgramTags program_tags(const Program *program, u32 prg_rom_offset);
-u32 program_instruction_offset(const Program *program, u32 prg_rom_offset);
-u32 program_mapped_instruction_offset(const Program *program, NES_MapAddr mapped);
-u32 program_mapped_instruction_count(Debugger *debugger);
-b32 program_dump(Debugger *debugger, const char *path, Arena *scratch);
-void program_refine(Debugger *debugger, u32 instruction_budget);
+b32 program_index_from_cpu_address(const Program *program, u16 cpu_address, u32 *instruction_index);
+
+b32 program_dump(Debugger *debugger, const char *path);
+void program_invalidate(Program *program);
 void program_reset(Debugger *debugger);
-void program_observe_execution(Debugger *debugger, NES_SchedulerBoundary trace);
-ProgramSlice program_slice(Debugger *debugger, Arena *arena, u32 first_instruction_index, u32 capacity);
-b32 program_index_from_cpu_address(Debugger *debugger, u16 cpu_address, u32 *instruction_index);
+void program_update(Debugger *debugger);
+void program_observe_execution(Debugger *debugger, NES_TraceEntry trace);
 
 #endif

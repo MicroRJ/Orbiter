@@ -368,7 +368,7 @@ FT_BEGIN_HEADER
     /* array of pointers into Global Subrs INDEX data */
     FT_Byte**        global_subrs;
 
-    /* array of pointers into String INDEX data stored at string_pool */
+    /* array of pointers into Str INDEX data stored at string_pool */
     FT_UInt          num_strings;
     FT_Byte**        strings;
     FT_Byte*         string_pool;

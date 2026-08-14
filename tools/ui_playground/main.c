@@ -26,6 +26,7 @@ typedef enum
 {
 	PLAYGROUND_MODE_BASICS,
 	PLAYGROUND_MODE_PROFILER,
+	PLAYGROUND_MODE_SCROLL_HISTORY,
 	PLAYGROUND_MODE_COUNT,
 }
 PlaygroundMode;
@@ -33,33 +34,8 @@ PlaygroundMode;
 typedef struct
 {
 	UI_Box *root;
-	UI_Box *scroll_boxes[4];
-	u32 scroll_box_count;
 }
 PlaygroundScene;
-
-typedef struct
-{
-	f32 offset;
-	f32 target;
-	f32 drag_offset;
-	f32 drag_mouse;
-}
-PlaygroundScroll;
-
-typedef struct
-{
-	rect_f32 track;
-	rect_f32 thumb;
-	rect_f32 hit_rect;
-	rect_f32 thumb_hit_rect;
-	f32 max_scroll;
-	f32 travel;
-}
-PlaygroundScrollbar;
-
-static const u64 PLAYGROUND_ID_SCROLLBAR_TRACK = 0x5343524F4C4C0001ull;
-static const u64 PLAYGROUND_ID_SCROLLBAR_THUMB = 0x5343524F4C4C0002ull;
 
 static const PlaygroundDensity playground_densities[] = {
 	{ 8.f,  8.f,  8.f },
@@ -73,53 +49,9 @@ static f32 playground_smooth_scroll(f32 offset, f32 target, f32 elapsed)
 	return target + (offset - target) * exp2f(-Max(elapsed, 0.f) / half_life);
 }
 
-static UI_Id playground_scrollbar_track_id(UI_Box *box)
+static Str playground_read_file(Arena *arena, const char *path)
 {
-	return ui_id_child(box->id, PLAYGROUND_ID_SCROLLBAR_TRACK);
-}
-
-static UI_Id playground_scrollbar_thumb_id(UI_Box *box)
-{
-	return ui_id_child(box->id, PLAYGROUND_ID_SCROLLBAR_THUMB);
-}
-
-static PlaygroundScrollbar playground_scrollbar(UI_Box *box)
-{
-	PlaygroundScrollbar result = {};
-	result.max_scroll = box->scroll_max.y - box->scroll_min.y;
-	if (result.max_scroll <= 0.001f || box->viewport.h <= 0.f) return result;
-
-	f32 content_height = Max(box->content_size.y, box->viewport.h);
-	f32 thumb_height = Max(24.f, box->viewport.h * box->viewport.h / content_height);
-	result.track = (rect_f32) {
-		.x = box->viewport.x + box->viewport.w - 5.f,
-		.y = box->viewport.y,
-		.w = 4.f,
-		.h = box->viewport.h,
-	};
-	result.travel = Max(0.f, result.track.h - thumb_height);
-	f32 ratio = (box->scroll_offset.y - box->scroll_min.y) / result.max_scroll;
-	result.thumb = (rect_f32) {
-		.x = result.track.x,
-		.y = result.track.y + result.travel * ratio,
-		.w = result.track.w,
-		.h = thumb_height,
-	};
-	result.hit_rect = (rect_f32) {
-		.x = result.track.x - 8.f,
-		.y = result.track.y,
-		.w = result.track.w + 8.f,
-		.h = result.track.h,
-	};
-	result.thumb_hit_rect = result.thumb;
-	result.thumb_hit_rect.x = result.hit_rect.x;
-	result.thumb_hit_rect.w = result.hit_rect.w;
-	return result;
-}
-
-static String playground_read_file(Arena *arena, const char *path)
-{
-	String result = {};
+	Str result = {};
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
 	if (!platform_file_is_valid(file)) {
 		return result;
@@ -132,7 +64,7 @@ static String playground_read_file(Arena *arena, const char *path)
 		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
 		{
 			data[size] = 0;
-			result = string_from_data(data, (u32)size);
+			result = str_from_data(data, (u32)size);
 		}
 	}
 	platform_close_file(file);
@@ -147,26 +79,34 @@ static PlaygroundVisual *playground_visual(Arena *arena, Color_SRGBA color, b32 
 	return visual;
 }
 
-static UI_Box *playground_make_box(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, Color_SRGBA color, b32 show_size)
+static UI_Box *playground_make_box(UI_Context *ui, u64 key, Str name, Color_SRGBA color, b32 show_size)
 {
-	UI_Box *box = ui_box_make_desc(builder, key, name, desc);
-	box->user = playground_visual(builder->arena, color, show_size);
+	UI_Box *box = ui_box_make(ui, key, name);
+	box->user = playground_visual(&ui->frame_arena, color, show_size);
 	return box;
 }
 
-static UI_Box *playground_begin_box(UI_BoxBuilder *builder, u64 key, String name, UI_BoxDesc desc, Color_SRGBA color, b32 show_size)
+static UI_Box *playground_begin_box(UI_Context *ui, u64 key, Str name, Color_SRGBA color, b32 show_size)
 {
-	UI_Box *box = ui_box_begin_desc(builder, key, name, desc);
-	box->user = playground_visual(builder->arena, color, show_size);
+	UI_Box *box = ui_box_begin(ui, key, name);
+	box->user = playground_visual(&ui->frame_arena, color, show_size);
 	return box;
 }
 
 static UI_BoxDesc playground_fill_desc(void)
 {
-	UI_BoxDesc desc = ui_box_desc();
-	desc.size[AXIS_X] = ui_box_fill(1.f);
-	desc.size[AXIS_Y] = ui_box_fill(1.f);
+	UI_BoxDesc desc = ui_defaults();
+	desc.size[AXIS_X] = ui_grow(1.f);
+	desc.size[AXIS_Y] = ui_grow(1.f);
 	return desc;
+}
+
+static UI_Box *playground_frame_slot_begin(UI_Context *ui, UI_Key key, AXIS fill_axis)
+{
+	ui_clean(ui);
+	ui_layout(ui, &UI_FlatLayoutHooks);
+	ui_size(ui, fill_axis, ui_grow(1.f));
+	return ui_box_begin(ui, key, LIT("frame slot"));
 }
 
 typedef struct
@@ -178,409 +118,71 @@ typedef struct
 }
 PlaygroundProfilerRows;
 
-static void playground_build_profiler_row(UI_BoxBuilder *builder, u32 row, void *user)
+static void playground_build_profiler_row(UI_Context *ui, u32 row, void *user)
 {
 	PlaygroundProfilerRows *rows = user;
-	UI_BoxDesc metric = playground_fill_desc();
-	metric.axis = AXIS_X;
-	metric.size[AXIS_Y] = ui_box_pixels(76.f);
-	metric.horz_padd[0] = metric.horz_padd[1] = 8.f;
-	metric.vert_padd[0] = metric.vert_padd[1] = 8.f;
-	metric.gap = 10.f;
-	playground_begin_box(builder, 1, LIT(""), metric, color_srgba_mix(rows->violet, rows->slate, 0.58f), false);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(76.f));
+	ui_axis(ui, AXIS_X);
+	ui_padd(ui, AXIS_X, 8.f, 8.f);
+	ui_padd(ui, AXIS_Y, 8.f, 8.f);
+	ui_gap(ui, 10.f);
+	playground_begin_box(ui, 1, LIT(""), color_srgba_mix(rows->violet, rows->slate, 0.58f), false);
 
-	UI_BoxDesc swatch = ui_box_desc();
-	swatch.size[AXIS_X] = ui_box_pixels(44.f);
-	swatch.size[AXIS_Y] = ui_box_pixels(44.f);
-	swatch.perp_align = 0.5f;
+	ui_clean(ui);
+	ui_layout(ui, &UI_FlatLayoutHooks);
+	ui_size(ui, AXIS_X, ui_fixed(44.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_begin(ui, 1, LIT("swatch slot"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_fixed(44.f));
+	ui_size(ui, AXIS_Y, ui_fixed(44.f));
+	ui_align(ui, AXIS_Y, 0.5f);
 	f32 swatch_mix = (f32)(row % 7) / 6.f;
-	playground_make_box(builder, 1, LIT(""), swatch, color_srgba_mix(rows->violet, color_srgba(0x18B8A4), swatch_mix), false);
+	playground_make_box(ui, 1, LIT(""), color_srgba_mix(rows->violet, color_srgba(0x18B8A4), swatch_mix), false);
+	ui_box_end(ui);
 
-	UI_BoxDesc text_stack = playground_fill_desc();
-	text_stack.axis = AXIS_Y;
-	text_stack.gap = 4.f;
-	ui_box_begin_desc(builder, 2, LIT(""), text_stack);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_Y);
+	ui_gap(ui, 4.f);
+	ui_box_begin(ui, 2, LIT(""));
 
-	String title =
+	Str title =
 		row == 0 ? LIT("Frame time") :
 		row == 1 ? LIT("Application") :
 		row == 2 ? LIT("Rendering") :
 		row == 3 ? LIT("Present wait") :
 		row == 4 ? LIT("Other") :
-			push_formatted(builder->arena, "Profiler scope %05u", row + 1);
-	UI_BoxDesc title_box = playground_fill_desc();
-	title_box.size[AXIS_Y] = ui_box_pixels(28.f);
-	ui_text_box_string_desc(builder, 1, title_box, rows->title_style, title);
+			str_push_copy_f(&ui->frame_arena, "Profiler scope %05u", row + 1);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(28.f));
+	ui_text(ui, 1, rows->title_style, title);
 
-	String subtitle =
+	Str subtitle =
 		row == 0 ? LIT("16.67 ms  |  complete frame") :
 		row == 1 ? LIT("3.82 ms  |  application work") :
 		row == 2 ? LIT("2.14 ms  |  render submission") :
 		row == 3 ? LIT("7.35 ms  |  swapchain wait") :
 		row == 4 ? LIT("3.36 ms  |  uncategorized") :
-			push_formatted(builder->arena, "%.2f ms  |  %u calls", 0.01f * (f32)(row % 300), 1 + row % 97);
-	UI_BoxDesc subtitle_box = playground_fill_desc();
-	subtitle_box.size[AXIS_Y] = ui_box_pixels(28.f);
-	ui_text_box_string_desc(builder, 2, subtitle_box, rows->subtitle_style, subtitle);
+			str_push_copy_f(&ui->frame_arena, "%.2f ms  |  %u calls", 0.01f * (f32)(row % 300), 1 + row % 97);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(28.f));
+	ui_text(ui, 2, rows->subtitle_style, subtitle);
 
-	ui_box_end(builder);
-	ui_box_end(builder);
+	ui_box_end(ui);
+	ui_box_end(ui);
 }
 
-static PlaygroundScene playground_build_basics(Arena *arena, UI_Context *ui, Font_Handle font, PlaygroundDensity density)
-{
-	PlaygroundScene scene = {};
-	Color_SRGBA teal = color_srgba(0x18B8A4);
-	Color_SRGBA blue = color_srgba(0x3478F6);
-	Color_SRGBA violet = color_srgba(0x9558E8);
-	Color_SRGBA amber = color_srgba(0xE5A83C);
-	Color_SRGBA slate = color_srgba(0x25343A);
+#include "demo_basics.c"
 
-	UI_BoxDesc root_desc = playground_fill_desc();
-	root_desc.axis = AXIS_Y;
-	root_desc.horz_padd[0] = root_desc.horz_padd[1] = density.outer_padding;
-	root_desc.vert_padd[0] = root_desc.vert_padd[1] = density.outer_padding;
-	root_desc.gap = density.gap;
+#include "demo_scroll_history.c"
 
-	UI_BoxBuilder builder;
-	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, 1, LIT("root"), root_desc);
-
-	UI_BoxDesc header = playground_fill_desc();
-	header.axis = AXIS_X;
-	header.size[AXIS_Y] = ui_box_pixels(48.f);
-	header.horz_padd[0] = header.horz_padd[1] = 18.f;
-	header.vert_padd[0] = header.vert_padd[1] = 8.f;
-	header.gap = 8.f;
-	playground_begin_box(&builder, 1, LIT(""), header, slate, false);
-	UI_BoxDesc status_text = ui_box_desc();
-	status_text.perp_align = 0.5f;
-	UI_TextStyle vibrant = { .font = font, .size = 16, .color = color_srgba(0x18B8A4) };
-	UI_TextStyle subtle = { .font = font, .size = 16, .color = color_srgba(0x8EAAA5) };
-	UI_TextStyle running = { .font = font, .size = 16, .color = amber };
-	ui_text_box_string_desc(&builder, 1, status_text, vibrant, LIT("ORBITER"));
-	ui_text_box_string_desc(&builder, 2, status_text, subtle, LIT("|  UI BOX PLAYGROUND  |"));
-	ui_text_box_string_desc(&builder, 3, status_text, running, LIT("RUNNING"));
-	UI_BoxDesc status_spacer = playground_fill_desc();
-	ui_box_make_desc(&builder, 4, LIT(""), status_spacer);
-	subtle.align.x = 1.f;
-	ui_text_box_sized_string_desc(&builder, 5, status_text, subtle, LIT("999.9 FPS  |  FRAME 9999999999"), LIT("60.0 FPS  |  FRAME 123456"));
-	ui_box_end(&builder);
-
-	UI_BoxDesc laboratory = playground_fill_desc();
-	laboratory.axis = AXIS_X;
-	laboratory.gap = density.gap;
-	laboratory.vert_padd[0] = 32.f;
-	playground_begin_box(&builder, 2, LIT("layout laboratory"), laboratory, slate, false);
-
-	UI_BoxDesc navigation = playground_fill_desc();
-	navigation.size[AXIS_X] = ui_box_flex(0.f, 3.f);
-	navigation.min_size.x = 120.f;
-	navigation.max_size.x = 310.f;
-	navigation.horz_padd[0] = navigation.horz_padd[1] = density.card_padding;
-	navigation.vert_padd[0] = 48.f;
-	navigation.vert_padd[1] = density.card_padding;
-	navigation.gap = 8.f;
-
-	UI_Box *navigation_box = playground_begin_box(&builder, 10, LIT("CONTENT BASIS 270  |  SHRINK 3"), navigation, teal, true);
-	navigation_box->intrinsic_size.x = 270.f;
-
-	for (u32 row = 0; row < 4; ++row)
-	{
-		UI_BoxDesc item = playground_fill_desc();
-		item.size[AXIS_Y] = ui_box_pixels(38.f);
-		playground_make_box(&builder, 11 + row, row == 0 ? LIT("Overview") : row == 1 ? LIT("Call tree") : row == 2 ? LIT("Flame graph") : LIT("Memory"), item, color_srgba_mix(teal, slate, 0.45f), false);
-	}
-	ui_box_end(&builder);
-
-	UI_BoxDesc timeline = playground_fill_desc();
-	timeline.size[AXIS_X] = ui_box_fill(2.f);
-	timeline.min_size.x = 160.f;
-	timeline.horz_padd[0] = timeline.horz_padd[1] = density.card_padding;
-	timeline.vert_padd[0] = 48.f;
-	timeline.vert_padd[1] = density.card_padding;
-	timeline.gap = 10.f;
-	playground_begin_box(&builder, 20, LIT("ZERO BASIS  |  GROW 2"), timeline, blue, true);
-
-	UI_BoxDesc chart = playground_fill_desc();
-	chart.axis = AXIS_X;
-	chart.gap = 7.f;
-	playground_begin_box(&builder, 21, LIT("weighted children"), chart, color_srgba_mix(blue, slate, 0.55f), false);
-	for (u32 bar = 0; bar < 5; ++bar)
-	{
-		UI_BoxDesc bar_desc = playground_fill_desc();
-		bar_desc.size[AXIS_X] = ui_box_fill((f32)(bar + 1));
-		bar_desc.size[AXIS_Y] = ui_box_pixels(54.f + 22.f * bar);
-		bar_desc.perp_align = 1.f;
-		playground_make_box(&builder, 22 + bar, LIT(""), bar_desc, color_srgba_mix(blue, violet, (f32)bar / 5.f), false);
-	}
-	ui_box_end(&builder);
-
-	UI_BoxDesc timeline_status = playground_fill_desc();
-	timeline_status.size[AXIS_Y] = ui_box_pixels(36.f);
-	playground_make_box(&builder, 28, LIT("1x  2x  3x  4x  5x grow weights"), timeline_status, color_srgba_mix(blue, slate, 0.35f), false);
-	ui_box_end(&builder);
-
-	UI_BoxDesc inspector = playground_fill_desc();
-	inspector.size[AXIS_X] = ui_box_flex(1.f, 1.f);
-	inspector.min_size.x = 180.f;
-	inspector.max_size.x = 420.f;
-	inspector.horz_padd[0] = inspector.horz_padd[1] = density.card_padding;
-	inspector.vert_padd[0] = 48.f;
-	inspector.vert_padd[1] = density.card_padding;
-	inspector.gap = 8.f;
-	inspector.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
-	inspector.overflow[AXIS_Y] = UI_BOX_OVERFLOW_SCROLL;
-	PlaygroundProfilerRows *profiler_rows = arena_push_zero(arena, sizeof(*profiler_rows));
-	profiler_rows->violet = violet;
-	profiler_rows->slate = slate;
-	profiler_rows->title_style = (UI_TextStyle) { .font = font, .size = 16, .color = color_srgba(0xD6E7E4) };
-	profiler_rows->subtitle_style = (UI_TextStyle) { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	UI_Box *inspector_box = ui_box_make_virtual_list_desc(&builder, 30, LIT("VIRTUAL 10,000 ROWS  |  CONTENT BASIS 300"), inspector, (UI_BoxVirtualListDesc) {
-		.item_count = 10000,
-		.user = profiler_rows,
-		.build_item = playground_build_profiler_row,
-	});
-	inspector_box->user = playground_visual(arena, violet, true);
-	inspector_box->intrinsic_size.x = 300.f;
-	scene.scroll_boxes[scene.scroll_box_count++] = inspector_box;
-
-	ui_box_end(&builder);
-
-	UI_BoxDesc footer = playground_fill_desc();
-	footer.size[AXIS_Y] = ui_box_pixels(42.f);
-	footer.horz_padd[0] = footer.horz_padd[1] = 14.f;
-	footer.vert_padd[0] = footer.vert_padd[1] = 8.f;
-	playground_make_box(&builder, 40, LIT("Mouse-wheel the purple card. Hit testing and painting share current-frame clips."), footer, color_srgba_mix(amber, slate, 0.55f), false);
-
-	scene.root = ui_box_builder_end(&builder);
-	return scene;
-}
-
-typedef struct
-{
-	Font_Handle font;
-	Color_SRGBA slate;
-	Color_SRGBA teal;
-	Color_SRGBA violet;
-	Color_SRGBA error;
-	UI_TextStyle header_style;
-	UI_TextStyle value_style;
-	UI_TextStyle numeric_style;
-}
-PlaygroundDummyProfiler;
-
-static void playground_dummy_table_cell(UI_BoxTable *table, UI_TextStyle style, String sizing_text, String text, f32 align)
-{
-	ui_box_table_cell_begin(table);
-	UI_BoxDesc text_desc = ui_box_desc();
-	text_desc.perp_align = align;
-	if (sizing_text.size) ui_text_box_sized_string_desc(table->builder, 1, text_desc, style, sizing_text, text);
-	else ui_text_box_string_desc(table->builder, 1, text_desc, style, text);
-	ui_box_table_cell_end(table);
-}
-
-static void playground_build_dummy_timing_row(UI_BoxTable *table, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
-{
-	static const String scope_names[] = {
-		LIT("main frame incl wait"),
-		LIT("debug stepping"),
-		LIT("emulation"),
-		LIT("audio buffering"),
-		LIT("audio"),
-		LIT("snapshot"),
-		LIT("program refinement"),
-		LIT("application"),
-		LIT("application draw"),
-		LIT("present wait"),
-		LIT("frame pacing"),
-	};
-	Color_SRGBA row_color = header ? profiler->teal : color_srgba_mix(profiler->slate, profiler->violet, row & 1 ? 0.12f : 0.20f);
-	UI_Box *row_box = ui_box_table_row_begin(table, header ? 1 : row + 2);
-	row_box->user = playground_visual(table->builder->arena, row_color, false);
-
-	UI_TextStyle label_style = header ? profiler->header_style : profiler->value_style;
-	UI_TextStyle numeric_style = header ? profiler->header_style : profiler->numeric_style;
-	String scope = header ? LIT("SCOPE") : scope_names[row % ArrayCount(scope_names)];
-	String milliseconds = header ? LIT("MS") : push_formatted(table->builder->arena, "%.3f", 0.025f + (f32)(row % 400) * 0.013f);
-	String frame_pct = header ? LIT("FRAME %") : push_formatted(table->builder->arena, "%.1f", 0.2f + (f32)(row % 97));
-	String calls = header ? LIT("CALLS") : push_formatted(table->builder->arena, "%u", 1 + row % 99999);
-	String per_call = header ? LIT("US/CALL") : push_formatted(table->builder->arena, "%.2f", 0.1f + (f32)(row % 1200) * 0.07f);
-	playground_dummy_table_cell(table, label_style, (String) {}, scope, 0.f);
-	playground_dummy_table_cell(table, numeric_style, LIT("999.999"), milliseconds, 1.f);
-	playground_dummy_table_cell(table, numeric_style, LIT("100.0 %"), frame_pct, 1.f);
-	playground_dummy_table_cell(table, numeric_style, LIT("999999"), calls, 1.f);
-	playground_dummy_table_cell(table, numeric_style, LIT("99999.99"), per_call, 1.f);
-	ui_box_table_row_end(table);
-}
-
-static void playground_build_dummy_metric_row(UI_BoxTable *table, PlaygroundDummyProfiler *profiler, u32 row, b32 header)
-{
-	static const String metric_names[] = {
-		LIT("TEXT LAYOUT CALLS"),
-		LIT("TEXT DRAW RUNS"),
-		LIT("BOXES BUILT"),
-		LIT("VISIBLE VIRTUAL ROWS"),
-		LIT("DRAW COMMANDS"),
-		LIT("GLYPH CACHE HITS"),
-		LIT("GLYPH CACHE MISSES"),
-		LIT("TRANSIENT TEXTURES"),
-	};
-	Color_SRGBA row_color = header ? profiler->violet : color_srgba_mix(profiler->slate, profiler->teal, row & 1 ? 0.10f : 0.18f);
-	UI_Box *row_box = ui_box_table_row_begin(table, header ? 1 : row + 2);
-	row_box->user = playground_visual(table->builder->arena, row_color, false);
-
-	UI_TextStyle label_style = header ? profiler->header_style : profiler->value_style;
-	UI_TextStyle numeric_style = header ? profiler->header_style : profiler->numeric_style;
-	String metric = header ? LIT("METRIC") : metric_names[row % ArrayCount(metric_names)];
-	String value = header ? LIT("VALUE") : push_formatted(table->builder->arena, "%llu", 1000ull + (u64)row * 7919ull);
-	playground_dummy_table_cell(table, label_style, (String) {}, metric, 0.f);
-	playground_dummy_table_cell(table, numeric_style, LIT("9999999999"), value, 1.f);
-	ui_box_table_row_end(table);
-}
-
-static PlaygroundScene playground_build_dummy_profiler(Arena *arena, UI_Context *ui, Font_Handle font, PlaygroundDensity density)
-{
-	PlaygroundScene scene = {};
-	Color_SRGBA teal = color_srgba(0x18B8A4);
-	Color_SRGBA violet = color_srgba(0x9558E8);
-	Color_SRGBA amber = color_srgba(0xE5A83C);
-	Color_SRGBA slate = color_srgba(0x25343A);
-	PlaygroundDummyProfiler *profiler = arena_push_zero(arena, sizeof(*profiler));
-	profiler->font = font;
-	profiler->slate = slate;
-	profiler->teal = teal;
-	profiler->violet = violet;
-	profiler->error = color_srgba(0xE65B65);
-	profiler->header_style = (UI_TextStyle) { .font = font, .size = 14, .color = color_srgba(0xD6E7E4), .align = v2(0.f, 0.5f) };
-	profiler->value_style = (UI_TextStyle) { .font = font, .size = 14, .color = color_srgba(0xAFC5C1), .align = v2(0.f, 0.5f) };
-	profiler->numeric_style = profiler->value_style;
-
-	UI_BoxDesc root_desc = playground_fill_desc();
-	root_desc.axis = AXIS_Y;
-	root_desc.horz_padd[0] = root_desc.horz_padd[1] = density.outer_padding;
-	root_desc.vert_padd[0] = root_desc.vert_padd[1] = density.outer_padding;
-	root_desc.gap = density.gap;
-	UI_BoxBuilder builder;
-	UI_Box *root = ui_box_builder_begin(&builder, arena, ui, 2, LIT("dummy profiler"), root_desc);
-
-	UI_BoxDesc header = playground_fill_desc();
-	header.axis = AXIS_X;
-	header.size[AXIS_Y] = ui_box_pixels(48.f);
-	header.horz_padd[0] = header.horz_padd[1] = 16.f;
-	header.vert_padd[0] = header.vert_padd[1] = 8.f;
-	header.gap = 8.f;
-	playground_begin_box(&builder, 6000, LIT(""), header, slate, false);
-	UI_BoxDesc header_text = ui_box_desc();
-	header_text.perp_align = 0.5f;
-	UI_TextStyle title = { .font = font, .size = 16, .color = teal };
-	UI_TextStyle subtle = { .font = font, .size = 14, .color = color_srgba(0x8EAAA5) };
-	ui_text_box_string_desc(&builder, 1, header_text, title, LIT("ORBITER PROFILER"));
-	ui_text_box_string_desc(&builder, 2, header_text, subtle, LIT("|  BOX TABLE PROTOTYPE"));
-	UI_BoxDesc header_spacer = playground_fill_desc();
-	ui_box_make_desc(&builder, 3, LIT(""), header_spacer);
-	subtle.align.x = 1.f;
-	ui_text_box_string_desc(&builder, 4, header_text, subtle, LIT("TAB: BASICS  |  SPACE: DENSITY"));
-	ui_box_end(&builder);
-
-	UI_BoxDesc graph = playground_fill_desc();
-	graph.size[AXIS_Y] = ui_box_flex(1.f, 1.f);
-	graph.min_size.y = 128.f;
-	graph.max_size.y = 240.f;
-	UI_Box *graph_box = playground_make_box(&builder, 6001, LIT("DUMMY FRAME PHASE GRAPH  |  custom rendering stays inside this rectangle"), graph, color_srgba_mix(teal, slate, 0.58f), false);
-	graph_box->intrinsic_size.y = 184.f;
-
-	UI_BoxDesc selection = playground_fill_desc();
-	selection.axis = AXIS_X;
-	selection.size[AXIS_Y] = ui_box_pixels(34.f);
-	selection.horz_padd[0] = selection.horz_padd[1] = 10.f;
-	playground_begin_box(&builder, 6002, LIT(""), selection, color_srgba_mix(amber, slate, 0.72f), false);
-	UI_BoxDesc selection_text = ui_box_desc();
-	selection_text.perp_align = 0.5f;
-	ui_text_box_string_desc(&builder, 1, selection_text, profiler->value_style, LIT("SELECTED FRAME 123456  /  16.667 MS"));
-	UI_BoxDesc selection_spacer = playground_fill_desc();
-	ui_box_make_desc(&builder, 2, LIT(""), selection_spacer);
-	UI_TextStyle live = profiler->header_style;
-	live.color = amber;
-	live.align.x = 1.f;
-	ui_text_box_string_desc(&builder, 3, selection_text, live, LIT("LIVE"));
-	ui_box_end(&builder);
-
-	UI_BoxDesc tables = playground_fill_desc();
-	tables.axis = AXIS_X;
-	tables.gap = density.gap;
-	ui_box_begin_desc(&builder, 6003, LIT(""), tables);
-
-	UI_BoxDesc timing_panel = playground_fill_desc();
-	timing_panel.axis = AXIS_Y;
-	timing_panel.size[AXIS_X] = ui_box_fill(1.6f);
-	timing_panel.horz_padd[0] = timing_panel.horz_padd[1] = density.card_padding;
-	timing_panel.vert_padd[0] = timing_panel.vert_padd[1] = density.card_padding;
-	timing_panel.gap = 4.f;
-	playground_begin_box(&builder, 6100, LIT(""), timing_panel, slate, false);
-	UI_BoxTableColumn timing_columns[] = {
-		ui_box_table_flex(1.f),
-		ui_box_table_content(),
-		ui_box_table_content(),
-		ui_box_table_content(),
-		ui_box_table_content(),
-	};
-	ui_push(&builder);
-	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
-	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
-	ui_overflow(&builder, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_overflow(&builder, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
-	UI_BoxTable timing_table = ui_box_table_begin(&builder, 2, LIT("timing table"), (UI_BoxTableDesc) {
-		.columns = timing_columns,
-		.column_count = ArrayCount(timing_columns),
-		.row_height = 32.f,
-		.column_gap = 10.f,
-		.row_gap = 1.f,
-		.cell_padd = v2(8.f, 5.f),
-	});
-	ui_pop(&builder);
-	playground_build_dummy_timing_row(&timing_table, profiler, 0, true);
-	for (u32 row = 0; row < 128; row++) {
-		playground_build_dummy_timing_row(&timing_table, profiler, row, false);
-	}
-	scene.scroll_boxes[scene.scroll_box_count++] = ui_box_table_end(&timing_table);
-	ui_box_end(&builder);
-
-	UI_BoxDesc metric_panel = playground_fill_desc();
-	metric_panel.axis = AXIS_Y;
-	metric_panel.size[AXIS_X] = ui_box_fill(1.f);
-	metric_panel.horz_padd[0] = metric_panel.horz_padd[1] = density.card_padding;
-	metric_panel.vert_padd[0] = metric_panel.vert_padd[1] = density.card_padding;
-	metric_panel.gap = 4.f;
-	playground_begin_box(&builder, 6200, LIT(""), metric_panel, slate, false);
-	UI_BoxTableColumn metric_columns[] = {
-		ui_box_table_flex(1.f),
-		ui_box_table_content(),
-	};
-	ui_push(&builder);
-	ui_size(&builder, AXIS_X, ui_box_fill(1.f));
-	ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
-	ui_overflow(&builder, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-	ui_overflow(&builder, AXIS_Y, UI_BOX_OVERFLOW_SCROLL);
-	UI_BoxTable metric_table = ui_box_table_begin(&builder, 2, LIT("metric table"), (UI_BoxTableDesc) {
-		.columns = metric_columns,
-		.column_count = ArrayCount(metric_columns),
-		.row_height = 32.f,
-		.column_gap = 10.f,
-		.row_gap = 1.f,
-		.cell_padd = v2(8.f, 5.f),
-	});
-	ui_pop(&builder);
-	playground_build_dummy_metric_row(&metric_table, profiler, 0, true);
-	for (u32 row = 0; row < 64; row++) {
-		playground_build_dummy_metric_row(&metric_table, profiler, row, false);
-	}
-	scene.scroll_boxes[scene.scroll_box_count++] = ui_box_table_end(&metric_table);
-	ui_box_end(&builder);
-
-	ui_box_end(&builder);
-	scene.root = ui_box_builder_end(&builder);
-	return scene;
-}
+#include "demo_profiler.c"
 
 static void playground_draw_outline(Draw_Context *draw, rect_f32 rect, f32 thickness, Color_SRGBA color)
 {
@@ -612,7 +214,7 @@ static void playground_draw_tree(Arena *arena, Draw_Context *draw, Text_Context 
 		draw_rect(draw, (Draw_RectParams) {
 			.rect = box->rect,
 			.color = fill,
-			.corner_radii = { 5.f, 5.f, 5.f, 5.f },
+			.corner_radii = draw_corner_radii_all(5.f),
 			.edge_softness = 1.f,
 		});
 
@@ -623,9 +225,9 @@ static void playground_draw_tree(Arena *arena, Draw_Context *draw, Text_Context 
 
 		if (box->name.size && box->rect.w > 24.f && box->rect.h > 20.f)
 		{
-			String label = box->name;
+			Str label = box->name;
 			if (visual->show_size) {
-				label = push_formatted(arena, "%.*s  |  %.0f px", box->name.size, box->name.text, box->rect.w);
+				label = str_push_copy_f(arena, "%.*s  |  %.0f px", box->name.size, box->name.text, box->rect.w);
 			}
 			Text_Layout layout = text_layout(arena, text, font, 16, label);
 			Text_DrawRun run = text_make_draw_run(arena, &layout);
@@ -636,73 +238,10 @@ static void playground_draw_tree(Arena *arena, Draw_Context *draw, Text_Context 
 		draw_pop_clip(draw);
 	}
 
-	if (box->ops && box->ops->paint)
-	{
-		box->ops->paint(box);
-	}
+	ui_box_paint(box);
 
-	for (u32 child_index = 0; child_index < box->child_count; ++child_index) {
-		playground_draw_tree(arena, draw, text, text_gfx, font, box->children[child_index], hot, selected_id);
-	}
-}
-
-static void playground_draw_scrollbar(Draw_Context *draw, UI_Box *box)
-{
-	PlaygroundScrollbar scrollbar = playground_scrollbar(box);
-	if (scrollbar.max_scroll <= 0.f) return;
-	draw_push_clip(draw, box->clip_rect);
-	draw_rect(draw, (Draw_RectParams) { .rect = scrollbar.track, .color = color_with_alpha(color_srgba(0x9558E8), 0.18f) });
-	draw_rect(draw, (Draw_RectParams) { .rect = scrollbar.thumb, .color = color_with_alpha(color_srgba(0xC99CFF), 0.85f) });
-	draw_pop_clip(draw);
-}
-
-static void playground_draw_ui_frame(Draw_Context *draw, Text_GFX *text_gfx, UI_Context *ui)
-{
-	const UI_Frame *frame = ui_frame(ui);
-	for (u32 layer_index = 0; layer_index < UI_LAYER_COUNT; layer_index ++)
-	{
-		for (UI_DrawCommand *command = frame->layers[layer_index].first; command; command = command->next)
-		{
-			if (command->has_clip) {
-				draw_push_clip(draw, command->clip);
-			}
-			switch (command->kind)
-			{
-				case UI_DRAW_COMMAND_RECT:
-				draw_rect(draw, (Draw_RectParams) {
-					.rect = command->rect.rect,
-					.color = command->rect.color,
-					.corner_radii = { command->rect.roundness, command->rect.roundness, command->rect.roundness, command->rect.roundness },
-					.edge_softness = command->rect.edge_softness,
-				});
-				break;
-				case UI_DRAW_COMMAND_IMAGE:
-				draw_image(draw, (Draw_TextureParams) {
-					.rect = command->image.params.rect,
-					.texture = command->image.params.texture,
-					.region = command->image.params.region,
-					.tint = COLOR_WHITE,
-					.sampler = command->image.params.sampler,
-					.blender = command->image.params.blender,
-					.shader = command->image.params.shader,
-				});
-				break;
-				case UI_DRAW_COMMAND_TEXT:
-					text_gfx_draw_run(text_gfx, draw, command->text.run, command->text.position, command->text.color);
-					break;
-				case UI_DRAW_COMMAND_INSET_SHADOW:
-					draw_inset_shadow(draw, command->inset_shadow.rect, command->inset_shadow.strength);
-					break;
-				case UI_DRAW_COMMAND_BACKDROP:
-					Assert(!"the playground does not provide a backdrop texture");
-					break;
-				default:
-					Assert(!"invalid UI draw command");
-			}
-			if (command->has_clip) {
-				draw_pop_clip(draw);
-			}
-		}
+	for (UI_Box *child = box->first; child; child = child->next) {
+		playground_draw_tree(arena, draw, text, text_gfx, font, child, hot, selected_id);
 	}
 }
 
@@ -719,7 +258,7 @@ static vec2 playground_test_measure_counted(UI_Box *box, UI_BoxConstraints const
 	return v2(70.f, 10.f);
 }
 
-static const UI_BoxOps playground_test_counted_ops = {
+static const UI_BoxHooks playground_test_counted_ops = {
 	.measure = playground_test_measure_counted,
 };
 
@@ -727,21 +266,23 @@ static UI_Box *playground_test_row(Arena *arena, f32 width, UI_BoxSize left_size
 {
 	UI_BoxDesc root_desc = playground_fill_desc();
 	root_desc.axis = AXIS_X;
-	UI_BoxBuilder builder;
+	UI_Builder builder;
 	UI_Box *root = ui_box_builder_begin(&builder, arena, 0, 1, LIT("root"), root_desc);
 
 	UI_BoxDesc left = playground_fill_desc();
 	left.size[AXIS_X] = left_size;
 	left.min_size.x = left_min;
 	left.max_size.x = left_max;
-	UI_Box *left_box = ui_box_make_desc(&builder, 1, LIT("left"), left);
+	ui_builder_clean(&builder);
+	UI_Box *left_box = ui_builder_box_make_desc(&builder, 1, LIT("left"), left);
 	left_box->intrinsic_size.x = left_basis;
 
 	UI_BoxDesc right = playground_fill_desc();
 	right.size[AXIS_X] = right_size;
 	right.min_size.x = right_min;
 	right.max_size.x = right_max;
-	UI_Box *right_box = ui_box_make_desc(&builder, 2, LIT("right"), right);
+	ui_builder_clean(&builder);
+	UI_Box *right_box = ui_builder_box_make_desc(&builder, 2, LIT("right"), right);
 	right_box->intrinsic_size.x = right_basis;
 
 	ui_box_builder_end(&builder);
@@ -750,20 +291,214 @@ static UI_Box *playground_test_row(Arena *arena, f32 width, UI_BoxSize left_size
 	return root;
 }
 
-static void playground_build_test_virtual_item(UI_BoxBuilder *builder, u32 item_index, void *user)
+static void playground_build_test_virtual_item(UI_Context *ui, u32 item_index, void *user)
 {
 	(void)item_index;
 	(void)user;
-	UI_BoxDesc row = ui_box_desc();
-	row.axis = AXIS_X;
-	row.size[AXIS_X] = ui_box_fill(1.f);
-	row.size[AXIS_Y] = ui_box_pixels(42.f);
-	ui_box_begin_desc(builder, 1, LIT("row"), row);
-	UI_BoxDesc child = ui_box_desc();
-	child.size[AXIS_X] = ui_box_fill(1.f);
-	child.size[AXIS_Y] = ui_box_fill(1.f);
-	ui_box_make_desc(builder, 1, LIT("nested child"), child);
-	ui_box_end(builder);
+	ui_clean(ui);
+	ui_axis(ui, AXIS_X);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(42.f));
+	ui_box_begin(ui, 1, LIT("row"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_make(ui, 1, LIT("nested child"));
+	ui_box_end(ui);
+}
+
+static void playground_build_counted_test_virtual_item(UI_Context *ui, u32 item_index, void *user)
+{
+	u32 *build_count = user;
+	(*build_count)++;
+	playground_build_test_virtual_item(ui, item_index, 0);
+}
+
+static void playground_build_test_horizontal_virtual_item(UI_Context *ui, u32 item_index, void *user)
+{
+	(void)item_index;
+	(void)user;
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_fixed(30.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_begin(ui, 1, LIT("item"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_make(ui, 1, LIT("nested child"));
+	ui_box_end(ui);
+}
+
+static void playground_build_test_margined_virtual_item(UI_Context *ui, u32 item_index, void *user)
+{
+	(void)item_index;
+	(void)user;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(32.f));
+	ui_margin(ui, AXIS_Y, 5.f, 7.f);
+	ui_box_make(ui, 1, LIT("item"));
+}
+
+static UI_ScrollBox *playground_build_test_scroll(Arena *arena, UI_Context *ui, UI_Box **root_out)
+{
+	(void)arena;
+	UI_BoxDesc root_desc = playground_fill_desc();
+	UI_Box *root = ui_build_begin(ui, UI_KEY("test scroll"), LIT("root"), root_desc);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_Y);
+	ui_box_begin(ui, 1, LIT("viewport"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(400.f));
+	ui_box_make(ui, 1, LIT("content"));
+	ui_clean(ui);
+	ui_box_end(ui);
+
+	ui_scroll_box_end(scroll);
+	ui_clean(ui);
+	ui_build_end(ui);
+	*root_out = root;
+	return scroll;
+}
+
+typedef struct
+{
+	UI_Box *root;
+	UI_ScrollBox *outer;
+	UI_ScrollBox *inner;
+}
+PlaygroundNestedScrollTest;
+
+static PlaygroundNestedScrollTest playground_build_nested_test_scroll(UI_Context *ui)
+{
+	PlaygroundNestedScrollTest test = {};
+	test.root = ui_build_begin(ui, UI_KEY("nested scroll test"), LIT("root"), playground_fill_desc());
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	test.outer = ui_scroll_box_begin(ui, 1, AXIS_Y);
+
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_begin(ui, 1, LIT("outer content"));
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(100.f));
+	ui_box_make(ui, 1, LIT("before"));
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(100.f));
+	test.inner = ui_scroll_box_begin(ui, 2, AXIS_Y);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_axis(ui, AXIS_Y);
+	ui_box_begin(ui, 1, LIT("inner content"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(400.f));
+	ui_box_make(ui, 1, LIT("inner body"));
+	ui_clean(ui);
+	ui_box_end(ui);
+	ui_scroll_box_end(test.inner);
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(300.f));
+	ui_box_make(ui, 3, LIT("after"));
+	ui_clean(ui);
+	ui_box_end(ui);
+	ui_scroll_box_end(test.outer);
+	ui_clean(ui);
+	ui_build_end(ui);
+	return test;
+}
+
+typedef struct
+{
+	UI_Box *root;
+	UI_ScrollBox *content;
+	UI_ScrollBox *overlay;
+}
+PlaygroundOverlappingScrollTest;
+
+static UI_ScrollBox *playground_build_overlapping_test_scroll(UI_Context *ui, UI_Key key)
+{
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, key, AXIS_Y);
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_box_begin(ui, 1, LIT("content"));
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_fixed(400.f));
+	ui_box_make(ui, 1, LIT("body"));
+	ui_box_end(ui);
+	ui_scroll_box_end(scroll);
+	return scroll;
+}
+
+static PlaygroundOverlappingScrollTest playground_build_overlapping_test_scrolls(UI_Context *ui)
+{
+	PlaygroundOverlappingScrollTest test = {};
+	UI_BoxDesc root_desc = playground_fill_desc();
+	root_desc.layout = &UI_FlatLayoutHooks;
+	test.root = ui_build_begin(ui, UI_KEY("overlapping scroll test"), LIT("root"), root_desc);
+	test.content = playground_build_overlapping_test_scroll(ui, 1);
+	ui_push_box_z(ui, UI_Z_OVERLAY);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	UI_Box *overlay_frame = ui_box_begin(ui, 2, LIT("overlay frame"));
+	overlay_frame->hit_intercept = true;
+	test.overlay = playground_build_overlapping_test_scroll(ui, 1);
+	ui_box_end(ui);
+	ui_pop_box_z(ui);
+	ui_clean(ui);
+	ui_build_end(ui);
+	return test;
+}
+
+static UI_Response playground_build_test_signal(Arena *arena, UI_Context *ui, UI_Box **root_out, UI_Box **box_out)
+{
+	(void)arena;
+	UI_BoxDesc root_desc = playground_fill_desc();
+	root_desc.axis = AXIS_Y;
+	UI_Box *root = ui_build_begin(ui, UI_KEY("test signal"), LIT("root"), root_desc);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_fixed(50.f));
+	ui_size(ui, AXIS_Y, ui_fixed(30.f));
+	UI_Box *box = ui_box_make(ui, UI_KEY("button"), LIT("button"));
+	UI_Response response = ui_signal_from_box(box);
+	ui_build_end(ui);
+	*root_out = root;
+	*box_out = box;
+	return response;
+}
+
+static UI_Context *playground_test_ui_create(Arena *arena, OS_Window *window)
+{
+	Input_State *input = arena_push_zero(arena, sizeof(*input));
+	return ui_create(arena, window, input, (Text_Context *)1, 0, (UI_Theme) {});
 }
 
 static int playground_run_tests(void)
@@ -788,81 +523,606 @@ static int playground_run_tests(void)
 	}
 
 	{
-		UI_Box list = {
-			.viewport = { 0.f, 0.f, 100.f, 100.f },
-			.content_size = v2(100.f, 400.f),
-			.scroll_offset = v2(0.f, 150.f),
-			.scroll_max = v2(0.f, 300.f),
-		};
-		PlaygroundScrollbar scrollbar = playground_scrollbar(&list);
-		CHECK(playground_near(scrollbar.thumb.h, 25.f) && playground_near(scrollbar.thumb.y, 37.5f), "scrollbar thumb geometry maps the logical scroll range onto track travel");
-		CHECK(scrollbar.hit_rect.w > scrollbar.track.w && scrollbar.thumb_hit_rect.w == scrollbar.hit_rect.w, "scrollbar interaction uses a wider target than its painted track");
+		UI_Key profiler = UI_KEY("profiler");
+		CHECK(profiler == ui_key_string(LIT("profiler")), "literal and runtime strings produce the same UI key");
+		CHECK(profiler != UI_KEY("program"), "different strings produce different UI keys");
+		CHECK(ui_key_child(profiler, 1) != ui_key_child(profiler, 2), "integer keys extend a string-keyed structural namespace");
+		CHECK(ui_id_equal(ui_id_child(UI_ID_NONE, profiler), ui_id_child(UI_ID_NONE, UI_KEY("profiler"))), "string keys produce deterministic UI IDs");
 	}
 
-	ARENA_SCOPE(&arena)
 	{
-		UI_BoxDesc desc = ui_box_desc();
-		UI_BoxBuilder builder;
+		OS_Event events[] = {
+			{ .type = OS_EVENT_KEY_PRESS, .key = OS_Key_A },
+			{ .type = OS_EVENT_KEY_PRESS, .key = OS_Key_A, .repeat = true },
+		};
+		OS_Window window = { .events = events, .event_count = ArrayCount(events), .event_capacity = ArrayCount(events) };
+		Input_State input = {};
+		input_state_update(&input, &window);
+		CHECK((input.keys[OS_Key_A] & (INPUT_KEY_DOWN | INPUT_KEY_PRESSED | INPUT_KEY_REPEAT)) == (INPUT_KEY_DOWN | INPUT_KEY_PRESSED | INPUT_KEY_REPEAT), "input state observes press and repeat events");
+		window.event_count = 0;
+		input_state_update(&input, &window);
+		CHECK(input.keys[OS_Key_A] == INPUT_KEY_DOWN, "input state retains only held keys between frames");
+		events[0] = (OS_Event) { .type = OS_EVENT_WINDOW_FOCUS_LOST };
+		window.event_count = 1;
+		input_state_update(&input, &window);
+		CHECK(input.keys[OS_Key_A] == INPUT_KEY_RELEASED, "focus loss releases every held key");
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.layout = &UI_FlatLayoutHooks;
+		UI_Box *root = ui_build_begin(ui, UI_KEY("z ordered hits"), LIT("z ordered hits"), root_desc);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(20.f));
+		ui_size(ui, AXIS_Y, ui_fixed(20.f));
+		ui_paint_z(ui, 10);
+		UI_Box *front = ui_box_make(ui, 1, LIT("front"));
+		ui_signal_from_box(front);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(100.f));
+		ui_size(ui, AXIS_Y, ui_fixed(100.f));
+		UI_Box *back = ui_box_make(ui, 2, LIT("back"));
+		ui_signal_from_box(back);
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(ui_box_find_deepest(root, v2(10.f, 10.f)) == front, "hit discovery follows paint z instead of append order");
+		CHECK(ui_box_find_deepest(root, v2(50.f, 50.f)) == back, "an intercept only captures inside its clipped rectangle");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(112, 100), .mouse_position = v2i(50, 50) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		PlaygroundOverlappingScrollTest overlap = playground_build_overlapping_test_scrolls(ui);
+		ui_box_measure(overlap.root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(overlap.root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		ui_end_frame(ui);
+
+		window.mouse_wheel.y = -1;
+		ui_begin_frame(ui);
+		ui->frame_elapsed = 0.f;
+		overlap = playground_build_overlapping_test_scrolls(ui);
+		CHECK(!ui_box_contains_hot(overlap.content->root) && ui_box_contains_hot(overlap.overlay->root), "wheel ownership follows the resolved hot box ancestry");
+		CHECK(playground_near(overlap.content->target, 0.f), "a content scroll box cannot consume wheel input through an overlay");
+		CHECK(playground_near(overlap.overlay->target, 48.f) && ui->mouse_wheel_consumed, "the overlay scroll box receives and consumes wheel input");
+		ui_box_measure(overlap.root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(overlap.root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100), .mouse_position = v2i(10, 10) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.layout = &UI_FlatLayoutHooks;
+		UI_Box *root = ui_build_begin(ui, UI_KEY("overlay interaction priority"), LIT("overlay interaction priority"), root_desc);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(100.f));
+		ui_size(ui, AXIS_Y, ui_fixed(100.f));
+		UI_Box *underlying = ui_box_make(ui, 1, LIT("underlying"));
+		ui_signal_from_box(underlying);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(100.f));
+		ui_size(ui, AXIS_Y, ui_fixed(100.f));
+		ui_paint_z(ui, UI_Z_OVERLAY);
+		UI_Box *overlay = ui_box_make(ui, 2, LIT("overlay"));
+		ui_signal_from_box(overlay);
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		UI_Id underlying_id = underlying->id;
+		UI_Id overlay_id = overlay->id;
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		CHECK(ui_is_hot(ui, overlay_id), "the previous-frame hit resolver selects the overlay");
+		UI_Response underlying_response = ui_interact(ui, underlying_id, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(!underlying_response.hovered, "a content interaction cannot steal hover from an overlay");
+		CHECK(ui_is_hot(ui, overlay_id), "a rejected content interaction preserves the overlay hot box");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(200, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_wrap());
+		ui_size(ui, AXIS_Y, ui_wrap());
+		ui_background(ui, color_srgba(0x123456));
+		UI_ScrollBox *scroll = ui_scroll_box_begin(ui, 1, AXIS_Y);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(60.f));
+		ui_size(ui, AXIS_Y, ui_fixed(40.f));
+		ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+		UI_Box *content = ui_box_make(ui, 1, LIT("content"));
+		ui_scroll_box_end(scroll);
+		ui_clean(ui);
+		ui_build_end(ui);
+
+		vec2 measured = ui_box_measure(scroll->root, (UI_BoxConstraints) { .max = v2(200.f, 100.f) });
+		ui_box_layout(scroll->root, rect_f32_from_size(measured));
+		CHECK(content->desc.size[AXIS_Y].kind == UI_BOX_SIZE_PIXELS && content->desc.overflow[AXIS_Y] == UI_BOX_OVERFLOW_CLIP, "a scroll box preserves the content box's sizing and overflow policy");
+		CHECK(scroll->root->paint.flags == UI_BOX_DRAW_BACKGROUND && !content->paint.flags, "scroll-box paint styles stay on the root instead of moving with its content");
+		CHECK(playground_near(measured.x, 72.f) && playground_near(measured.y, 40.f), "a short scroll box wraps its content and perpendicular scrollbar");
+		CHECK(playground_near(scroll->viewport->rect.w, 60.f) && playground_near(scroll->viewport->rect.h, 40.f), "a wrapping viewport retains the content's natural dimensions");
+
+		content->desc.size[AXIS_Y] = ui_fixed(400.f);
+		measured = ui_box_measure(scroll->root, (UI_BoxConstraints) { .max = v2(200.f, 100.f) });
+		ui_box_layout(scroll->root, rect_f32_from_size(measured));
+		CHECK(playground_near(measured.y, 100.f) && playground_near(scroll->scroll_max, 300.f), "a long scroll box clamps to its at-most constraint and exposes the remaining range");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(30, 20) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		UI_Box *root = ui_build_begin(ui, UI_KEY("frame clipping"), LIT("frame clipping"), ui_defaults());
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(30.f));
+		ui_size(ui, AXIS_Y, ui_fixed(20.f));
+		ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+		ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+		ui_layout(ui, &UI_FlatLayoutHooks);
+		UI_Box *frame = ui_box_begin(ui, 1, LIT("clipped frame"));
+		ui_clean(ui);
+		ui_rect(ui, (rect_f32) { -10.f, -5.f, 40.f, 30.f });
+		UI_Box *child = ui_box_make(ui, 1, LIT("positioned child"));
+		ui_clean(ui);
+		ui_box_end(ui);
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(30.f, 20.f), .max = v2(30.f, 20.f) });
+		ui_box_layout(root, (rect_f32) { 100.f, 50.f, 30.f, 20.f });
+		CHECK(playground_near(child->rect.x, 90.f) && playground_near(child->rect.y, 45.f), "frame positions are relative to a nonzero parent viewport origin");
+		CHECK(playground_near(frame->content_bounds.x, 90.f) && playground_near(frame->content_bounds.y, 45.f) && playground_near(frame->content_bounds.w, 40.f) && playground_near(frame->content_bounds.h, 30.f), "a frame records positioned content extending before and after its viewport");
+		CHECK(playground_near(child->clip_rect.x, 100.f) && playground_near(child->clip_rect.y, 50.f) && playground_near(child->clip_rect.w, 30.f) && playground_near(child->clip_rect.h, 20.f), "frame overflow clips a positioned child on every edge");
+		CHECK(playground_near(child->state->hit_rect.x, 100.f) && playground_near(child->state->hit_rect.y, 50.f) && playground_near(child->state->hit_rect.w, 30.f) && playground_near(child->state->hit_rect.h, 20.f), "positioned frame clipping commits the matching interaction rectangle");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(112, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+
+		ui_begin_frame(ui);
+		UI_Box *root = 0;
+		UI_ScrollBox *scroll = playground_build_test_scroll(&arena, ui, &root);
+		UI_BoxState *root_state = root->state;
+		CHECK(root->key == UI_KEY("test scroll") && root_state && !root->has_previous, "a string-keyed box acquires new persistent state");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(root_state->rect.w, 112.f) && playground_near(root_state->rect.h, 100.f), "layout commits finished box geometry into persistent state");
+		CHECK(scroll->root->child_count == 2 && scroll->root->first == scroll->viewport && scroll->root->last == scroll->track && scroll->content->parent == scroll->viewport, "a scroll box composes an internal viewport, one content box, and a sibling scrollbar");
+		CHECK(!scroll->has_previous && playground_near(scroll->scroll_max, 300.f), "a new scroll box computes its current logical range");
+		CHECK(playground_near(scroll->thumb->rect.h, 24.f), "the first layout resolves the scrollbar thumb");
+		CHECK(scroll->track->paint.flags == UI_BOX_DRAW_BACKGROUND && scroll->thumb->paint.flags == UI_BOX_DRAW_BACKGROUND, "scrollbar track and thumb carry generic box appearance");
+		ui_end_frame(ui);
+
+		window.mouse_wheel.y = -1;
+		ui_begin_frame(ui);
+		ui->frame_elapsed = 0.055f;
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		CHECK(root->state == root_state && root->has_previous, "the next frame recovers the same box state and previous geometry");
+		CHECK(scroll->has_previous && playground_near(scroll->viewport->state->content_size.y - scroll->viewport->state->viewport.h, 300.f), "the next scroll box derives its range from persisted viewport geometry");
+		CHECK(playground_near(scroll->target, 48.f) && playground_near(scroll->offset, 24.f), "wheel input updates context-owned target and time-invariant offset before layout");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(scroll->content->rect.y, -24.f) && playground_near(scroll->content->first->rect.y, -24.f), "the viewport translates the complete content subtree by the persistent offset");
+		ui_end_frame(ui);
+
+		window.mouse_wheel.y = 0;
+		window.mouse_position = v2i(106, 18);
+		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
+		ui->frame_elapsed = 0.f;
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(ui_is_active(ui, scroll->thumb->id), "the scrollbar thumb exclusively captures the mouse");
+		ui_end_frame(ui);
+
+		window.mouse_position.y += 50;
+		ui_begin_frame(ui);
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(scroll->offset, 24.f + 50.f * 300.f / 70.f), "thumb dragging maps mouse travel into the persistent logical range");
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_RELEASED;
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		UI_Id unrelated_active = ui_id_child(UI_ID_NONE, UI_KEY("unrelated active"));
+		ui->active = unrelated_active;
+		ui_scroll_box_reset(scroll);
+		CHECK(ui_id_equal(ui->active, unrelated_active), "resetting a scroll box does not cancel an unrelated active interaction");
+		ui->active = UI_ID_NONE;
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(scroll->offset, 0.f) && playground_near(scroll->content->rect.y, 0.f) && playground_near(scroll->thumb->rect.y, scroll->track->viewport.y), "reset updates the translated content and box scrollbar geometry");
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		CHECK(playground_near(scroll->offset, 0.f) && playground_near(scroll->target, 0.f), "reset persists through the viewport box state");
+		scroll->content->first->desc.size[AXIS_Y] = ui_fixed(800.f);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(scroll->thumb->rect.h, 24.f), "track preparation sizes the thumb from current-frame content instead of cached geometry");
+		ui_end_frame(ui);
+
+		window.mouse_position = v2i(106, 80);
+		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
+		ui->frame_elapsed = 0.f;
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		CHECK(ui_is_active(ui, scroll->track->id) && playground_near(scroll->target, 85.f), "the scrollbar track is an ordinary signaled box with page-step behavior");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_RELEASED;
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		ui->frame_elapsed = 0.f;
+		scroll = playground_build_test_scroll(&arena, ui, &root);
+		scroll->content->first->desc.size[AXIS_Y] = ui_fixed(20.f);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(112.f, 100.f), .max = v2(112.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 112.f, 100.f });
+		CHECK(playground_near(scroll->scroll_max, 0.f) && playground_near(scroll->offset, 0.f) && playground_near(scroll->target, 0.f), "shrinking content clamps stale scroll state during the current layout");
+		CHECK(playground_near(scroll->content->rect.y, 0.f), "shortened content is immediately visible instead of retaining a stale translation");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(200, 200), .mouse_position = v2i(50, 150) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+
+		ui_begin_frame(ui);
+		PlaygroundNestedScrollTest nested = playground_build_nested_test_scroll(ui);
+		ui_box_measure(nested.root, (UI_BoxConstraints) { .min = v2(200.f, 200.f), .max = v2(200.f, 200.f) });
+		ui_box_layout(nested.root, (rect_f32) { 0.f, 0.f, 200.f, 200.f });
+		CHECK(playground_near(nested.outer->scroll_max, 300.f) && playground_near(nested.inner->scroll_max, 300.f), "nested scroll boxes compute independent ranges");
+		nested.inner->root->state->view_offset.y = nested.inner->scroll_max;
+		nested.inner->root->state->view_target.y = nested.inner->scroll_max;
+		ui_end_frame(ui);
+
+		window.mouse_wheel.y = -1;
+		ui_begin_frame(ui);
+		ui->frame_elapsed = 0.f;
+		nested = playground_build_nested_test_scroll(ui);
+		CHECK(playground_near(nested.inner->target, 300.f) && playground_near(nested.outer->target, 48.f) && ui->mouse_wheel_consumed, "wheel input bubbles to the outer scroll box when the hovered inner box is at its boundary");
+		ui_box_measure(nested.root, (UI_BoxConstraints) { .min = v2(200.f, 200.f), .max = v2(200.f, 200.f) });
+		ui_box_layout(nested.root, (rect_f32) { 0.f, 0.f, 200.f, 200.f });
+		nested.inner->root->state->view_offset.y = 200.f;
+		nested.inner->root->state->view_target.y = 200.f;
+		nested.outer->root->state->view_offset.y = 0.f;
+		nested.outer->root->state->view_target.y = 0.f;
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		ui->frame_elapsed = 0.f;
+		nested = playground_build_nested_test_scroll(ui);
+		CHECK(playground_near(nested.inner->target, 248.f) && playground_near(nested.outer->target, 0.f) && ui->mouse_wheel_consumed, "the hovered inner scroll box consumes wheel input while it still has room");
+		ui_box_measure(nested.root, (UI_BoxConstraints) { .min = v2(200.f, 200.f), .max = v2(200.f, 200.f) });
+		ui_box_layout(nested.root, (rect_f32) { 0.f, 0.f, 200.f, 200.f });
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100), .mouse_position = v2i(10, 10) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		UI_Box *root = 0;
+		UI_Box *box = 0;
+
+		ui_begin_frame(ui);
+		UI_Response response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(!response.hovered && !response.pressed && !response.held, "a new box does not interact through zero or uninitialized geometry");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(playground_near(box->state->hit_rect.w, 50.f) && playground_near(box->state->hit_rect.h, 30.f), "layout persists the box's clipped interaction rectangle");
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(response.hovered && response.pressed && response.held && ui_is_active(ui, box->id), "a box signal presses and exclusively captures through previous geometry");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		ui_end_frame(ui);
+
+		window.mouse_position = v2i(20, 15);
+		ui_begin_frame(ui);
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(response.hovered && response.held && !response.pressed && playground_near(response.drag_delta.x, 10.f) && playground_near(response.drag_delta.y, 5.f), "a captured box reports held state and drag displacement");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_RELEASED;
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(response.released && !response.held, "a captured box reports release before capture is cleared");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		ui_end_frame(ui);
+		CHECK(!ui->active.value, "mouse release clears the exclusive capture at frame end");
+
+		ui_invalidate_layout(ui);
+		ui_begin_frame(ui);
+		((Input_State *)ui->input)->keys[OS_Key_MouseLeft] = INPUT_KEY_PRESSED | INPUT_KEY_DOWN;
+		response = playground_build_test_signal(&arena, ui, &root, &box);
+		CHECK(!box->has_previous && !response.hovered && !response.pressed, "layout invalidation rejects stale box geometry for interaction");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(120, 80) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.axis = AXIS_Y;
+		UI_Box *root = ui_build_begin(ui, UI_KEY("tooltip test"), LIT("root"), root_desc);
+
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(60.f));
+		ui_size(ui, AXIS_Y, ui_fixed(40.f));
+		ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+		ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+		UI_Box *host = ui_box_begin(ui, 1, LIT("clipped host"));
+
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(13.f));
+		ui_background(ui, color_srgba(0x123456));
+		UI_Box *before = ui_box_make(ui, 1, LIT("before tooltip"));
+
+		UI_Box *tooltip = ui_tooltip_begin(ui, 1, v2(118.f, 78.f));
+		CHECK(tooltip != 0, "the first tooltip request claims the context overlay");
+		CHECK(!ui_tooltip_begin(ui, UI_KEY("nested tooltip"), v2(0.f, 0.f)), "a nested tooltip request loses arbitration without disturbing the active tooltip");
+		ui_push_box_z(ui, UI_Z_OVERLAY);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(40.f));
+		ui_size(ui, AXIS_Y, ui_fixed(20.f));
+		UI_Box *tooltip_child = ui_box_make(ui, 1, LIT("arbitrary tooltip child"));
+		ui_clean(ui);
+		ui_pop_box_z(ui);
+		ui_tooltip_end(ui);
+
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(13.f));
+		ui_background(ui, color_srgba(0x123456));
+		UI_Box *after = ui_box_make(ui, 2, LIT("after tooltip"));
+		CHECK(!ui_tooltip_begin(ui, UI_KEY("second tooltip"), v2(0.f, 0.f)), "a second tooltip request is ignored for the current frame");
+		ui_clean(ui);
+		ui_box_end(ui);
+
+		ui_clean(ui);
+		UI_Box *ordinary_tail = ui_box_make(ui, 2, LIT("ordinary root tail"));
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(120.f, 80.f), .max = v2(120.f, 80.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 120.f, 80.f });
+
+		CHECK(before->parent == host && after->parent == host && host->child_count == 2, "tooltip construction restores the caller's structural parent");
+		CHECK(!ui_id_equal(before->id, tooltip->id) && before->state != tooltip->state, "overlay namespacing prevents tooltip state from colliding with the owner's local keys");
+		CHECK(before->desc.size[AXIS_X].value == 13.f && after->desc.size[AXIS_X].value == 13.f && before->paint.flags == after->paint.flags, "independent owner declarations remain identical across tooltip construction");
+		CHECK(ui->content_root->parent == root && ui->overlay_root->parent == root && root->first == ui->content_root && root->last == ui->overlay_root && ordinary_tail->parent == ui->content_root && ui->content_root->last == ordinary_tail, "the frame root separates ordinary linear content from overlays");
+		CHECK(tooltip->parent == ui->overlay_root && tooltip_child->parent == tooltip, "tooltip children live outside the clipped source subtree");
+		CHECK(tooltip->paint.flags == UI_BOX_DRAW_BACKDROP, "tooltips use the compositor backdrop without a background fill or border");
+		CHECK(tooltip_child->paint.z == UI_Z_OVERLAY, "the explicit z stack places tooltip descendants at overlay depth");
+		CHECK(playground_near(tooltip->rect.x, 56.f) && playground_near(tooltip->rect.y, 40.f), "a measured tooltip clamps against the bottom-right window edges");
+		CHECK(playground_near(tooltip->clip_rect.x, root->clip_rect.x) && playground_near(tooltip->clip_rect.y, root->clip_rect.y) && playground_near(tooltip->clip_rect.w, root->clip_rect.w) && playground_near(tooltip->clip_rect.h, root->clip_rect.h), "the overlay escapes panel clipping while retaining the window clip");
+		CHECK(ui_box_find_deepest(root, v2(1.f, 1.f)) == host, "an empty portion of the overlay frame passes hit discovery through to ordinary content");
+		CHECK(ui_box_find_deepest(root, v2(tooltip_child->rect.x + 1.f, tooltip_child->rect.y + 1.f)) == tooltip_child, "actual overlay content wins hit discovery over the underlying tree");
+		ui_end_frame(ui);
+
+		ui_begin_frame(ui);
+		root = ui_build_begin(ui, UI_KEY("tooltip test"), LIT("root"), root_desc);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(60.f));
+		ui_size(ui, AXIS_Y, ui_fixed(40.f));
+		ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
+		ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
+		host = ui_box_begin(ui, 1, LIT("clipped host"));
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(13.f));
+		ui_background(ui, color_srgba(0x123456));
+		before = ui_box_make(ui, 1, LIT("before tooltip"));
+		tooltip = ui_tooltip_begin(ui, 1, v2(-100.f, -100.f));
+		ui_push_box_z(ui, UI_Z_OVERLAY);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(40.f));
+		ui_size(ui, AXIS_Y, ui_fixed(20.f));
+		tooltip_child = ui_box_make(ui, 1, LIT("arbitrary tooltip child"));
+		ui_clean(ui);
+		ui_pop_box_z(ui);
+		ui_tooltip_end(ui);
+		ui_clean(ui);
+		ui_box_end(ui);
+		ui_build_end(ui);
+		CHECK(before->has_previous && tooltip->has_previous && tooltip_child->has_previous, "tooltip and owner geometry persist independently under stable IDs");
+		CHECK(playground_near(before->state->rect.w, 13.f) && playground_near(tooltip->state->rect.w, 56.f), "the tooltip does not overwrite the owner's previous rectangle");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(120.f, 80.f), .max = v2(120.f, 80.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 120.f, 80.f });
+		CHECK(playground_near(tooltip->rect.x, 8.f) && playground_near(tooltip->rect.y, 8.f), "tooltip placement also clamps against the top-left window edges");
+		CHECK(playground_near(tooltip->state->rect.x, 8.f) && playground_near(tooltip_child->state->rect.x, 16.f), "clamped tooltip geometry commits after prepare-layout translation");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.axis = AXIS_X;
+		root_desc.horz_padd[0] = root_desc.horz_padd[1] = 10.f;
+		root_desc.overflow[AXIS_X] = UI_BOX_OVERFLOW_CLIP;
+		root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+		UI_Box *root = ui_build_begin(ui, UI_KEY("clipped scene root"), LIT("clipped scene root"), root_desc);
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(200.f));
+		ui_size(ui, AXIS_Y, ui_fixed(20.f));
+		UI_Box *child = ui_box_make(ui, 1, LIT("oversized child"));
+		ui_build_end(ui);
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(playground_near(ui->content_root->rect.x, 10.f) && playground_near(ui->content_root->rect.w, 80.f) && playground_near(ui->content_root->rect.h, 100.f) && playground_near(ui->overlay_root->rect.x, 10.f) && playground_near(ui->overlay_root->rect.w, 80.f) && playground_near(ui->overlay_root->rect.h, 100.f), "the internal content and overlay roots both receive the complete padded scene viewport");
+		CHECK(ui_id_equal(child->id, ui_id_child(root->id, 1)), "the internal content root does not perturb caller box IDs");
+		CHECK(playground_near(child->clip_rect.x, 10.f) && playground_near(child->clip_rect.w, 80.f) && playground_near(child->state->hit_rect.x, 10.f) && playground_near(child->state->hit_rect.w, 80.f) && playground_near(child->state->hit_rect.h, 20.f), "root overflow clipping propagates through the internal linear content root");
+		CHECK(ui_box_find_deepest(root, v2(50.f, 10.f)) == child, "an empty structural overlay does not hide ordinary content from hit discovery");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		UI_BoxDesc desc = ui_defaults();
+		UI_Builder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), desc);
-		UI_Box *a = ui_box_begin_desc(&builder, 1, LIT("a"), desc);
-		UI_Box *b = ui_box_make_desc(&builder, 1, LIT("b"), desc);
-		UI_Box *c = ui_box_make_desc(&builder, 2, LIT("c"), desc);
-		ui_box_end(&builder);
-		UI_Box *d = ui_box_make_desc(&builder, 2, LIT("d"), desc);
+		ui_builder_clean(&builder);
+		UI_Box *a = ui_builder_box_begin_desc(&builder, 1, LIT("a"), desc);
+		ui_builder_clean(&builder);
+		UI_Box *b = ui_builder_box_make_desc(&builder, 1, LIT("b"), desc);
+		ui_builder_clean(&builder);
+		UI_Box *c = ui_builder_box_make_desc(&builder, 2, LIT("c"), desc);
+		ui_builder_box_end(&builder);
+		ui_builder_clean(&builder);
+		UI_Box *d = ui_builder_box_make_desc(&builder, 2, LIT("d"), desc);
 		ui_box_builder_end(&builder);
-		CHECK(root->child_count == 2 && root->children[0] == a && root->children[1] == d, "builder stores root children contiguously and in order");
-		CHECK(a->child_count == 2 && a->children[0] == b && a->children[1] == c, "builder stores nested children contiguously and in order");
+		CHECK(root->child_count == 2 && root->first == a && root->last == d && a->parent == root && d->parent == root && a->next == d && d->prev == a, "builder links root children in both directions and in order");
+		CHECK(a->child_count == 2 && a->first == b && a->last == c && b->parent == a && c->parent == a && b->next == c && c->prev == b, "builder links nested children in both directions and in order");
 		CHECK(root->id.value && ui_id_equal(a->id, ui_id_child(root->id, 1)) && ui_id_equal(b->id, ui_id_child(a->id, 1)), "box IDs derive from their structural parent and construction key");
 		CHECK(!ui_id_equal(b->id, d->id), "the same local key in a different structural scope produces a different ID");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_BoxDesc desc = ui_box_desc();
-		UI_BoxBuilder builder;
+		UI_Builder builder;
+		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), ui_defaults());
+		ui_builder_clean(&builder);
+		ui_builder_background(&builder, color_srgba(0x123456));
+		UI_Box *background = ui_builder_box_make(&builder, 1, LIT("background"));
+		ui_builder_clean(&builder);
+		ui_builder_background(&builder, color_srgba(0x123456));
+		ui_builder_border(&builder, color_srgba(0xABCDEF), 2.f);
+		ui_builder_roundness(&builder, 4.f);
+		ui_builder_inset_shadow(&builder, 0.25f);
+		UI_Box *styled = ui_builder_box_make(&builder, 2, LIT("styled"));
+		ui_builder_clean(&builder);
+		ui_builder_background(&builder, color_srgba(0x123456));
+		UI_Box *restored = ui_builder_box_make(&builder, 3, LIT("restored"));
+		ui_builder_push_box_z(&builder, 100);
+		ui_builder_clean(&builder);
+		ui_builder_paint_z(&builder, 3);
+		UI_Box *scoped_z = ui_builder_box_make(&builder, 4, LIT("scoped z"));
+		ui_builder_push_box_z(&builder, 200);
+		ui_builder_clean(&builder);
+		ui_builder_paint_z(&builder, 3);
+		UI_Box *nested_z = ui_builder_box_make(&builder, 5, LIT("nested z"));
+		ui_builder_pop_box_z(&builder);
+		ui_builder_clean(&builder);
+		ui_builder_paint_z(&builder, 3);
+		UI_Box *restored_z = ui_builder_box_make(&builder, 6, LIT("restored z"));
+		ui_builder_pop_box_z(&builder);
+		ui_builder_clean(&builder);
+		ui_builder_paint_z(&builder, 3);
+		UI_Box *local_z = ui_builder_box_make(&builder, 7, LIT("local z"));
+		ui_builder_clean(&builder);
+		ui_box_builder_end(&builder);
+		CHECK(!root->paint.flags, "the box root snapshots the initial paint description");
+		CHECK(background->paint.flags == UI_BOX_DRAW_BACKGROUND, "a box snapshots the active background");
+		CHECK(styled->paint.flags == (UI_BOX_DRAW_BACKGROUND | UI_BOX_DRAW_BORDER | UI_BOX_DRAW_INSET_SHADOW) && playground_near(styled->paint.border_width, 2.f) && playground_near(styled->paint.roundness, 4.f) && playground_near(styled->paint.inset_shadow, 0.25f), "a complete paint declaration composes on one box");
+		CHECK(restored->paint.flags == UI_BOX_DRAW_BACKGROUND && playground_near(restored->paint.roundness, 0.f) && playground_near(restored->paint.inset_shadow, 0.f), "an independent paint declaration does not retain unrelated attributes");
+		CHECK(scoped_z->paint.z == 103 && nested_z->paint.z == 203 && restored_z->paint.z == 103 && local_z->paint.z == 3, "the manual box z stack offsets local paint depth and restores the previous top");
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		UI_BoxDesc desc = ui_defaults();
+		UI_Builder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), desc);
-		ui_box_push_id(&builder, 100);
-		UI_Box *first = ui_box_make_desc(&builder, 1, LIT("first"), desc);
-		ui_box_pop_id(&builder);
-		ui_box_push_id(&builder, 200);
-		UI_Box *second = ui_box_make_desc(&builder, 1, LIT("second"), desc);
-		ui_box_pop_id(&builder);
+		ui_builder_push_id(&builder, 100);
+		ui_builder_clean(&builder);
+		UI_Box *first = ui_builder_box_make_desc(&builder, 1, LIT("first"), desc);
+		ui_builder_pop_id(&builder);
+		ui_builder_push_id(&builder, 200);
+		ui_builder_clean(&builder);
+		UI_Box *second = ui_builder_box_make_desc(&builder, 1, LIT("second"), desc);
+		ui_builder_pop_id(&builder);
 		ui_box_builder_end(&builder);
 		CHECK(root->child_count == 2 && !ui_id_equal(first->id, second->id), "explicit ID scopes disambiguate repeated component-local keys");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_BoxBuilder builder;
-		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), ui_box_desc());
-		ui_push(&builder);
-		ui_size(&builder, AXIS_Y, ui_box_fill(1.f));
-		ui_size(&builder, AXIS_X, ui_box_pixels(60.f));
-		UI_Box *first = ui_box_make(&builder, 1, LIT("first"));
-		UI_Box *second = ui_box_make(&builder, 2, LIT("second"));
-		ui_push(&builder);
-		ui_size(&builder, AXIS_X, ui_box_pixels(10.f));
-		UI_Box *nested = ui_box_make(&builder, 3, LIT("nested"));
-		ui_pop(&builder);
-		UI_Box *restored = ui_box_make(&builder, 4, LIT("restored"));
-		ui_pop(&builder);
-		UI_Box *defaults = ui_box_make(&builder, 5, LIT("defaults"));
+		UI_Builder builder;
+		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), ui_defaults());
+		ui_builder_clean(&builder);
+		ui_builder_size(&builder, AXIS_Y, ui_grow(1.f));
+		ui_builder_size(&builder, AXIS_X, ui_fixed(60.f));
+		UI_Box *first = ui_builder_box_make(&builder, 1, LIT("first"));
+		ui_builder_clean(&builder);
+		ui_builder_size(&builder, AXIS_Y, ui_grow(1.f));
+		ui_builder_size(&builder, AXIS_X, ui_fixed(60.f));
+		UI_Box *second = ui_builder_box_make(&builder, 2, LIT("second"));
+		ui_builder_clean(&builder);
+		ui_builder_size(&builder, AXIS_Y, ui_grow(1.f));
+		ui_builder_size(&builder, AXIS_X, ui_fixed(10.f));
+		UI_Box *nested = ui_builder_box_make(&builder, 3, LIT("nested"));
+		ui_builder_clean(&builder);
+		ui_builder_size(&builder, AXIS_Y, ui_grow(1.f));
+		ui_builder_size(&builder, AXIS_X, ui_fixed(60.f));
+		UI_Box *restored = ui_builder_box_make(&builder, 4, LIT("restored"));
+		ui_builder_clean(&builder);
+		UI_Box *defaults = ui_builder_box_make(&builder, 5, LIT("defaults"));
+		ui_builder_clean(&builder);
 		ui_box_builder_end(&builder);
-		CHECK(root->child_count == 5 && first->desc.size[AXIS_X].value == 60.f && second->desc.size[AXIS_X].value == 60.f, "active descriptor values apply to every box in the construction scope");
-		CHECK(nested->desc.size[AXIS_X].value == 10.f && restored->desc.size[AXIS_X].value == 60.f, "pop restores the complete previous descriptor");
-		CHECK(restored->desc.size[AXIS_Y].kind == UI_BOX_SIZE_FILL && defaults->desc.size[AXIS_X].kind == UI_BOX_SIZE_CONTENT, "nested descriptor scopes restore all fields");
+		CHECK(root->child_count == 5 && first->desc.size[AXIS_X].value == 60.f && second->desc.size[AXIS_X].value == 60.f, "repeated independent declarations produce matching box descriptions");
+		CHECK(nested->desc.size[AXIS_X].value == 10.f && restored->desc.size[AXIS_X].value == 60.f, "an isolated declaration does not modify a later repeated declaration");
+		CHECK(restored->desc.size[AXIS_Y].kind == UI_BOX_SIZE_FILL && defaults->desc.size[AXIS_X].kind == UI_BOX_SIZE_CONTENT, "clean construction starts from the complete default description");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_BoxBuilder builder;
-		ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), ui_box_desc());
+		OS_Window window = { .size = v2i(300, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
 		UI_BoxTableColumn columns[] = {
 			ui_box_table_content(),
 			ui_box_table_fixed(50.f),
 			ui_box_table_flex(1.f),
 		};
-		UI_BoxTable table = ui_box_table_begin(&builder, 1, LIT("table"), (UI_BoxTableDesc) {
+		ui_clean(ui);
+		UI_BoxTable table = ui_box_table_begin(ui, 1, LIT("table"), (UI_BoxTableDesc) {
 			.columns = columns,
 			.column_count = ArrayCount(columns),
 			.row_height = 20.f,
@@ -875,6 +1135,12 @@ static int playground_run_tests(void)
 		ui_box_table_cell_end(&table);
 		UI_Box *r0c1 = ui_box_table_cell_begin(&table);
 		r0c1->intrinsic_size.x = 10.f;
+		r0c1->desc.layout = &UI_FlatLayoutHooks;
+		ui_clean(ui);
+		ui_size(ui, AXIS_X, ui_fixed(10.f));
+		ui_size(ui, AXIS_Y, ui_fixed(10.f));
+		ui_align(ui, AXIS_X, 1.f);
+		UI_Box *right_aligned = ui_box_make(ui, 1, LIT("right aligned"));
 		ui_box_table_cell_end(&table);
 		UI_Box *r0c2 = ui_box_table_cell_begin(&table);
 		r0c2->intrinsic_size.x = 20.f;
@@ -883,8 +1149,9 @@ static int playground_run_tests(void)
 		ui_box_table_row_begin(&table, 2);
 		UI_Box *r1c0 = ui_box_table_cell_begin(&table);
 		u32 nested_measure_count = 0;
-		UI_Box *nested = ui_box_make_desc(&builder, 1, LIT("nested"), ui_box_desc());
-		nested->ops = &playground_test_counted_ops;
+		ui_clean(ui);
+		UI_Box *nested = ui_box_make(ui, 1, LIT("nested"));
+		nested->hooks = &playground_test_counted_ops;
 		nested->user = &nested_measure_count;
 		ui_box_table_cell_end(&table);
 		ui_box_table_cell_begin(&table);
@@ -893,140 +1160,286 @@ static int playground_run_tests(void)
 		ui_box_table_cell_end(&table);
 		ui_box_table_row_end(&table);
 		UI_Box *table_box = ui_box_table_end(&table);
-		ui_box_builder_end(&builder);
+		ui_build_end(ui);
 		ui_box_measure(table_box, (UI_BoxConstraints) { .max = v2(300.f, 100.f) });
 		ui_box_layout(table_box, (rect_f32) { 0.f, 0.f, 300.f, 42.f });
-		UI_Box *r1c1 = table_box->children[1]->children[1];
-		UI_Box *r1c2 = table_box->children[1]->children[2];
+		UI_Box *second_row = table_box->first->next;
+		UI_Box *r1c1 = second_row->first->next;
+		UI_Box *r1c2 = second_row->last;
 		CHECK(playground_near(r0c0->rect.w, 70.f) && playground_near(r1c0->rect.w, 70.f), "content table tracks use the widest cell subtree across rows");
 		CHECK(playground_near(r0c1->rect.w, 50.f) && playground_near(r1c1->rect.w, 50.f), "fixed table tracks remain aligned across rows");
 		CHECK(playground_near(r0c2->rect.w, 170.f) && playground_near(r1c2->rect.w, 170.f), "flex table tracks receive the remaining width");
 		CHECK(playground_near(r0c1->rect.x, r1c1->rect.x) && playground_near(r0c2->rect.x, r1c2->rect.x), "cell boundaries align across every table row");
+		CHECK(playground_near(right_aligned->rect.x + right_aligned->rect.w, r0c1->viewport.x + r0c1->viewport.w), "a table cell can use frame alignment without involving linear layout");
 		CHECK(nested_measure_count == 1, "table cells are measured once before shared tracks are resolved");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_Box *root = playground_test_row(&arena, 400.f, ui_box_flex(0.f, 3.f), 300.f, 0.f, UI_BOX_INFINITY, ui_box_flex(0.f, 1.f), 300.f, 0.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 150.f) && playground_near(root->children[1]->rect.w, 250.f), "negative space follows shrink weights");
+		UI_Box *root = playground_test_row(&arena, 400.f, ui_flex(0.f, 3.f), 300.f, 0.f, UI_BOX_INFINITY, ui_flex(0.f, 1.f), 300.f, 0.f, UI_BOX_INFINITY);
+		CHECK(playground_near(root->first->rect.w, 150.f) && playground_near(root->last->rect.w, 250.f), "negative space follows shrink weights");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_BoxDesc desc = ui_box_desc();
+		UI_BoxDesc desc = ui_defaults();
 		desc.axis = AXIS_X;
-		UI_BoxBuilder builder;
+		UI_Builder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), desc);
 		root->intrinsic_size.x = 270.f;
-		UI_Box *child = ui_box_make_desc(&builder, 1, LIT("child"), desc);
+		ui_builder_clean(&builder);
+		UI_Box *child = ui_builder_box_make_desc(&builder, 1, LIT("child"), desc);
 		child->intrinsic_size.x = 100.f;
 		ui_box_builder_end(&builder);
 		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, UI_BOX_INFINITY) });
 		CHECK(playground_near(root->measured_size.x, 270.f), "intrinsic basis remains independent from child content");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_Box *root = playground_test_row(&arena, 300.f, ui_box_flex(0.f, 3.f), 300.f, 200.f, UI_BOX_INFINITY, ui_box_flex(0.f, 1.f), 300.f, 0.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 200.f) && playground_near(root->children[1]->rect.w, 100.f), "shrink deficit redistributes after a child reaches its minimum");
+		UI_Box *root = playground_test_row(&arena, 300.f, ui_flex(0.f, 3.f), 300.f, 200.f, UI_BOX_INFINITY, ui_flex(0.f, 1.f), 300.f, 0.f, UI_BOX_INFINITY);
+		CHECK(playground_near(root->first->rect.w, 200.f) && playground_near(root->last->rect.w, 100.f), "shrink deficit redistributes after a child reaches its minimum");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_Box *root = playground_test_row(&arena, 400.f, ui_box_fill(1.f), 0.f, 0.f, 100.f, ui_box_fill(1.f), 0.f, 0.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 100.f) && playground_near(root->children[1]->rect.w, 300.f), "grow surplus redistributes after a child reaches its maximum");
+		UI_Box *root = playground_test_row(&arena, 400.f, ui_grow(1.f), 0.f, 0.f, 100.f, ui_grow(1.f), 0.f, 0.f, UI_BOX_INFINITY);
+		CHECK(playground_near(root->first->rect.w, 100.f) && playground_near(root->last->rect.w, 300.f), "grow surplus redistributes after a child reaches its maximum");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
 		UI_BoxDesc root_desc = playground_fill_desc();
 		root_desc.axis = AXIS_X;
 		root_desc.gap = 20.f;
-		UI_BoxBuilder builder;
+		UI_Builder builder;
 		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
 
 		UI_BoxDesc fixed = playground_fill_desc();
-		fixed.size[AXIS_X] = ui_box_pixels(100.f);
+		fixed.size[AXIS_X] = ui_fixed(100.f);
 		fixed.horz_margin[0] = 10.f;
 		fixed.horz_margin[1] = 10.f;
-		ui_box_make_desc(&builder, 1, LIT("fixed"), fixed);
+		ui_builder_clean(&builder);
+		ui_builder_box_make_desc(&builder, 1, LIT("fixed"), fixed);
 
 		UI_BoxDesc fill = playground_fill_desc();
-		fill.size[AXIS_X] = ui_box_fill(1.f);
-		ui_box_make_desc(&builder, 2, LIT("fill"), fill);
+		fill.size[AXIS_X] = ui_grow(1.f);
+		ui_builder_clean(&builder);
+		ui_builder_box_make_desc(&builder, 2, LIT("fill"), fill);
 
 		ui_box_builder_end(&builder);
 		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(400.f, 100.f) });
 		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 400.f, 100.f });
-		CHECK(playground_near(root->children[1]->rect.w, 260.f), "margins and gaps are deducted before distributing free space");
+		CHECK(playground_near(root->last->rect.w, 260.f), "margins and gaps are deducted before distributing free space");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_Box *root = playground_test_row(&arena, 100.f, ui_box_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY, ui_box_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY);
-		CHECK(playground_near(root->children[0]->rect.w, 80.f) && playground_near(root->children[1]->rect.w, 80.f), "unsatisfied deficit stops at child minimums without negative sizes");
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.layout = &UI_FlatLayoutHooks;
+		UI_Builder builder;
+		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
+
+		UI_BoxDesc fixed = ui_defaults();
+		fixed.size[AXIS_X] = ui_fixed(50.f);
+		fixed.size[AXIS_Y] = ui_fixed(20.f);
+		ui_builder_clean(&builder);
+		UI_Box *first = ui_builder_box_make_desc(&builder, 1, LIT("first"), fixed);
+
+		ui_builder_clean(&builder);
+		ui_builder_rect(&builder, (rect_f32) { 35.f, 20.f, 80.f, 40.f });
+		UI_Box *positioned = ui_builder_box_begin(&builder, 2, LIT("positioned"));
+
+		UI_BoxDesc contents = playground_fill_desc();
+		ui_builder_clean(&builder);
+		UI_Box *nested = ui_builder_box_make_desc(&builder, 1, LIT("nested"), contents);
+		ui_builder_clean(&builder);
+		ui_builder_box_end(&builder);
+
+		fixed.size[AXIS_X] = ui_fixed(60.f);
+		fixed.size[AXIS_Y] = ui_fixed(10.f);
+		ui_builder_clean(&builder);
+		UI_Box *last = ui_builder_box_make_desc(&builder, 3, LIT("last"), fixed);
+
+		UI_BoxDesc fill = playground_fill_desc();
+		fill.horz_margin[0] = fill.horz_margin[1] = 5.f;
+		fill.vert_margin[0] = fill.vert_margin[1] = 5.f;
+		ui_builder_clean(&builder);
+		UI_Box *filled = ui_builder_box_make_desc(&builder, 4, LIT("filled"), fill);
+
+		ui_box_builder_end(&builder);
+		ui_box_measure(root, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, UI_BOX_INFINITY) });
+		CHECK(playground_near(root->measured_size.x, 115.f) && playground_near(root->measured_size.y, 60.f), "a wrapping frame measures the maximum positioned child extent instead of summing its children");
+		ui_box_layout(root, rect_f32_from_size(root->measured_size));
+		CHECK(playground_near(root->content_size.x, 115.f) && playground_near(root->content_size.y, 60.f), "frame content size retains the viewport-relative extent represented by positioned content bounds");
+		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(300.f, 100.f), .max = v2(300.f, 100.f) });
+		ui_box_layout(root, (rect_f32) { 10.f, 5.f, 300.f, 100.f });
+		CHECK(playground_near(first->rect.x, 10.f) && playground_near(first->rect.y, 5.f) && playground_near(last->rect.x, 10.f) && playground_near(last->rect.y, 5.f), "ordinary frame children overlap at the parent viewport origin");
+		CHECK(playground_near(positioned->rect.x, 45.f) && playground_near(positioned->rect.y, 25.f) && playground_near(positioned->rect.w, 80.f) && playground_near(positioned->rect.h, 40.f), "ui_builder_rect assigns an explicit frame-relative rectangle");
+		CHECK(playground_near(nested->rect.x, 45.f) && playground_near(nested->rect.y, 25.f) && playground_near(nested->rect.w, 80.f) && playground_near(nested->rect.h, 40.f), "a positioned frame child may lay out its own descendants linearly");
+		CHECK(playground_near(filled->rect.x, 15.f) && playground_near(filled->rect.y, 10.f) && playground_near(filled->rect.w, 290.f) && playground_near(filled->rect.h, 90.f), "a frame child fills the independently available area inside its margins");
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_BoxDesc root_desc = ui_box_desc();
-		UI_BoxBuilder builder;
-		ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
-		UI_BoxDesc list_desc = ui_box_desc();
-		list_desc.gap = 8.f;
-		UI_Box *list = ui_box_make_virtual_list_desc(&builder, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
+		UI_BoxDesc root_desc = ui_defaults();
+		root_desc.layout = &UI_FlatLayoutHooks;
+		UI_Builder builder;
+		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("alignment frame"), root_desc);
+
+		ui_builder_clean(&builder);
+		ui_builder_size(&builder, AXIS_X, ui_fixed(20.f));
+		ui_builder_size(&builder, AXIS_Y, ui_fixed(10.f));
+		ui_builder_margin(&builder, AXIS_X, 5.f, 15.f);
+		ui_builder_margin(&builder, AXIS_Y, 7.f, 3.f);
+		ui_builder_align(&builder, AXIS_X, 1.f);
+		ui_builder_align(&builder, AXIS_Y, 0.5f);
+		UI_Box *aligned = ui_builder_box_make(&builder, 1, LIT("aligned"));
+
+		UI_BoxDesc mixed_desc = ui_defaults();
+		mixed_desc.size[AXIS_X] = ui_fixed(30.f);
+		mixed_desc.size[AXIS_Y] = ui_fixed(15.f);
+		mixed_desc.vert_margin[0] = 2.f;
+		mixed_desc.vert_margin[1] = 8.f;
+		mixed_desc.position[AXIS_X] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_PARENT, .value = -10.f };
+		mixed_desc.position[AXIS_Y] = (UI_BoxPosition) { .kind = UI_BOX_POSITION_ALIGN, .value = 1.f };
+		ui_builder_clean(&builder);
+		UI_Box *mixed = ui_builder_box_make_desc(&builder, 2, LIT("mixed position"), mixed_desc);
+		ui_builder_clean(&builder);
+
+		ui_box_builder_end(&builder);
+		vec2 measured = ui_box_measure(root, (UI_BoxConstraints) { .max = v2(UI_BOX_INFINITY, UI_BOX_INFINITY) });
+		CHECK(playground_near(measured.x, 40.f) && playground_near(measured.y, 25.f), "aligned frame children contribute their natural size and margins during measurement");
+		ui_box_layout(root, (rect_f32) { 100.f, 50.f, 100.f, 80.f });
+		CHECK(playground_near(aligned->rect.x, 165.f) && playground_near(aligned->rect.y, 87.f), "frame alignment uses rect_f32_align inside the child's margins");
+		CHECK(playground_near(mixed->rect.x, 90.f) && playground_near(mixed->rect.y, 107.f), "frame positioning kinds compose independently on each axis");
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		UI_Box *root = playground_test_row(&arena, 100.f, ui_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY, ui_flex(0.f, 1.f), 200.f, 80.f, UI_BOX_INFINITY);
+		CHECK(playground_near(root->first->rect.w, 80.f) && playground_near(root->last->rect.w, 80.f), "unsatisfied deficit stops at child minimums without negative sizes");
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		ui_build_begin(ui, 1, LIT("root"), root_desc);
+		ui_clean(ui);
+		ui_gap(ui, 8.f);
+		UI_Box *list = ui_virtual_list(ui, 1, LIT("list"), (UI_VirtualListDesc) {
 			.item_count = 1,
 			.build_item = playground_build_test_virtual_item,
 		});
-		ui_box_builder_end(&builder);
+		ui_build_end(ui);
 		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 100.f) });
-		ui_box_layout(list, rect_f32_from_size(list->measured_size));
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, list->measured_size.y });
 		CHECK(playground_near(list->measured_size.y, 42.f) && playground_near(list->content_size.y, 42.f), "a short virtual list wraps its logical items");
-		CHECK(list->child_count == 1 && list->children[0]->child_count == 1, "a virtual item materializes as an arbitrary box subtree");
-		CHECK(ui_id_equal(list->children[0]->id, ui_id_child(ui_id_child(list->id, 0), 1)), "a virtual item ID includes its logical item scope");
+		CHECK(list->child_count == 1 && list->first->child_count == 1, "a virtual item materializes as an arbitrary box subtree");
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 0), 1)), "a virtual item ID includes its logical item scope");
+		CHECK(playground_near(list->first->rect.w, 100.f), "a virtual item can fill the viewport perpendicular to the list axis");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_BoxDesc root_desc = ui_box_desc();
-		UI_BoxBuilder builder;
-		ui_box_builder_begin(&builder, &arena, 0, 1, LIT("root"), root_desc);
-		UI_BoxDesc list_desc = ui_box_desc();
-		list_desc.gap = 8.f;
-		UI_Box *list = ui_box_make_virtual_list_desc(&builder, 1, LIT("list"), list_desc, (UI_BoxVirtualListDesc) {
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		UI_BoxDesc root_desc = ui_defaults();
+		ui_build_begin(ui, 1, LIT("root"), root_desc);
+		ui_clean(ui);
+		ui_gap(ui, 8.f);
+		UI_Box *list = ui_virtual_list(ui, 1, LIT("list"), (UI_VirtualListDesc) {
 			.item_count = 1000,
 			.build_item = playground_build_test_virtual_item,
 		});
-		ui_box_builder_end(&builder);
+		ui_build_end(ui);
 		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 100.f) });
 		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
 		CHECK(playground_near(list->measured_size.y, 100.f) && playground_near(list->content_size.y, 49992.f), "a long virtual list clamps while preserving its full logical extent");
-		CHECK(list->child_count == 4 && list->virtual_list.first_item == 0 && list->virtual_list.one_past_item == 4, "a virtual list materializes only visible and overscan items");
-		list->scroll_offset.y = 500.f;
-		ui_box_relayout(list);
-		CHECK(list->child_count == 6 && list->children[0]->virtual_index == 8 && list->children[5]->virtual_index == 13, "scrolling rematerializes the correct logical item range");
-		CHECK(ui_id_equal(list->children[0]->id, ui_id_child(ui_id_child(list->id, 8), 1)), "rematerialized virtual items retain deterministic IDs");
+		CHECK(list->child_count == 4 && ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 0), 1)) && ui_id_equal(list->last->id, ui_id_child(ui_id_child(list->id, 3), 1)), "a virtual list materializes only visible and overscan items");
+		list->desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_CLIP;
+		ui_box_layout_clipped(list, (rect_f32) { 0.f, 0.f, 100.f, 100.f }, (rect_f32) { 0.f, 0.f, 100.f, 500.f });
+		CHECK(list->child_count == 4 && ui_id_equal(list->last->id, ui_id_child(ui_id_child(list->id, 3), 1)), "virtualization uses the list's effective clip instead of realizing the larger ancestor clip");
+		list->desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_VISIBLE;
+		ui_box_layout_clipped(list, (rect_f32) { 0.f, -500.f, 100.f, 100.f }, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(list->child_count == 6 && !list->first->prev && !list->last->next, "scrolling rematerializes a valid linked range of logical items");
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 8), 1)) && ui_id_equal(list->last->id, ui_id_child(ui_id_child(list->id, 13), 1)), "rematerialized virtual items retain deterministic IDs");
+		ui_box_layout_clipped(list, (rect_f32) { 0.f, -49892.f, 100.f, 100.f }, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 995), 1)) && ui_id_equal(list->last->id, ui_id_child(ui_id_child(list->id, 999), 1)), "a translated virtual list realizes its final items at the bottom boundary");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
 	}
 
-	ARENA_SCOPE(&arena)
+	SCRATCH_SCOPE(&arena)
 	{
-		UI_BoxDesc root_desc = playground_fill_desc();
-		root_desc.axis = AXIS_Y;
-		root_desc.overflow[AXIS_Y] = UI_BOX_OVERFLOW_SCROLL;
-		UI_BoxBuilder builder;
-		UI_Box *root = ui_box_builder_begin(&builder, &arena, 0, 1, LIT("scroll"), root_desc);
+		OS_Window window = { .size = v2i(100, 100) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		u32 build_count = 0;
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
+		ui_clean(ui);
+		UI_Box *list = ui_virtual_list(ui, 1, LIT("empty list"), (UI_VirtualListDesc) {
+			.user = &build_count,
+			.build_item = playground_build_counted_test_virtual_item,
+		});
+		ui_build_end(ui);
+		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 100.f) });
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
+		CHECK(!build_count && playground_near(list->content_size.y, 0.f), "an empty virtual list does not invoke its item builder or invent content");
+		CHECK(!list->child_count, "an empty virtual list materializes no boxes");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
 
-		UI_BoxDesc content = playground_fill_desc();
-		content.size[AXIS_Y] = ui_box_pixels(200.f);
-		UI_Box *child = ui_box_make_desc(&builder, 1, LIT("content"), content);
-		ui_box_builder_end(&builder);
-		ui_box_measure(root, (UI_BoxConstraints) { .min = v2(100.f, 100.f), .max = v2(100.f, 100.f) });
-		ui_box_layout(root, (rect_f32) { 0.f, 0.f, 100.f, 100.f });
-		root->scroll_offset.y = 500.f;
-		ui_box_relayout(root);
-		CHECK(playground_near(root->content_size.y, 200.f) && playground_near(root->scroll_max.y, 100.f), "layout computes content extent and scroll range");
-		CHECK(playground_near(root->scroll_offset.y, 100.f) && playground_near(child->rect.y, -100.f), "layout clamps scroll and places descendant geometry at its scrolled position");
-		CHECK(ui_box_find_deepest(root, v2(50.f, 50.f)) == child && !ui_box_find_deepest(root, v2(50.f, 150.f)), "hit testing uses translated geometry and the effective clip");
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 60) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
+		ui_clean(ui);
+		ui_axis(ui, AXIS_X);
+		ui_gap(ui, 5.f);
+		UI_Box *list = ui_virtual_list(ui, 1, LIT("horizontal list"), (UI_VirtualListDesc) {
+			.item_count = 10,
+			.build_item = playground_build_test_horizontal_virtual_item,
+		});
+		ui_build_end(ui);
+		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 60.f) });
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 60.f });
+		CHECK(playground_near(list->content_size.x, 345.f) && playground_near(list->first->rect.h, 60.f), "virtual-list extent and perpendicular fill work on the horizontal axis");
+		ui_box_layout_clipped(list, (rect_f32) { -175.f, 0.f, 100.f, 60.f }, (rect_f32) { 0.f, 0.f, 100.f, 60.f });
+		CHECK(ui_id_equal(list->first->id, ui_id_child(ui_id_child(list->id, 3), 1)), "a horizontal virtual list rematerializes the current logical range");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
+	}
+
+	SCRATCH_SCOPE(&arena)
+	{
+		OS_Window window = { .size = v2i(100, 60) };
+		UI_Context *ui = playground_test_ui_create(&arena, &window);
+		ui_begin_frame(ui);
+		ui_build_begin(ui, 1, LIT("root"), ui_defaults());
+		ui_clean(ui);
+		ui_gap(ui, 4.f);
+		UI_Box *list = ui_virtual_list(ui, 1, LIT("margined list"), (UI_VirtualListDesc) {
+			.item_count = 3,
+			.build_item = playground_build_test_margined_virtual_item,
+		});
+		ui_build_end(ui);
+		ui_box_measure(list, (UI_BoxConstraints) { .max = v2(100.f, 60.f) });
+		ui_box_layout(list, (rect_f32) { 0.f, 0.f, 100.f, 60.f });
+		CHECK(playground_near(list->content_size.y, 140.f) && playground_near(list->first->rect.y, 5.f) && playground_near(list->first->next->rect.y, 53.f), "virtual-list item extent includes margins exactly once");
+		ui_end_frame(ui);
+		arena_destroy(&ui->frame_arena);
 	}
 
 #undef CHECK
@@ -1038,6 +1451,16 @@ static int playground_run_tests(void)
 	}
 	printf("UI playground: all layout tests passed\n");
 	return 0;
+}
+
+static b32 playground_key_pressed(const OS_Window *window, OS_Key key)
+{
+	for (u32 event_index = 0; event_index < os_window_event_count(window); ++event_index)
+	{
+		const OS_Event *event = os_window_event(window, event_index);
+		if (event->type == OS_EVENT_KEY_PRESS && event->key == key && !event->repeat) return true;
+	}
+	return false;
 }
 
 static int playground_run_window(void)
@@ -1075,39 +1498,38 @@ static int playground_run_window(void)
 		return 1;
 	}
 
-	GFX_Renderer *renderer = gfx_renderer_create(&arena);
-	GFX_Window *gfx_window = gfx_window_create(&arena, renderer, window);
+	GFX_Renderer *renderer = gfx_create_renderer(&arena);
+	GFX_Window *gfx_window = gfx_create_window(&arena, renderer, window);
 	Draw_Context *draw = draw_create(&arena, renderer);
 	Text_Context *text = text_create(&arena);
 	Text_GFX *text_gfx = text_gfx_create(&arena, renderer, text);
-	UI_Context *ui = ui_create(&arena, window, text, ui_default_theme(font));
+	Input_State input = {};
+	UI_Context *ui = ui_create(&arena, window, &input, text, draw, ui_default_theme(font));
 	text_preload_ascii(text, font, 14);
 	text_preload_ascii(text, font, 16);
 
 	vec2i previous_size = {};
 	u32 density_index = 1;
 	UI_Id selected_id = UI_ID_NONE;
-	UI_Id active_scrollbar = UI_ID_NONE;
 	PlaygroundMode mode = PLAYGROUND_MODE_BASICS;
-	PlaygroundScroll scrolls[PLAYGROUND_MODE_COUNT][4] = {};
-	Seconds previous_frame_time = seconds_now();
 	while (os_window_is_open(window))
 	{
-		os_graphical_poll();
-		Seconds frame_time = seconds_now();
-		f32 elapsed = (f32)Max(frame_time.seconds - previous_frame_time.seconds, 0.0);
-		previous_frame_time = frame_time;
+		os_poll_windows();
+		b32 reset_scroll_history = false;
 		if (!os_window_is_open(window)) {
 			break;
 		}
-		if (window->keys[OS_Key_Space] & OS_KEY_PRESSED) {
+		input_state_update(&input, window);
+		if (playground_key_pressed(window, OS_Key_Space)) {
 			density_index = (density_index + 1) % ArrayCount(playground_densities);
+			ui_invalidate_layout(ui);
 		}
-		if (window->keys[OS_Key_Tab] & OS_KEY_PRESSED) {
+		if (playground_key_pressed(window, OS_Key_Tab)) {
 			mode = (mode + 1) % PLAYGROUND_MODE_COUNT;
-			active_scrollbar = UI_ID_NONE;
+			ui_invalidate_layout(ui);
 		}
-		if (window->keys[OS_Key_Backspace] & OS_KEY_PRESSED) {
+		if (playground_key_pressed(window, OS_Key_R) && mode == PLAYGROUND_MODE_SCROLL_HISTORY) reset_scroll_history = true;
+		if (playground_key_pressed(window, OS_Key_Backspace)) {
 			selected_id = UI_ID_NONE;
 		}
 		if (window->size.x <= 0 || window->size.y <= 0) {
@@ -1116,141 +1538,46 @@ static int playground_run_window(void)
 
 		if (window->size.x != previous_size.x || window->size.y != previous_size.y)
 		{
-			gfx_window_resize(gfx_window, window->size);
+			gfx_resize_window(gfx_window, window->size);
 			previous_size = window->size;
 		}
 
+		gfx_renderer_begin_frame(renderer);
+		draw_begin_frame(draw);
 		ui_begin_frame(ui);
-		ARENA_SCOPE(&frame_arena)
+		SCRATCH_SCOPE(&frame_arena)
 		{
-			PlaygroundScene scene = mode == PLAYGROUND_MODE_BASICS ? playground_build_basics(&frame_arena, ui, font, playground_densities[density_index]) : playground_build_dummy_profiler(&frame_arena, ui, font, playground_densities[density_index]);
-			for (u32 scroll_index = 0; scroll_index < scene.scroll_box_count; scroll_index ++) {
-				scene.scroll_boxes[scroll_index]->scroll_offset.y = scrolls[mode][scroll_index].offset;
+			PlaygroundScene scene = {};
+			switch (mode)
+			{
+				case PLAYGROUND_MODE_BASICS: scene = playground_build_basics(&frame_arena, ui, font, playground_densities[density_index]); break;
+				case PLAYGROUND_MODE_PROFILER: scene = playground_build_dummy_profiler(&frame_arena, ui, font, playground_densities[density_index]); break;
+				case PLAYGROUND_MODE_SCROLL_HISTORY: scene = playground_build_scroll_history(&frame_arena, ui, font, playground_densities[density_index], reset_scroll_history); break;
+				default: Assert(false); break;
 			}
+			vec2 mouse = v2_from_v2i(window->mouse_position);
+			Input_KeyState mouse_left = input.keys[OS_Key_MouseLeft];
+
 			vec2 size = v2_from_v2i(window->size);
 			ui_box_measure(scene.root, (UI_BoxConstraints) { .min = size, .max = size });
 			ui_box_layout(scene.root, rect_f32_from_size(size));
-
-			vec2 mouse = v2_from_v2i(window->mouse_position);
-			for (u32 scroll_index = 0; scroll_index < scene.scroll_box_count; scroll_index ++)
-			{
-				UI_Box *scroll_box = scene.scroll_boxes[scroll_index];
-				PlaygroundScroll *scroll = &scrolls[mode][scroll_index];
-				scroll->offset = scroll_box->scroll_offset.y;
-				scroll->target = CLAMP(scroll->target, scroll_box->scroll_min.y, scroll_box->scroll_max.y);
-			}
-			if (window->mouse_wheel.y)
-			{
-				for (u32 scroll_index = 0; scroll_index < scene.scroll_box_count; scroll_index ++)
-				{
-					UI_Box *scroll_box = scene.scroll_boxes[scroll_index];
-					if (rect_f32_contains(scroll_box->viewport, mouse))
-					{
-						PlaygroundScroll *scroll = &scrolls[mode][scroll_index];
-						scroll->target -= window->mouse_wheel.y * 48.f;
-						break;
-					}
-				}
-			}
-			OS_KeyState mouse_left = window->keys[OS_Key_MouseLeft];
-			b32 scrollbar_hovered = false;
-			b32 mouse_press_consumed = false;
-			if ((mouse_left & OS_KEY_PRESSED) && !active_scrollbar.value)
-			{
-				for (u32 scroll_index = scene.scroll_box_count; scroll_index > 0; scroll_index --)
-				{
-					UI_Box *scroll_box = scene.scroll_boxes[scroll_index - 1];
-					PlaygroundScroll *scroll = &scrolls[mode][scroll_index - 1];
-					PlaygroundScrollbar scrollbar = playground_scrollbar(scroll_box);
-					if (scrollbar.max_scroll <= 0.f || !rect_f32_contains(scrollbar.hit_rect, mouse)) continue;
-
-					mouse_press_consumed = true;
-					if (rect_f32_contains(scrollbar.thumb_hit_rect, mouse))
-					{
-						active_scrollbar = playground_scrollbar_thumb_id(scroll_box);
-						scroll->drag_offset = scroll->offset;
-						scroll->drag_mouse = mouse.y;
-					}
-					else
-					{
-						active_scrollbar = playground_scrollbar_track_id(scroll_box);
-						f32 direction = mouse.y < scrollbar.thumb.y ? -1.f : 1.f;
-						scroll->target += direction * scroll_box->viewport.h * 0.85f;
-					}
-					break;
-				}
-			}
-
-			b32 active_scrollbar_found = !active_scrollbar.value;
-			for (u32 scroll_index = 0; scroll_index < scene.scroll_box_count; scroll_index ++)
-			{
-				UI_Box *scroll_box = scene.scroll_boxes[scroll_index];
-				PlaygroundScroll *scroll = &scrolls[mode][scroll_index];
-				PlaygroundScrollbar scrollbar = playground_scrollbar(scroll_box);
-				UI_Id track_id = playground_scrollbar_track_id(scroll_box);
-				UI_Id thumb_id = playground_scrollbar_thumb_id(scroll_box);
-				scrollbar_hovered |= scrollbar.max_scroll > 0.f && rect_f32_contains(scrollbar.hit_rect, mouse);
-				if (ui_id_equal(active_scrollbar, track_id)) {
-					active_scrollbar_found = true;
-				}
-				if (ui_id_equal(active_scrollbar, thumb_id))
-				{
-					active_scrollbar_found = true;
-					if ((mouse_left & (OS_KEY_DOWN | OS_KEY_RELEASED)) && scrollbar.travel > 0.f)
-					{
-						f32 mouse_delta = mouse.y - scroll->drag_mouse;
-						scroll->offset = CLAMP(scroll->drag_offset + mouse_delta * scrollbar.max_scroll / scrollbar.travel, scroll_box->scroll_min.y, scroll_box->scroll_max.y);
-						scroll->target = scroll->offset;
-						scroll_box->scroll_offset.y = scroll->offset;
-						ui_box_relayout(scroll_box);
-					}
-				}
-			}
-			if (!active_scrollbar_found) {
-				active_scrollbar = UI_ID_NONE;
-			}
-			for (u32 scroll_index = 0; scroll_index < scene.scroll_box_count; scroll_index ++)
-			{
-				UI_Box *scroll_box = scene.scroll_boxes[scroll_index];
-				PlaygroundScroll *scroll = &scrolls[mode][scroll_index];
-				scroll->target = CLAMP(scroll->target, scroll_box->scroll_min.y, scroll_box->scroll_max.y);
-				b32 dragging = ui_id_equal(active_scrollbar, playground_scrollbar_thumb_id(scroll_box));
-				f32 offset = dragging ? scroll->offset : playground_smooth_scroll(scroll->offset, scroll->target, elapsed);
-				if (fabsf(offset - scroll->offset) > 0.001f)
-				{
-					scroll_box->scroll_offset.y = offset;
-					ui_box_relayout(scroll_box);
-					scroll->offset = scroll_box->scroll_offset.y;
-				}
-			}
 			UI_Box *hot = ui_box_find_deepest(scene.root, mouse);
-			if (scrollbar_hovered || active_scrollbar.value || (hot && !hot->user)) {
-				hot = 0;
-			}
-			if (hot && (mouse_left & OS_KEY_PRESSED) && !mouse_press_consumed) {
+			if (hot && (!hot->user || ui_is_active(ui, hot->id))) hot = 0;
+			if (hot && (mouse_left & INPUT_KEY_PRESSED)) {
 				selected_id = hot->id;
 			}
-			if (mouse_left & OS_KEY_RELEASED) {
-				active_scrollbar = UI_ID_NONE;
-			}
 
-			gfx_begin_frame(draw);
-			gfx_begin_pass(draw, (GFX_PassDesc) {
+			draw_begin_pass(draw, (GFX_PassDesc) {
 				.output = gfx_window_texture(gfx_window),
 				.clear = true,
 				.clear_color = color_srgba(0x071013),
 			});
 			playground_draw_tree(&frame_arena, draw, text, text_gfx, font, scene.root, hot, selected_id);
-			for (u32 scroll_index = 0; scroll_index < scene.scroll_box_count; scroll_index ++) {
-				playground_draw_scrollbar(draw, scene.scroll_boxes[scroll_index]);
-			}
-			gfx_end_pass(draw);
-			gfx_begin_pass(draw, (GFX_PassDesc) { .output = gfx_window_texture(gfx_window) });
-			playground_draw_ui_frame(draw, text_gfx, ui);
-			gfx_end_pass(draw);
+			draw_end_pass(draw);
+			draw_compose(draw, text_gfx, gfx_window_texture(gfx_window), rect_f32_from_size(v2_from_v2i(window->size)));
 			text_gfx_sync(text_gfx);
-			gfx_end_frame(draw);
-			gfx_window_present(gfx_window);
+			draw_end_frame(draw);
+			gfx_present_window(gfx_window);
 		}
 		ui_end_frame(ui);
 	}

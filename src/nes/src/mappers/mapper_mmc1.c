@@ -10,8 +10,12 @@ enum {
 	MMC1_LOAD_R,
 };
 
-NES_MAPPER_INIT_FUNC(mmc1_init) {
-	data->prg_bank_size = KiB(16);
+NES_MAPPER_VALID_FUNC(mmc1_valid) {
+	if (nes->values[MMC1_CONTROL_R] > 0x1F) return false;
+	if (nes->values[MMC1_CHR_BANK0_R] > 0x1F) return false;
+	if (nes->values[MMC1_CHR_BANK1_R] > 0x1F) return false;
+	if (nes->values[MMC1_PRG_BANK0_R] > 0x1F) return false;
+	if (!nes->values[MMC1_LOAD_R] || nes->values[MMC1_LOAD_R] > 0x1F) return false;
 	return true;
 }
 
@@ -22,19 +26,19 @@ NES_MAPPER_RSET_FUNC(mmc1_reset) {
 }
 
 NES_BusAccess mmc1_ppu(NES_Emulator *nes, NES_BusAccess access) {
-	u32 control = nes->core.values[MMC1_CONTROL_R];
+	u32 control = nes->values[MMC1_CONTROL_R];
 	u32 table = access.address >> 12;
 	switch (table) {
 		case 0: case 1: {
 			if (control & 0x10) {
-				u32 bank = nes->core.values[MMC1_CHR_BANK0_R + table];
+				u32 bank = nes->values[MMC1_CHR_BANK0_R + table];
 				access.address = bank * KiB(4) + (access.address & 0x0FFF);
 			}
 			else {
-				u32 bank = nes->core.values[MMC1_CHR_BANK0_R] & 0x1E;
+				u32 bank = nes->values[MMC1_CHR_BANK0_R] & 0x1E;
 				access.address = bank * KiB(4) + (access.address & 0x1FFF);
 			}
-			access = nes->core.chr_rom_size ? chr_rom_mem(nes, access) : chr_ram_mem(nes, access);
+			access = nes->chr_rom_size ? nes_chr_rom_access(nes, access) : nes_chr_ram_access(nes, access);
 		} break;
 		case 2: {
 			switch (control & 3) {
@@ -45,14 +49,14 @@ NES_BusAccess mmc1_ppu(NES_Emulator *nes, NES_BusAccess access) {
 					access.address = access.address & 0x3FF | (access.address >> v & 0x400);
 				} break;
 			}
-			access = vram_mem(nes, access);
+			access = nes_vram_access(nes, access);
 		} break;
 	}
 	return access;
 }
 
 NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
-	i32 c = nes->core.values[MMC1_CONTROL_R];
+	i32 c = nes->values[MMC1_CONTROL_R];
 
 	// NOP
 	if (access.address < 0x6000) {
@@ -60,18 +64,18 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 	}
 	if (access.address < 0x8000) {
 		access.address &= 0x1FFF;
-		access = prg_ram_mem(nes, access);
+		access = nes_prg_ram_access(nes, access);
 		goto esc;
 	}
 	if (access.kind == NES_BUS_ACCESS_WRITE) {
 		if (access.value & 128) {
 			nes_mapper_set_value(nes, MMC1_LOAD_R, 16);
-			nes_mapper_set_value(nes, MMC1_CONTROL_R, nes->core.values[MMC1_CONTROL_R] | 0x0C);
+			nes_mapper_set_value(nes, MMC1_CONTROL_R, nes->values[MMC1_CONTROL_R] | 0x0C);
 		}
 		else {
-			b32 r = nes->core.values[MMC1_LOAD_R] >> 1 | (access.value & 1) << 4;
+			b32 r = nes->values[MMC1_LOAD_R] >> 1 | (access.value & 1) << 4;
 			/* check reset bit */
-			if (nes->core.values[MMC1_LOAD_R] & 1) {
+			if (nes->values[MMC1_LOAD_R] & 1) {
 				/* the shift register is cleared automatically */
 				nes_mapper_set_value(nes, MMC1_LOAD_R, 16);
 				// 0x8 1 00 0 .... ....
@@ -91,8 +95,8 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 	}
 	else {
 
-		i32 b = nes->core.values[MMC1_PRG_BANK0_R] & 15;
-		i32 j = nes->core.num_prg_banks - 1;
+		i32 b = nes->values[MMC1_PRG_BANK0_R] & 15;
+		i32 j = nes->num_prg_banks - 1;
 
 		switch (c >> 2 & 3) {
 			case 0: case 1: {
@@ -114,7 +118,7 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 			} break;
 		}
 
-		access = prg_rom_mem(nes, access);
+		access = nes_prg_rom_access(nes, access);
 	}
 	esc:
 	return access;

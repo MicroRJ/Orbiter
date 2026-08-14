@@ -39,9 +39,9 @@ static PPU_TestFixture ppu_test_fixture_create(void)
 	prg_rom[0x3FFC] = 0x00;
 	prg_rom[0x3FFD] = 0x80;
 
-	fixture.core = nes_emulator_create(&fixture.arena, (NES_EmulatorDesc) {});
+	fixture.core = arena_push_zero(&fixture.arena, sizeof(NES_Emulator));
 	Assert(fixture.core);
-	Assert(nes_emulator_load_cartridge(fixture.core, (NES_CartridgeDesc) {
+	Assert(nes_setup_emulator(fixture.core, (NES_SetupParams) {
 		.prg_rom = byte_span(prg_rom, KiB(16)),
 		.chr_rom = byte_span(chr_rom, KiB(8)),
 	}));
@@ -50,10 +50,60 @@ static PPU_TestFixture ppu_test_fixture_create(void)
 
 static void ppu_test_prepare(PPU_TestFixture *fixture)
 {
-	nes_ppu_reset(&fixture->core->core.ppu);
-	memory_zero(fixture->core->core._wram, sizeof(fixture->core->core._wram));
-	memory_zero(fixture->core->core._vram, sizeof(fixture->core->core._vram));
-	fixture->core->core.cpu_stall_cycles = 0;
+	nes_ppu_power_on(&fixture->core->ppu);
+	memory_zero(fixture->core->_wram, sizeof(fixture->core->_wram));
+	memory_zero(fixture->core->_vram, sizeof(fixture->core->_vram));
+	fixture->core->cpu_stall_cycles = 0;
+}
+
+static void ppu_test_power_and_reset(PPU_TestFixture *fixture)
+{
+	ppu_test_name = "PPU power and reset state";
+	ppu_test_prepare(fixture);
+	NES_PPUState *ppu = &fixture->core->ppu;
+	ppu->xtick = 123;
+	ppu->ytick = 45;
+	ppu->t = 0x3456;
+	ppu->v = 0x2345;
+	ppu->x = 7;
+	ppu->w = 1;
+	ppu->tile_id = 0x11;
+	ppu->chr_r0 = 0x2222;
+	ppu->spr0_enable = 1;
+	ppu->PPUCTRL = 0xFF;
+	ppu->PPUMASK = 0xFF;
+	ppu->PPUSTATUS = 0xE0;
+	ppu->OAMADDR = 0x44;
+	ppu->data_read_buf = 0x55;
+	ppu->nsprs = 8;
+	ppu->_oam[9] = 0x66;
+	ppu->_pram[7] = 0x77;
+
+	nes_ppu_reset(ppu);
+	PPU_EXPECT_EQUAL(0, ppu->xtick);
+	PPU_EXPECT_EQUAL(0, ppu->ytick);
+	PPU_EXPECT_EQUAL(0, ppu->t);
+	PPU_EXPECT_EQUAL(0x2345, ppu->v);
+	PPU_EXPECT_EQUAL(0, ppu->x);
+	PPU_EXPECT_EQUAL(0, ppu->w);
+	PPU_EXPECT_EQUAL(0, ppu->tile_id);
+	PPU_EXPECT_EQUAL(0, ppu->chr_r0);
+	PPU_EXPECT_EQUAL(0, ppu->spr0_enable);
+	PPU_EXPECT_EQUAL(0, ppu->PPUCTRL);
+	PPU_EXPECT_EQUAL(0, ppu->PPUMASK);
+	PPU_EXPECT_EQUAL(0xE0, ppu->PPUSTATUS);
+	PPU_EXPECT_EQUAL(0x44, ppu->OAMADDR);
+	PPU_EXPECT_EQUAL(0, ppu->data_read_buf);
+	PPU_EXPECT_EQUAL(0, ppu->nsprs);
+	PPU_EXPECT_EQUAL(0x66, ppu->_oam[9]);
+	PPU_EXPECT_EQUAL(0x77, ppu->_pram[7]);
+
+	nes_ppu_power_on(ppu);
+	PPU_EXPECT_EQUAL(0, ppu->v);
+	PPU_EXPECT_EQUAL(0, ppu->PPUSTATUS);
+	PPU_EXPECT_EQUAL(0, ppu->OAMADDR);
+	PPU_EXPECT_EQUAL(0, ppu->_oam[9]);
+	PPU_EXPECT_EQUAL(0, ppu->_pram[7]);
 }
 
 static void ppu_cpu_write(PPU_TestFixture *fixture, u16 address, u8 value)
@@ -103,7 +153,7 @@ static void ppu_test_scroll_and_address_latch(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "scroll and address latch";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_cpu_write(fixture, 0x2000, 0x03);
 	PPU_EXPECT_EQUAL(0x03, ppu->PPUCTRL);
@@ -135,7 +185,7 @@ static void ppu_test_data_port_address_increment(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPUDATA uses and increments v";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_cpu_write(fixture, 0x2000, 0x00);
 	ppu_set_vram_address(fixture, 0x2000);
@@ -160,7 +210,7 @@ static void ppu_test_data_read_buffer(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPUDATA delayed read buffer";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_bus_write(fixture, 0x2000, 0x11);
 	ppu_bus_write(fixture, 0x2001, 0x22);
@@ -188,7 +238,7 @@ static void ppu_test_palette_read_buffer(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "palette reads bypass and refill the PPUDATA buffer";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_bus_write(fixture, 0x2F05, 0x36);
 	ppu_bus_write(fixture, 0x3F05, 0x25);
@@ -221,7 +271,7 @@ static void ppu_test_oam_data_port(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "OAMDATA read, write, increment, and wrapping";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu_cpu_write(fixture, 0x2003, 0x10);
 	ppu_cpu_write(fixture, 0x2004, 0xAB);
@@ -247,11 +297,11 @@ static void ppu_test_oam_dma(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "OAM DMA begins at OAMADDR and wraps";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	for (u32 i = 0; i < 256; ++i)
 	{
-		fixture->core->core._wram[0x200 + i] = (u8)i;
+		fixture->core->_wram[0x200 + i] = (u8)i;
 	}
 
 	ppu_cpu_write(fixture, 0x2003, 0xF8);
@@ -262,14 +312,14 @@ static void ppu_test_oam_dma(PPU_TestFixture *fixture)
 	PPU_EXPECT_EQUAL(0x08, ppu->_oam[0x00]);
 	PPU_EXPECT_EQUAL(0xFF, ppu->_oam[0xF7]);
 	PPU_EXPECT_EQUAL(0xF8, ppu->OAMADDR);
-	PPU_EXPECT_EQUAL(513, fixture->core->core.cpu_stall_cycles);
+	PPU_EXPECT_EQUAL(513, fixture->core->cpu_stall_cycles);
 }
 
 static void ppu_test_forced_blank_preserves_vram_address(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "forced blank preserves the CPU VRAM address";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu->PPUMASK = 0;
 	ppu->v = 0x2345;
@@ -302,7 +352,7 @@ static void ppu_test_clock_and_vblank_events(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPU clock and vblank events";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu->xtick = 340;
 	ppu->ytick = 0;
@@ -312,7 +362,7 @@ static void ppu_test_clock_and_vblank_events(PPU_TestFixture *fixture)
 
 	ppu->xtick = 340;
 	ppu->ytick = 261;
-	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME, nes_ppu_step(fixture->core));
+	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NONE, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0, ppu->xtick);
 	PPU_EXPECT_EQUAL(0, ppu->ytick);
 
@@ -320,14 +370,14 @@ static void ppu_test_clock_and_vblank_events(PPU_TestFixture *fixture)
 	ppu->PPUSTATUS = 0;
 	ppu->xtick = 1;
 	ppu->ytick = 241;
-	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NONE, nes_ppu_step(fixture->core));
+	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0x80, ppu->PPUSTATUS & 0x80);
 
 	ppu->PPUCTRL = 0x80;
 	ppu->PPUSTATUS = 0;
 	ppu->xtick = 1;
 	ppu->ytick = 241;
-	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NMI, nes_ppu_step(fixture->core));
+	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME | NES_PPU_EVENT_NMI, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0x80, ppu->PPUSTATUS & 0x80);
 
 	ppu->PPUSTATUS = 0xE0;
@@ -341,7 +391,7 @@ static void ppu_test_video_is_published_separately(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "PPU video output boundary";
 	ppu_test_prepare(fixture);
-	NES_PPUState *ppu = &fixture->core->core.ppu;
+	NES_PPUState *ppu = &fixture->core->ppu;
 
 	ppu->_pram[0] = 0x2A;
 	ppu->PPUMASK = 0x10;
@@ -349,14 +399,14 @@ static void ppu_test_video_is_published_separately(PPU_TestFixture *fixture)
 	ppu->ytick = 0;
 	nes_ppu_step(fixture->core);
 
-	NES_VideoFrame frame = nes_emulator_video_frame(fixture->core);
-	PPU_EXPECT_EQUAL(0x2A, frame.pixels[0]);
-	PPU_EXPECT_EQUAL(NES_VIDEO_WIDTH, frame.stride);
+	PPU_EXPECT_EQUAL(0x2A, fixture->core->video[0][0]);
+	PPU_EXPECT_EQUAL(NES_VIDEO_WIDTH, ArrayCount(fixture->core->video[0]));
 }
 
 int main(void)
 {
 	PPU_TestFixture fixture = ppu_test_fixture_create();
+	ppu_test_power_and_reset(&fixture);
 	ppu_test_explicit_bus_operations(&fixture);
 	ppu_test_scroll_and_address_latch(&fixture);
 	ppu_test_data_port_address_increment(&fixture);

@@ -1,7 +1,6 @@
 #include "base.h"
 #include "apu/apu.h"
 #include "emulator_internal.h"
-#include "nes/state_meta.h"
 #include <stdio.h>
 
 static u32 apu_test_failures;
@@ -42,13 +41,19 @@ static u8 apu_read(u16 address)
 	return apu_access(NES_BUS_ACCESS_READ, address, 0).value;
 }
 
+static void apu_test_clear(NES_APUState *apu)
+{
+	nes_apu_power_on(apu);
+	apu->cpu_cycle_counter = 0;
+}
+
 
 static void apu_test_triangle_registers(void)
 {
 	apu_test_name = "triangle register decoding";
 
-	NES_APUState *apu = &apu_test_core->core.apu;
-	nes_apu_reset(apu);
+	NES_APUState *apu = &apu_test_core->apu;
+	apu_test_clear(apu);
 
 	NES_APU_Triangle *triangle = &apu->triangle;
 	apu_write(0x4015, 0x04);
@@ -82,22 +87,22 @@ static void apu_test_triangle_registers(void)
 static void apu_test_triangle_counters_and_timer(void)
 {
 	apu_test_name = "triangle counters and timer";
-	NES_APUState *apu = &apu_test_core->core.apu;
+	NES_APUState *apu = &apu_test_core->apu;
 	NES_APU_Triangle *triangle = &apu->triangle;
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 
 	triangle->linear_counter_reload = 1;
 	triangle->linear_counter_reload_value = 5;
 	triangle->length_counter_halt = 0;
 	apu->step_index = 0;
 	apu->cpu_cycle_counter = 3728 * 2;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(5, triangle->linear_counter);
 	APU_EXPECT_EQUAL(0, triangle->linear_counter_reload);
 
 	apu->step_index = 0;
 	apu->cpu_cycle_counter = 3728 * 2;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(4, triangle->linear_counter);
 
 	triangle->linear_counter_reload = 1;
@@ -105,7 +110,7 @@ static void apu_test_triangle_counters_and_timer(void)
 	triangle->length_counter_halt = 1;
 	apu->step_index = 0;
 	apu->cpu_cycle_counter = 3728 * 2;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(7, triangle->linear_counter);
 	APU_EXPECT_EQUAL(1, triangle->linear_counter_reload);
 
@@ -116,48 +121,68 @@ static void apu_test_triangle_counters_and_timer(void)
 	triangle->length_counter = 1;
 	apu->step_index = 0;
 	apu->cpu_cycle_counter = 0;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(2, triangle->wave_timer);
 	APU_EXPECT_EQUAL(0, triangle->wave_phase);
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(0, triangle->wave_timer);
 	APU_EXPECT_EQUAL(0, triangle->wave_phase);
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(2, triangle->wave_timer);
 	APU_EXPECT_EQUAL(1, triangle->wave_phase);
 
 	triangle->wave_timer = 0;
 	triangle->linear_counter = 0;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(1, triangle->wave_phase);
 }
 
-static void apu_test_triangle_metadata(void)
+static void apu_test_power_reset_and_registers(void)
 {
-	apu_test_name = "triangle state metadata";
-	const NES_StateRecord *apu_record = nes_state_record(NES_RECORD_APU);
-	const NES_StateRecord *triangle_record = nes_state_record(NES_RECORD_APU_TRIANGLE);
-	APU_EXPECT_EQUAL(sizeof(NES_APUState), apu_record->size);
-	APU_EXPECT_EQUAL(sizeof(NES_APU_Triangle), triangle_record->size);
-	APU_EXPECT_EQUAL(9, triangle_record->field_count);
-	const NES_StateField *field = nes_state_field_from_id(NES_STATE_FIELD_ID_APU_TRIANGLE);
-	APU_EXPECT_EQUAL(offsetof(NES_APUState, triangle), field->offset);
-	APU_EXPECT_EQUAL(NES_RECORD_APU_TRIANGLE, field->record_id);
-}
-
-static void apu_test_reset_and_registers(void)
-{
-	apu_test_name = "reset and pulse register decoding";
-	NES_APUState *apu = &apu_test_core->core.apu;
+	apu_test_name = "power, reset, and pulse register decoding";
+	NES_APUState *apu = &apu_test_core->apu;
 	memset(apu, 0xCC, sizeof(*apu));
-	nes_apu_reset(apu);
+	nes_apu_power_on(apu);
 
 	APU_EXPECT_EQUAL(0, apu->mode);
 	APU_EXPECT_EQUAL(0, apu->step_index);
-	APU_EXPECT_EQUAL(0, apu->cpu_cycle_counter);
+	APU_EXPECT_EQUAL(10, apu->cpu_cycle_counter);
+	APU_EXPECT_EQUAL(0, apu->irq_inhibit);
 	APU_EXPECT_EQUAL(0, apu->pulse[0].enable);
 	APU_EXPECT_EQUAL(0, apu->pulse[1].enable);
+
+	apu->pulse[0].enable = 1;
+	apu->pulse[0].length_counter = 4;
+	apu->pulse[0].duty_mask = 0x5A;
+	apu->pulse[1].enable = 1;
+	apu->pulse[1].length_counter = 5;
+	apu->triangle.enable = 1;
+	apu->triangle.length_counter = 6;
+	apu->triangle.linear_counter_reload_value = 0x55;
+	apu->triangle.wave_phase = 17;
+	apu->irq_pending = 1;
+	apu->irq_inhibit = 1;
+	apu->reset_mode = 1;
+	nes_apu_reset(apu);
+	APU_EXPECT_EQUAL(0, apu->irq_pending);
+	APU_EXPECT_EQUAL(1, apu->irq_inhibit);
+	APU_EXPECT_EQUAL(1, apu->mode);
+	APU_EXPECT_EQUAL(1, apu->reset_mode);
+	APU_EXPECT_EQUAL(0, apu->reset_delay);
+	APU_EXPECT_EQUAL(0, apu->step_index);
+	APU_EXPECT_EQUAL(10, apu->cpu_cycle_counter);
+	APU_EXPECT_EQUAL(0, apu->pulse[0].enable);
+	APU_EXPECT_EQUAL(0, apu->pulse[0].length_counter);
+	APU_EXPECT_EQUAL(0x5A, apu->pulse[0].duty_mask);
+	APU_EXPECT_EQUAL(0, apu->pulse[1].enable);
+	APU_EXPECT_EQUAL(0, apu->pulse[1].length_counter);
+	APU_EXPECT_EQUAL(0, apu->triangle.enable);
+	APU_EXPECT_EQUAL(0, apu->triangle.length_counter);
+	APU_EXPECT_EQUAL(0x55, apu->triangle.linear_counter_reload_value);
+	APU_EXPECT_EQUAL(0, apu->triangle.wave_phase);
+
+	apu_test_clear(apu);
 
 	apu_write(0x4000, 0xBB);
 	NES_APU_Pulse *pulse = &apu->pulse[0];
@@ -206,7 +231,7 @@ static void apu_test_reset_and_registers(void)
 	APU_EXPECT_EQUAL(1, apu->irq_inhibit);
 	APU_EXPECT_EQUAL(0, apu->reset_mode);
 	APU_EXPECT_EQUAL(4, apu->reset_delay);
-	for (u32 cycle = 0; cycle < 4; ++cycle) nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	for (u32 cycle = 0; cycle < 4; ++cycle) nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(0, apu->mode);
 	APU_EXPECT_EQUAL(0, apu->step_index);
 	APU_EXPECT_EQUAL(0, apu->cpu_cycle_counter);
@@ -216,8 +241,8 @@ static void apu_test_reset_and_registers(void)
 static void apu_test_status_register(void)
 {
 	apu_test_name = "$4015 status register";
-	NES_APUState *apu = &apu_test_core->core.apu;
-	nes_apu_reset(apu);
+	NES_APUState *apu = &apu_test_core->apu;
+	apu_test_clear(apu);
 	apu->pulse[0].length_counter = 4;
 	apu->pulse[1].length_counter = 5;
 	apu->triangle.length_counter = 6;
@@ -241,21 +266,21 @@ static void apu_test_status_register(void)
 static void apu_test_frame_clock(void)
 {
 	apu_test_name = "frame sequencer clocks";
-	NES_APUState *apu = &apu_test_core->core.apu;
-	nes_apu_reset(apu);
+	NES_APUState *apu = &apu_test_core->apu;
+	apu_test_clear(apu);
 	for (u32 cycle = 0; cycle < 3728 * 2 - 1; ++cycle) {
-		nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+		nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	}
 	APU_EXPECT_EQUAL(3728 * 2 - 1, apu->cpu_cycle_counter);
 	APU_EXPECT_EQUAL(0, apu->step_index);
 
 	apu->pulse[0].env.reload_divider = true;
 	apu->pulse[0].env.divider.period = 3;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(3728 * 2, apu->cpu_cycle_counter);
 	APU_EXPECT_EQUAL(0, apu->step_index);
 	APU_EXPECT_EQUAL(1, apu->pulse[0].env.reload_divider);
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(3728 * 2 + 1, apu->cpu_cycle_counter);
 	APU_EXPECT_EQUAL(1, apu->step_index);
 	APU_EXPECT_EQUAL(0, apu->pulse[0].env.reload_divider);
@@ -266,20 +291,20 @@ static void apu_test_frame_clock(void)
 	apu->cpu_cycle_counter = 7456 * 2;
 	apu->pulse[0].length_counter = 3;
 	apu->pulse[0].infinite_play = false;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(2, apu->pulse[0].length_counter);
 
 	apu->step_index = 3;
 	apu->cpu_cycle_counter = 14914 * 2;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(0, apu->step_index);
 	APU_EXPECT_EQUAL(0, apu->cpu_cycle_counter);
 
-	nes_apu_reset(apu);
+	apu_test_clear(apu);
 	apu->pulse[0].enable = true;
 	apu->pulse[0].length_counter = 2;
 	apu_write(0x4017, 0x80);
-	for (u32 cycle = 0; cycle < 4; ++cycle) nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	for (u32 cycle = 0; cycle < 4; ++cycle) nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(1, apu->pulse[0].length_counter);
 	APU_EXPECT_EQUAL(1, apu->mode);
 	APU_EXPECT_EQUAL(0, apu->step_index);
@@ -303,8 +328,8 @@ static void apu_test_pulse_output_and_sweep(void)
 {
 #if 0
 	apu_test_name = "pulse output and sweep";
-	NES_APUState *apu = &apu_test_core->core.apu;
-	nes_apu_reset(apu);
+	NES_APUState *apu = &apu_test_core->apu;
+	apu_test_clear(apu);
 	APU_EXPECT_EQUAL(0, nes_apu_dac(apu) != 0.0f);
 
 	apu_make_audible_pulse(apu);
@@ -334,7 +359,7 @@ static void apu_test_pulse_output_and_sweep(void)
 	apu->pulse[0].sweep.divider.counter = 0;
 	apu->step_index = 1;
 	apu->cpu_cycle_counter = 7456 * 2;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(300, apu->pulse[0].timer_period);
 
 	apu_make_audible_pulse(apu);
@@ -347,9 +372,9 @@ static void apu_test_pulse_output_and_sweep(void)
 	apu_make_audible_pulse(apu);
 	apu->pulse[0].timer = 8;
 	apu->pulse[0].phase = 0;
-	for (u32 cycle = 0; cycle < 8; ++cycle) nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	for (u32 cycle = 0; cycle < 8; ++cycle) nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(0, apu->pulse[0].phase);
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(1, apu->pulse[0].phase);
 
 	apu_make_audible_pulse(apu);
@@ -360,7 +385,7 @@ static void apu_test_pulse_output_and_sweep(void)
 	apu->pulse[0].sweep.divider.counter = 0;
 	apu->step_index = 1;
 	apu->cpu_cycle_counter = 7456 * 2;
-	nes_apu_clock_cpu_cycle(&apu_test_core->core.apu);
+	nes_apu_clock_cpu_cycle(&apu_test_core->apu);
 	APU_EXPECT_EQUAL(300, apu->pulse[0].timer_period);
 	APU_EXPECT_EQUAL(0, apu->pulse[0].sweep.reload_divider);
 #endif
@@ -369,12 +394,11 @@ static void apu_test_pulse_output_and_sweep(void)
 int main(void)
 {
 	Arena arena = arena_create(0, "APU test");
-	apu_test_core = nes_emulator_create(&arena, (NES_EmulatorDesc) {});
-	apu_test_reset_and_registers();
+	apu_test_core = arena_push_zero(&arena, sizeof(NES_Emulator));
+	apu_test_power_reset_and_registers();
 	apu_test_status_register();
 	apu_test_triangle_registers();
 	apu_test_triangle_counters_and_timer();
-	apu_test_triangle_metadata();
 	apu_test_frame_clock();
 	apu_test_pulse_output_and_sweep();
 

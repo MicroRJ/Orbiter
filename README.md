@@ -1,51 +1,55 @@
-# Orbiter v0.1
+# Orbiter
 
-Orbiter is an immersive WIP NES introspector / debugger, focused on providing
-a bad-ass debugging experience. (Windows Only)
+Orbiter is an experimental NES emulator and debugger for Windows. It combines
+game playback with live disassembly, CPU and PPU inspection, execution
+activity, profiling, rewind, screenshots, and video capture.
 
-We don't just want to debug the machine, we want to see it breathe,
-to hear it's heart beat, to feel its tender pulses ... ... .. .
+This is an early prerelease. Keep a copy of any library data you care about.
 
-### In motion
+## Getting started
 
-![Orbiter program introspection](gifs/orbiter_capture_001.gif)
+1. Extract the complete archive to a writable folder. Do not run it directly
+   from the ZIP or install it under a read-only directory.
+2. Run `Orbiter.exe`.
+3. Press `Ctrl+O` to import an iNES `.nes` file.
+4. Press `F5` to run or pause the game. Press `Tab` to show or hide the game
+   library.
 
-![Orbiter live program activity](gifs/orbiter_capture_003.gif)
+Orbiter does not include game ROMs. Only use ROM images you are legally
+permitted to use.
 
-![Orbiter rewind and CRT presentation](gifs/orbiter_capture_004.gif)
+## Input
 
-### Supported Mappers:
+- D-pad: arrow keys or `WASD`
+- A / B: `Z` / `X`
+- Start / Select: `C` / `V`
+- Run or pause: `F5`
+- Step one instruction: `F10`
+- Rewind / advance timeline: `Ctrl+Left` / `Ctrl+Right`
+- Save / restore the active resume point: `Ctrl+S` / `Ctrl+L`
+- Toggle library: `Tab`
+- Import ROM: `Ctrl+O`
+- Toggle fullscreen: `F11` or `Alt+Enter`
+- Mute: `M`
 
-- Mapper 0: NROM
-- Mapper 1: MMC1
-- Mapper 2: UxROM
-- Mapper 9: MMC2
+The active game is also saved when switching games and when Orbiter exits
+normally.
 
-### Emulator key bindings
-- Arrow keys or `WASD`: directional input
-- `Z`: A
-- `X`: B
-- `C`: Start
-- `V`: Select
+## Compatibility
 
-We're still far from my vision, and we've only implemented a few
-of the views I want, but those will be added soon.
+- Windows 8 or newer, x64
+- iNES cartridges using mapper 0 (NROM), 1 (MMC1), 2 (UxROM), or 9 (MMC2)
+- Trainers and four-screen mirroring are not currently supported
 
-The emulator and debugger grew together, and so ease of introspection
-and simplicity _are_ the main priorities.
+Unsupported or malformed cartridges are rejected rather than partially
+loaded. Emulator compatibility is still a work in progress.
 
-Additional captures are available in [`gifs/`](gifs/).
+## Local data
 
-### Road map
-- Continue improving the architecture and performance
-- Support user driven customization
-- Add the missing views, APU/PPU/Memory
-- Add immersive program graph view
-- Add a better breakpoint detection system
-- Add read/write breakpoints
-- Snapshot compression for rewinds, infinite rewind
-- Multi-threading / compression thread / GPU sync thread
-- Cycle accurate emulator with perfect test coverage
+Orbiter stores its library, saves, configuration, and logs in the `data`
+directory beside the executable. The distributed archive contains none of
+those user files. The prerelease executable is unsigned, so Windows may show
+a security warning on first launch.
 
-### Building
-From the x64 developer command prompt run ```build.bat```
+Orbiter is licensed under the MIT License. See `THIRD_PARTY_NOTICES.md` for
+the software and assets it uses.

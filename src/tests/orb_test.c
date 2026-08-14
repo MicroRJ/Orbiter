@@ -1,0 +1,179 @@
+#include "orb.h"
+#include "app_save.h"
+
+static b32 orb_test_write_file(const char *path, ByteSpan data)
+{
+	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
+	if (!platform_file_is_valid(file)) return false;
+	u64 written = 0;
+	b32 success = platform_write_file(file, data.data, data.size, &written) && written == data.size;
+	platform_close_file(file);
+	return success;
+}
+
+static Orb_Game orb_test_game(Arena *arena)
+{
+	u8 *prg_rom = arena_push_zero(arena, KiB(16));
+	u8 *chr_rom = arena_push_zero(arena, KiB(8));
+	prg_rom[0] = 0xEA;
+	prg_rom[0x3FFC] = 0x00;
+	prg_rom[0x3FFD] = 0x80;
+	chr_rom[0] = 0x80;
+	return (Orb_Game) {
+		.metadata = {
+			.mapper = 0,
+			.vmirror = true,
+			.prg_rom_size = KiB(16),
+			.chr_rom_size = KiB(8),
+		},
+		.prg_rom_data = prg_rom,
+		.chr_rom_data = chr_rom,
+	};
+}
+
+static void orb_test_game_hash(Arena *arena)
+{
+	static const u8 expected[] = {
+		0xC9, 0x40, 0xD7, 0xF9, 0xCE, 0xD8, 0xAB, 0x08,
+		0x05, 0x8A, 0x34, 0xDD, 0x10, 0x88, 0x24, 0x49,
+		0x86, 0x55, 0x15, 0x16, 0x02, 0x01, 0xCE, 0xBD,
+		0xB3, 0x55, 0xB0, 0x6C, 0x3A, 0x5C, 0x5A, 0x00,
+	};
+	Orb_Game game = orb_test_game(arena);
+	Hash256 hash = orb_game_hash(game);
+	Assert(memory_match(hash.bytes, expected, sizeof(expected)));
+
+	Orb_Game changed = game;
+	changed.metadata.mapper ++;
+	Assert(!hash256_match(hash, orb_game_hash(changed)));
+	changed = game;
+	changed.metadata.vmirror = false;
+	Assert(!hash256_match(hash, orb_game_hash(changed)));
+	game.prg_rom_data[0] ^= 0xFF;
+	Assert(!hash256_match(hash, orb_game_hash(game)));
+}
+
+static void orb_test_save_state_transfer(Arena *arena)
+{
+	Orb_Game game = orb_test_game(arena);
+	NES_SetupParams setup = {
+		.mapper = game.metadata.mapper,
+		.vmirror = game.metadata.vmirror,
+		.prg_rom = byte_span(game.prg_rom_data, game.metadata.prg_rom_size),
+		.chr_rom = byte_span(game.chr_rom_data, game.metadata.chr_rom_size),
+	};
+	NES_Emulator *source = arena_push_zero(arena, sizeof(*source));
+	NES_Emulator *restored = arena_push_zero(arena, sizeof(*restored));
+	Assert(nes_setup_emulator(source, setup));
+	Assert(nes_setup_emulator(restored, setup));
+	memory_fill(&source->state, 0x5A, sizeof(source->state));
+
+	Orb_SaveState *expected = arena_push_zero(arena, sizeof(*expected));
+	Orb_SaveState *actual = arena_push_zero(arena, sizeof(*actual));
+	orb_capture_save_state(expected, source);
+	orb_restore_save_state(restored, expected);
+	orb_capture_save_state(actual, restored);
+	Assert(memory_match(actual, expected, sizeof(*actual)));
+	Assert(restored->mapper_number == setup.mapper);
+	Assert(restored->prg_rom_size == setup.prg_rom.size);
+	Assert(restored->chr_rom_size == setup.chr_rom.size);
+	Assert(memory_match(restored->prg_rom, setup.prg_rom.data, setup.prg_rom.size));
+	Assert(memory_match(restored->chr_rom, setup.chr_rom.data, setup.chr_rom.size));
+}
+
+static void orb_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
+{
+	u8 thumbnail_pixels[] = {
+		255, 0, 0, 255, 0, 255, 0, 255,
+		0, 0, 255, 255, 255, 255, 255, 255,
+	};
+	App_SaveData source = {
+		.thumbnail = {
+			.width = 2,
+			.height = 2,
+			.stride = 8,
+			.format = ORB_PIXEL_FORMAT_RGBA8,
+			.pixels = byte_span(thumbnail_pixels, sizeof(thumbnail_pixels)),
+		},
+	};
+	source.state.cpu.PC = 0x8123;
+	source.state.ppu.xtick = 123;
+	source.state.video[7][11] = 0x2A;
+	source.state.scheduler_clock = 123456;
+
+	ByteSpan encoded = app_save_encode(encoded_arena, &source);
+	Assert(encoded.data && encoded.size);
+	App_SaveData decoded = {};
+	Assert(app_save_decode(decoded_arena, encoded, &decoded));
+	Assert(memory_match(&decoded.state, &source.state, sizeof(source.state)));
+	Assert(decoded.thumbnail.width == source.thumbnail.width);
+	Assert(decoded.thumbnail.height == source.thumbnail.height);
+	Assert(decoded.thumbnail.stride == source.thumbnail.stride);
+	Assert(decoded.thumbnail.format == source.thumbnail.format);
+	Assert(decoded.thumbnail.pixels.size == source.thumbnail.pixels.size);
+	Assert(memory_match(decoded.thumbnail.pixels.data, source.thumbnail.pixels.data, source.thumbnail.pixels.size));
+
+	for (u64 size = 0; size < 8; size ++) Assert(!app_save_decode(decoded_arena, byte_span(encoded.data, size), &decoded));
+	Assert(!app_save_decode(decoded_arena, byte_span(encoded.data, encoded.size - 1), &decoded));
+	u8 *invalid_magic = arena_push_copy(encoded_arena, encoded.size, encoded.data);
+	invalid_magic[0] ^= 0x80;
+	Assert(!app_save_decode(decoded_arena, byte_span(invalid_magic, encoded.size), &decoded));
+}
+
+static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
+{
+	const char path[] = "orb_game_test.nes";
+	u32 source_size = 16 + 512 + KiB(16) + KiB(8);
+	u8 *source = arena_push_zero(source_arena, source_size);
+	source[0] = 'N'; source[1] = 'E'; source[2] = 'S'; source[3] = 0x1A;
+	source[4] = 1;
+	source[5] = 1;
+	source[6] = 0x05;
+	source[16] = 0xA5;
+	source[16 + 512] = 0xEA;
+	source[16 + 512 + KiB(16)] = 0x80;
+	Assert(orb_test_write_file(path, byte_span(source, source_size)));
+
+	Str title = {};
+	Orb_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), &title);
+	Assert(game);
+	Assert(str_match(title, LIT("orb_game_test")));
+	Assert(game->metadata.mapper == 0);
+	Assert(game->metadata.vmirror);
+	Assert(game->metadata.has_trainer);
+	Assert(!game->metadata.four_screen);
+	Assert(game->metadata.prg_rom_size == KiB(16));
+	Assert(game->metadata.chr_rom_size == KiB(8));
+	Assert(game->trainer_data[0] == 0xA5);
+	Assert(game->prg_rom_data[0] == 0xEA);
+	Assert(game->chr_rom_data[0] == 0x80);
+
+	u64 arena_position = game_arena->position;
+	source[0] = 0;
+	Assert(orb_test_write_file(path, byte_span(source, source_size)));
+	title = LIT("unchanged");
+	Assert(!orb_game_from_ines_file(game_arena, str_from_cstr(path), &title));
+	Assert(!title.data && !title.size);
+	Assert(game_arena->position == arena_position);
+	Assert(orb_test_write_file(path, byte_span(source + 1, 7)));
+	Assert(!orb_game_from_ines_file(game_arena, str_from_cstr(path), 0));
+	Assert(game_arena->position == arena_position);
+	Assert(platform_remove_file(path));
+}
+
+int main(void)
+{
+	Arena source_arena = arena_create(0, "Orb source test");
+	Arena encoded_arena = arena_create(0, "Orb encoded test");
+	Arena decoded_arena = arena_create(0, "Orb decoded test");
+	Arena game_arena = arena_create(0, "Orb game test");
+	orb_test_game_hash(&source_arena);
+	orb_test_save_state_transfer(&source_arena);
+	orb_test_app_save(&encoded_arena, &decoded_arena);
+	orb_test_ines_import(&source_arena, &game_arena);
+	arena_destroy(&game_arena);
+	arena_destroy(&decoded_arena);
+	arena_destroy(&encoded_arena);
+	arena_destroy(&source_arena);
+	return 0;
+}

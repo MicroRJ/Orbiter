@@ -14,7 +14,7 @@ enum
 	ARENA_COMMIT_GRANULARITY = KiB(64),
 };
 
-#define ARENA_SCOPE(arena) for (u64 _arena_position = (arena)->position; _arena_position != ~(u64)0; (arena)->position = _arena_position, _arena_position = ~(u64)0)
+#define SCRATCH_SCOPE(arena) for (u64 _arena_position = (arena)->position; _arena_position != ~(u64)0; (arena)->position = _arena_position, _arena_position = ~(u64)0)
 
 Arena arena_create(u64 reserved_size, const char *name);
 void arena_destroy(Arena *arena);

@@ -50,7 +50,7 @@ void text_preload_ascii(Text_Context *text, Font_Handle font, i32 size)
 	}
 }
 
-Text_Layout text_layout(Arena *arena, Text_Context *text, Font_Handle font, i32 size, String string)
+Text_Layout text_layout(Arena *arena, Text_Context *text, Font_Handle font, i32 size, Str string)
 {
 	Assert(arena);
 	Assert(text);

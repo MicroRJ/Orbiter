@@ -14,6 +14,7 @@ typedef union
 }
 rect_i32;
 
+// Todo, remove this from here!
 typedef struct
 {
 	UV_Coords source;
@@ -64,6 +65,15 @@ static rect_f32 rect_f32_round_out(rect_f32 rect)
 	rect.w = x2 - rect.x;
 	rect.h = y2 - rect.y;
 	return rect;
+}
+
+static rect_f32 rect_f32_intersect(rect_f32 a, rect_f32 b)
+{
+	f32 x1 = Max(a.x, b.x);
+	f32 y1 = Max(a.y, b.y);
+	f32 x2 = Min(a.x + a.w, b.x + b.w);
+	f32 y2 = Min(a.y + a.h, b.y + b.h);
+	return (rect_f32) { x1, y1, Max(0, x2 - x1), Max(0, y2 - y1) };
 }
 
 static rect_i32 rect_i32_intersect(rect_i32 a, rect_i32 b)

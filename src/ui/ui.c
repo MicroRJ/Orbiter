@@ -4,88 +4,60 @@
 #include "text.h"
 #include "os_graphical.h"
 #include "ui.h"
+#include "ui_box.h"
 
-static UI_DrawCommand *ui__push_command(UI_Context *ui, UI_LayerKind layer, UI_DrawCommandKind kind, b32 inherit_clip)
+enum
+{
+	UI_BOX_STATE_SLOT_COUNT = 4096,
+};
+STATIC_ASSERT((UI_BOX_STATE_SLOT_COUNT & (UI_BOX_STATE_SLOT_COUNT - 1)) == 0);
+
+// UI construction is structural. Immediate drawing is only valid after the
+// box tree has been built and laid out.
+static void ui_assert_paint_phase(UI_Context *ui)
 {
 	Assert(ui);
-	Assert(layer >= 0 && layer < UI_LAYER_COUNT);
-	UI_DrawCommand *command = arena_push_zero(&ui->frame_arena,
-		sizeof(*command));
-	command->kind = kind;
-	command->emission = ui->emission;
-	prof_add_metric(PROF_METRIC_UI_COMMANDS, 1);
-	prof_add_metric(PROF_METRIC_UI_COMMAND_BYTES, sizeof(*command));
-	switch (kind)
-	{
-		case UI_DRAW_COMMAND_RECT:         prof_add_metric(PROF_METRIC_UI_RECT_COMMANDS, 1); break;
-		case UI_DRAW_COMMAND_IMAGE:        prof_add_metric(PROF_METRIC_UI_IMAGE_COMMANDS, 1); break;
-		case UI_DRAW_COMMAND_TEXT:         prof_add_metric(PROF_METRIC_UI_TEXT_COMMANDS, 1); break;
-		case UI_DRAW_COMMAND_INSET_SHADOW:
-		case UI_DRAW_COMMAND_BACKDROP:     prof_add_metric(PROF_METRIC_UI_EFFECT_COMMANDS, 1); break;
-		default: Assert(!"invalid UI draw command");
-	}
-	if (command->emission > 0.f) {
-		prof_add_metric(PROF_METRIC_UI_EMISSIVE_COMMANDS, 1);
-	}
-	if (inherit_clip && ui->clip_stack_count && !ui->unclipped_scope_count)
-	{
-		command->has_clip = true;
-		command->clip = ui->clip_stack[ui->clip_stack_count - 1];
-		prof_add_metric(PROF_METRIC_UI_CLIPPED_COMMANDS, 1);
-	}
-	UI_Layer *command_layer = &ui->frame.layers[layer];
-	command_layer->has_emission |= command->emission > 0.f;
-	if (command_layer->last) {
-		command_layer->last->next = command;
-	} else {
-		command_layer->first = command;
-	}
-	command_layer->last = command;
-	command_layer->command_count += 1;
-	return command;
+	Assert(!ui->builder);
+	Assert(ui->draw);
 }
 
-UI_DrawCommand *ui_draw_rect(UI_Context *ui, rect_f32 rect, Color_SRGBA color)
+void ui_draw_rect(UI_Context *ui, Draw_RectParams params)
 {
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer, UI_DRAW_COMMAND_RECT, true);
-	command->rect.rect = rect;
-	command->rect.color = color;
-	return command;
+	ui_assert_paint_phase(ui);
+	draw_list_rect(ui->draw, params);
 }
 
 void ui_draw_rect_outline(UI_Context *ui, rect_f32 rect, f32 thickness, Color_SRGBA color)
 {
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_X, thickness), color);
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_X, -thickness), color);
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_Y, thickness), color);
-	ui_draw_rect(ui, rect_f32_from_slice(rect, AXIS_Y, -thickness), color);
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_X, thickness), .color = color });
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_X, -thickness), .color = color });
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_Y, thickness), .color = color });
+	ui_draw_rect(ui, (Draw_RectParams) { .rect = rect_f32_from_slice(rect, AXIS_Y, -thickness), .color = color });
 }
 
 void ui_draw_inset_shadow(UI_Context *ui, rect_f32 rect, f32 strength)
 {
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer, UI_DRAW_COMMAND_INSET_SHADOW, true);
-	command->inset_shadow.rect = rect;
-	command->inset_shadow.strength = strength;
+	ui_assert_paint_phase(ui);
+	draw_list_inset_shadow(ui->draw, (Draw_InsetShadowParams) {
+		.rect = rect,
+		.strength = strength,
+	});
 }
 
-static void ui__draw_backdrop(UI_Context *ui, UI_LayerKind layer, rect_f32 rect)
+void ui_draw_backdrop(UI_Context *ui, rect_f32 rect, f32 roundness)
 {
-	UI_DrawCommand *command = ui__push_command(ui, layer, UI_DRAW_COMMAND_BACKDROP, false);
-	command->backdrop.rect = rect;
-	command->backdrop.corner_radius = 5.f;
-	command->backdrop.distortion = 10.f;
-	command->backdrop.distortion_width = 15.f;
-	command->backdrop.saturation = 1.12f;
-	command->backdrop.tint = color_with_alpha(ui->theme.palette.overlay, 0.20f);
-	command->backdrop.grain = 0.002f;
-	command->backdrop.highlight = 0.055f;
-	command->backdrop.shadow = 0.005f;
-	ui->frame.layers[layer].has_backdrops = true;
-}
-
-void ui_draw_backdrop(UI_Context *ui, rect_f32 rect)
-{
-	ui__draw_backdrop(ui, ui->layer, rect);
+	ui_assert_paint_phase(ui);
+	draw_list_backdrop(ui->draw, (Draw_BackdropParams) {
+		.rect = rect,
+		.corner_radius = roundness,
+		.distortion = 10.f,
+		.distortion_width = 15.f,
+		.saturation = 1.12f,
+		.tint = color_with_alpha(ui->theme.palette.overlay, 0.20f),
+		.grain = 0.002f,
+		.highlight = 0.055f,
+		.shadow = 0.005f,
+	});
 }
 
 UI_Palette ui_default_palette(void)
@@ -139,68 +111,172 @@ UI_Theme ui_default_theme(Font_Handle code_font)
 	return theme;
 }
 
-UI_Context *ui_create(Arena *owner, OS_Window *window, Text_Context *text,
-	UI_Theme theme)
+UI_Context *ui_create(Arena *owner, OS_Window *window, const Input_State *input, Text_Context *text, Draw_Context *draw, UI_Theme theme)
 {
 	Assert(owner);
 	Assert(window);
+	Assert(input);
 	Assert(text);
 	UI_Context *ui = arena_push_zero(owner, sizeof(*ui));
+	ui->owner = owner;
 	ui->window = window;
+	ui->input = input;
 	ui->text = text;
+	ui->draw = draw;
 	ui->frame_arena = arena_create(0, "UI frame arena");
 	ui->theme = theme;
+	ui->box_state_slot_count = UI_BOX_STATE_SLOT_COUNT;
+	ui->box_state_slots = arena_push_zero(owner, ui->box_state_slot_count * sizeof(*ui->box_state_slots));
+	ui->layout_generation = 1;
+	ui->previous_frame_time = seconds_now();
+	ui->previous_window_size = window->size;
 	return ui;
+}
+
+void ui_invalidate_layout(UI_Context *ui)
+{
+	Assert(ui);
+	ui->layout_generation++;
+	ui->hot = UI_ID_NONE;
+	ui->active = UI_ID_NONE;
 }
 
 void ui_begin_frame(UI_Context *ui)
 {
 	Assert(ui);
-	arena_reset(&ui->frame_arena);
-	ui->frame = (UI_Frame) { 0 };
-	ui->layer = UI_LAYER_CONTENT;
-	ui->layer_stack_count = 0;
-	ui->clip_stack_count = 0;
-	ui->unclipped_scope_count = 0;
-	ui->emission = 0.f;
-	ui->emission_stack_count = 0;
+	Assert(!ui->builder);
+	UI_Box *previous_root = ui->root;
+	Seconds frame_time = seconds_now();
+	ui->frame_elapsed = (f32)Max(frame_time.seconds - ui->previous_frame_time.seconds, 0.0);
+	ui->previous_frame_time = frame_time;
+	ui->frame_index++;
+
+	ui->mouse_wheel_consumed = false;
+	ui->feedback = UI_FEEDBACK_NONE;
 	ui->mouse = v2_from_v2i(ui->window->mouse_position);
+	if (ui->window->size.x != ui->previous_window_size.x || ui->window->size.y != ui->previous_window_size.y)
+	{
+		ui->previous_window_size = ui->window->size;
+		ui_invalidate_layout(ui);
+	}
 	ui->hot = UI_ID_NONE;
+	ui->hot_z = UI_Z_CONTENT;
+	if (previous_root && previous_root->state && previous_root->state->last_layout_frame + 1 == ui->frame_index && previous_root->state->layout_generation == ui->layout_generation)
+	{
+		UI_Box *hit = ui_box_find_deepest(previous_root, ui->mouse);
+		if (hit)
+		{
+			ui->hot = hit->id;
+			ui->hot_z = hit->paint.z;
+			for (UI_Box *ancestor = hit; ancestor; ancestor = ancestor->parent) {
+				if (ancestor->state) ancestor->state->hot_within_frame = ui->frame_index;
+			}
+		}
+	}
+	arena_reset(&ui->frame_arena);
+	ui->root = 0;
+	ui->content_root = 0;
+	ui->overlay_root = 0;
+	ui->tooltip_box = 0;
+	ui->tooltip_open = false;
+}
+
+UI_BoxState *ui_box_state_get(UI_Context *ui, UI_Id id)
+{
+	Assert(ui);
+	Assert(id.value);
+	Assert(ui->box_state_slot_count);
+
+	u32 slot = (u32)id.value & (ui->box_state_slot_count - 1);
+	for (UI_BoxState *state = ui->box_state_slots[slot]; state; state = state->hash_next)
+	{
+		if (!ui_id_equal(state->id, id)) continue;
+		state->last_touched_frame = ui->frame_index;
+		return state;
+	}
+
+	UI_BoxState *state = ui->free_box_states;
+	if (state) {
+		ui->free_box_states = state->hash_next;
+	}
+	else {
+		state = arena_push_zero(ui->owner, sizeof(*state));
+	}
+	memory_zero(state, sizeof(*state));
+	state->id = id;
+	state->last_touched_frame = ui->frame_index;
+	state->hash_next = ui->box_state_slots[slot];
+	ui->box_state_slots[slot] = state;
+	return state;
+}
+
+void ui_box_state_forget(UI_Context *ui, UI_Id id)
+{
+	Assert(ui);
+	Assert(id.value);
+
+	u32 slot = (u32)id.value & (ui->box_state_slot_count - 1);
+	UI_BoxState **link = &ui->box_state_slots[slot];
+	while (*link)
+	{
+		UI_BoxState *state = *link;
+		if (!ui_id_equal(state->id, id))
+		{
+			link = &state->hash_next;
+			continue;
+		}
+
+		*link = state->hash_next;
+		memory_zero(state, sizeof(*state));
+		state->hash_next = ui->free_box_states;
+		ui->free_box_states = state;
+		if (ui_id_equal(ui->hot, id)) ui->hot = UI_ID_NONE;
+		if (ui_id_equal(ui->active, id)) ui->active = UI_ID_NONE;
+		break;
+	}
 }
 
 void ui_end_frame(UI_Context *ui)
 {
 	Assert(ui);
-	Assert(ui->layer_stack_count == 0);
-	Assert(ui->clip_stack_count == 0);
-	Assert(ui->unclipped_scope_count == 0);
-	Assert(ui->emission_stack_count == 0);
-	if (!(ui->window->keys[OS_Key_MouseLeft] & OS_KEY_DOWN))
+	Assert(!ui->builder);
+	if (!(ui->input->keys[OS_Key_MouseLeft] & INPUT_KEY_DOWN))
 	{
 		ui->active = UI_ID_NONE;
 	}
+
+	for (u32 slot = 0; slot < ui->box_state_slot_count; slot++)
+	{
+		UI_BoxState **link = &ui->box_state_slots[slot];
+		while (*link)
+		{
+			UI_BoxState *state = *link;
+			if (state->last_touched_frame == ui->frame_index)
+			{
+				link = &state->hash_next;
+				continue;
+			}
+
+			*link = state->hash_next;
+			if (ui_id_equal(ui->hot, state->id)) ui->hot = UI_ID_NONE;
+			if (ui_id_equal(ui->active, state->id)) ui->active = UI_ID_NONE;
+			memory_zero(state, sizeof(*state));
+			state->hash_next = ui->free_box_states;
+			ui->free_box_states = state;
+		}
+	}
 }
 
-const UI_Frame *ui_frame(const UI_Context *ui)
+void ui_push_z(UI_Context *ui, i32 z)
 {
-	Assert(ui);
-	return &ui->frame;
+	ui_assert_paint_phase(ui);
+	draw_list_push_z(ui->draw, z);
 }
 
-void ui_push_layer(UI_Context *ui, UI_LayerKind layer)
+void ui_pop_z(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(layer >= 0 && layer < UI_LAYER_COUNT);
-	Assert(ui->layer_stack_count < ArrayCount(ui->layer_stack));
-	ui->layer_stack[ui->layer_stack_count++] = ui->layer;
-	ui->layer = layer;
-}
-
-void ui_pop_layer(UI_Context *ui)
-{
-	Assert(ui);
-	Assert(ui->layer_stack_count > 0);
-	ui->layer = ui->layer_stack[--ui->layer_stack_count];
+	ui_assert_paint_phase(ui);
+	draw_list_pop_z(ui->draw);
 }
 
 UI_Id ui_id_from_ptr(const void *pointer)
@@ -214,10 +290,28 @@ UI_Id ui_id_from_ptr(const void *pointer)
 	return (UI_Id) { value ? value : 1 };
 }
 
-UI_Id ui_id_child(UI_Id parent, u64 child)
+UI_Key ui_key_string(Str string)
 {
-	u64 value = parent.value ^ (child + 0x9e3779b97f4a7c15ull +
-		(parent.value << 6) + (parent.value >> 2));
+	u64 value = 14695981039346656037ull;
+	value ^= 0x53;
+	value *= 1099511628211ull;
+	for (u32 index = 0; index < string.size; index++)
+	{
+		value ^= (u8)string.text[index];
+		value *= 1099511628211ull;
+	}
+	return value ? value : 1;
+}
+
+UI_Key ui_key_child(UI_Key parent, UI_Key child)
+{
+	u64 value = parent ^ (child + 0x9e3779b97f4a7c15ull + (parent << 6) + (parent >> 2));
+	return value ? value : 1;
+}
+
+UI_Id ui_id_child(UI_Id parent, UI_Key child)
+{
+	u64 value = ui_key_child(parent.value, child);
 	return (UI_Id) { value ? value : 1 };
 }
 
@@ -236,18 +330,38 @@ b32 ui_is_active(UI_Context *ui, UI_Id id)
 	return ui_id_equal(ui->active, id);
 }
 
-UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
+b32 ui_pointer_over(UI_Context *ui, rect_f32 rect, i32 z)
+{
+	Assert(ui);
+	return rect_f32_contains(rect, ui->mouse) && (!ui->hot.value || z >= ui->hot_z);
+}
+
+void ui_feedback_emit(UI_Context *ui, UI_Feedback feedback)
+{
+	Assert(ui);
+	ui->feedback |= feedback;
+}
+
+UI_Feedback ui_feedback_take(UI_Context *ui)
+{
+	Assert(ui);
+	UI_Feedback feedback = (UI_Feedback)ui->feedback;
+	ui->feedback = UI_FEEDBACK_NONE;
+	return feedback;
+}
+
+UI_Response ui_interact_z(UI_Context *ui, UI_Id id, rect_f32 rect, i32 z)
 {
 	Assert(ui);
 	Assert(id.value);
-	OS_KeyState mouse = ui->window->keys[OS_Key_MouseLeft];
+	Input_KeyState mouse = ui->input->keys[OS_Key_MouseLeft];
 	UI_Response response = {};
-	response.hovered = rect_f32_contains(rect, ui->mouse);
-	if (response.hovered)
-	{
+	response.hovered = ui_pointer_over(ui, rect, z);
+	if (response.hovered) {
 		ui->hot = id;
+		ui->hot_z = z;
 	}
-	if (response.hovered && (mouse & OS_KEY_PRESSED))
+	if (!ui->active.value && response.hovered && (mouse & INPUT_KEY_PRESSED))
 	{
 		ui->active = id;
 		ui->active_press_mouse = ui->mouse;
@@ -255,8 +369,39 @@ UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
 	}
 	if (ui_id_equal(ui->active, id))
 	{
-		response.held = !!(mouse & OS_KEY_DOWN);
-		response.released = !!(mouse & OS_KEY_RELEASED);
+		response.held = !!(mouse & INPUT_KEY_DOWN);
+		response.released = !!(mouse & INPUT_KEY_RELEASED);
+		response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
+	}
+	return response;
+}
+
+UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
+{
+	return ui_interact_z(ui, id, rect, UI_Z_CONTENT);
+}
+
+UI_Response ui_signal_from_box(UI_Box *box)
+{
+	Assert(box);
+	Assert(box->ui);
+	box->hit_intercept = true;
+	if (!box->state || !box->has_previous) return (UI_Response) {};
+
+	UI_Context *ui = box->ui;
+	UI_Response response = {};
+	response.hovered = ui_id_equal(ui->hot, box->id);
+	Input_KeyState left_mouse_button = ui->input->keys[OS_Key_MouseLeft];
+	if (!ui->active.value && response.hovered && (left_mouse_button & INPUT_KEY_PRESSED))
+	{
+		ui->active = box->id;
+		ui->active_press_mouse = ui->mouse;
+		response.pressed = true;
+	}
+	if (ui_id_equal(ui->active, box->id))
+	{
+		response.held = !!(left_mouse_button & INPUT_KEY_DOWN);
+		response.released = !!(left_mouse_button & INPUT_KEY_RELEASED);
 		response.drag_delta = v2_sub(ui->mouse, ui->active_press_mouse);
 	}
 	return response;
@@ -264,84 +409,52 @@ UI_Response ui_interact(UI_Context *ui, UI_Id id, rect_f32 rect)
 
 void ui_push_clip(UI_Context *ui, rect_f32 rect)
 {
-	Assert(ui);
-	Assert(ui->clip_stack_count < ArrayCount(ui->clip_stack));
-	if (ui->clip_stack_count)
-	{
-		rect_i32 parent = rect_i32_from_f32(
-			ui->clip_stack[ui->clip_stack_count - 1]);
-		rect_i32 child = rect_i32_from_f32(rect);
-		rect = rect_f32_from_i32(rect_i32_intersect(parent, child));
-	}
-	ui->clip_stack[ui->clip_stack_count++] = rect;
+	ui_assert_paint_phase(ui);
+	draw_list_push_clip(ui->draw, rect);
 }
 
 void ui_pop_clip(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->clip_stack_count > 0);
-	ui->clip_stack_count -= 1;
+	ui_assert_paint_phase(ui);
+	draw_list_pop_clip(ui->draw);
 }
 
 void ui_push_unclipped(UI_Context *ui)
 {
-	Assert(ui);
-	ui->unclipped_scope_count += 1;
+	ui_assert_paint_phase(ui);
+	draw_list_push_unclipped(ui->draw);
 }
 
 void ui_pop_unclipped(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->unclipped_scope_count > 0);
-	ui->unclipped_scope_count -= 1;
+	ui_assert_paint_phase(ui);
+	draw_list_pop_unclipped(ui->draw);
 }
 
 void ui_push_emission(UI_Context *ui, f32 emission)
 {
-	Assert(ui);
-	Assert(ui->emission_stack_count < ArrayCount(ui->emission_stack));
-	ui->emission_stack[ui->emission_stack_count++] = ui->emission;
-	ui->emission = emission;
+	ui_assert_paint_phase(ui);
+	draw_list_push_emission(ui->draw, emission);
 }
 
 void ui_pop_emission(UI_Context *ui)
 {
-	Assert(ui);
-	Assert(ui->emission_stack_count > 0);
-	ui->emission = ui->emission_stack[--ui->emission_stack_count];
+	ui_assert_paint_phase(ui);
+	draw_list_pop_emission(ui->draw);
 }
 
-void ui_draw_panel(UI_Context *ui, rect_f32 rect, b32 focused)
-{
-	(void)focused;
-	ui_draw_rect(ui, rect, ui->theme.panel_background);
-	ui_draw_inset_shadow(ui, rect, 0.035f);
-}
-
-void ui_draw_splitter(UI_Context *ui, rect_f32 rect, UI_Id id)
-{
-	(void)id;
-	ui_draw_rect(ui, rect, ui->theme.slider_track);
-}
-
-void ui_draw_image(UI_Context *ui, UI_ImageParams params)
-{
-	UI_DrawCommand *command = ui__push_command(ui, ui->layer,
-		UI_DRAW_COMMAND_IMAGE, true);
-	command->image.params = params;
-}
-
-vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, String text)
+vec2 ui_measure_text(UI_Context *ui, UI_TextStyle style, Str text)
 {
 	vec2 result;
-	ARENA_SCOPE(&ui->frame_arena) {
+	SCRATCH_SCOPE(&ui->frame_arena) {
 		PROF_BLOCK("ui text measure") result = text_layout(&ui->frame_arena, ui->text, style.font, style.size, text).metrics.dim;
 	}
 	return result;
 }
 
-vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text)
+vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, Str text)
 {
+	ui_assert_paint_phase(ui);
 	vec2 size = {};
 	if (!text.size) return size;
 
@@ -349,19 +462,20 @@ vec2 ui_draw_text(UI_Context *ui, rect_f32 rect, UI_TextStyle style, String text
 	{
 		Text_Layout layout = text_layout(&ui->frame_arena, ui->text,
 			style.font, style.size, text);
-		UI_DrawCommand *command = ui__push_command(ui, ui->layer,
-			UI_DRAW_COMMAND_TEXT, true);
-		command->text.run = text_make_draw_run(&ui->frame_arena, &layout);
-		command->text.position = v2(rect.x, rect.y);
-		command->text.color = style.color;
-		size = command->text.run.dim;
+		Draw_TextParams params = {
+			.run = text_make_draw_run(&ui->frame_arena, &layout),
+			.position = v2(rect.x, rect.y),
+			.color = style.color,
+		};
+		draw_list_text(ui->draw, params);
+		size = params.run.dim;
 	}
 	return size;
 }
 
 UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_height, f32 *position, f32 content_height)
 {
-	Assert(ui);
+	ui_assert_paint_phase(ui);
 	Assert(position);
 
 	UI_Response response = {};
@@ -399,160 +513,17 @@ UI_Response ui_scrollbar(UI_Context *ui, UI_Id id, rect_f32 track, f32 viewport_
 		thumb.y = thumb_track.y + travel * position_ratio;
 	}
 
-	UI_DrawCommand *cmd = ui_draw_rect(ui, track, ui->theme.slider_track);
-	cmd->rect.roundness = track.w * 0.10f;
-	cmd->rect.edge_softness = 0.5f;
-	cmd = ui_draw_rect(ui, thumb, ui->theme.slider_thumb);
-	cmd->rect.roundness = thumb.w * 0.10f;
-	cmd->rect.edge_softness = 0.5f;
+	ui_draw_rect(ui, (Draw_RectParams) {
+		.rect = track,
+		.color = ui->theme.slider_track,
+		.corner_radii = draw_corner_radii_all(track.w * 0.10f),
+		.edge_softness = 0.5f,
+	});
+	ui_draw_rect(ui, (Draw_RectParams) {
+		.rect = thumb,
+		.color = ui->theme.slider_thumb,
+		.corner_radii = draw_corner_radii_all(thumb.w * 0.10f),
+		.edge_softness = 0.5f,
+	});
 	return response;
-}
-
-UI_TableColumnSpec ui_table_column_content(void)
-{
-	return (UI_TableColumnSpec) { UI_TABLE_COLUMN_CONTENT, 0.f };
-}
-
-UI_TableColumnSpec ui_table_column_fixed(f32 width)
-{
-	return (UI_TableColumnSpec) { UI_TABLE_COLUMN_FIXED, Max(width, 0.f) };
-}
-
-UI_TableColumnSpec ui_table_column_flex(f32 weight)
-{
-	return (UI_TableColumnSpec) { UI_TABLE_COLUMN_FLEX, Max(weight, 0.f) };
-}
-
-UI_Table ui_table_begin(UI_Context *ui, Arena *arena, rect_f32 rect, u32 row_count, u32 column_count, f32 row_height)
-{
-	Assert(ui);
-	Assert(arena);
-	Assert(row_count);
-	Assert(column_count);
-
-	UI_Table table = {
-		.ui = ui,
-		.rect = rect,
-		.row_height = row_height,
-		.column_gap = 8.f,
-		.cell_padding = v2(2.f, 2.f),
-		.row_count = row_count,
-		.column_count = column_count,
-	};
-	table.columns = arena_push_zero(arena, column_count * sizeof(*table.columns));
-	table.cells = arena_push_zero(arena, row_count * column_count * sizeof(*table.cells));
-	table.resolved_widths = arena_push_zero(arena, column_count * sizeof(*table.resolved_widths));
-	for (u32 column = 0; column < column_count; ++column) {
-		table.columns[column] = ui_table_column_flex(1.f);
-	}
-	return table;
-}
-
-void ui_table_set_column(UI_Table *table, u32 column, UI_TableColumnSpec spec)
-{
-	Assert(table);
-	Assert(column < table->column_count);
-	table->columns[column] = spec;
-	table->is_laid_out = false;
-}
-
-void ui_table_set_text(UI_Table *table, u32 row, u32 column, UI_TextStyle style, String text)
-{
-	Assert(table);
-	Assert(row < table->row_count);
-	Assert(column < table->column_count);
-	table->cells[row * table->column_count + column] = (UI_TableCell) { text, style };
-	table->is_laid_out = false;
-}
-
-void ui_table_layout(UI_Table *table)
-{
-	Assert(table);
-	f32 committed_width = table->column_gap * Max((i32)table->column_count - 1, 0);
-	f32 flex_weight = 0.f;
-
-	for (u32 column = 0; column < table->column_count; ++column)
-	{
-		UI_TableColumnSpec spec = table->columns[column];
-		f32 width = 0.f;
-		if (spec.kind == UI_TABLE_COLUMN_CONTENT)
-		{
-			for (u32 row = 0; row < table->row_count; ++row)
-			{
-				UI_TableCell *cell = &table->cells[row * table->column_count + column];
-				vec2 text_size = ui_measure_text(table->ui, cell->style, cell->text);
-				width = Max(width, text_size.x + table->cell_padding.x * 2.f);
-			}
-		}
-		else if (spec.kind == UI_TABLE_COLUMN_FIXED)
-		{
-			width = spec.value;
-		}
-		else
-		{
-			flex_weight += spec.value;
-		}
-
-		table->resolved_widths[column] = width;
-		committed_width += width;
-	}
-
-	f32 flex_space = Max(table->rect.w - committed_width, 0.f);
-	for (u32 column = 0; column < table->column_count; ++column)
-	{
-		UI_TableColumnSpec spec = table->columns[column];
-		if (spec.kind == UI_TABLE_COLUMN_FLEX)
-		{
-			table->resolved_widths[column] = flex_weight > 0.f ? flex_space * spec.value / flex_weight : 0.f;
-		}
-	}
-	table->is_laid_out = true;
-}
-
-rect_f32 ui_table_cell_rect(const UI_Table *table, u32 row, u32 column)
-{
-	Assert(table);
-	Assert(table->is_laid_out);
-	Assert(row < table->row_count);
-	Assert(column < table->column_count);
-
-	rect_f32 result = {
-		.x = table->rect.x,
-		.y = table->rect.y + row * table->row_height,
-		.w = table->resolved_widths[column],
-		.h = table->row_height,
-	};
-	for (u32 previous = 0; previous < column; ++previous)
-	{
-		result.x += table->resolved_widths[previous] + table->column_gap;
-	}
-	return result;
-}
-
-void ui_table_draw(UI_Table *table)
-{
-	Assert(table);
-	ui_table_layout(table);
-	for (u32 row = 0; row < table->row_count; ++row)
-	{
-		for (u32 column = 0; column < table->column_count; ++column)
-		{
-			UI_TableCell *cell = &table->cells[row * table->column_count + column];
-			if (!cell->text.size) continue;
-
-			rect_f32 cell_rect = ui_table_cell_rect(table, row, column);
-			if (cell_rect.w <= 0.f || cell_rect.h <= 0.f) continue;
-			vec2 text_size = ui_measure_text(table->ui, cell->style, cell->text);
-			rect_f32 text_rect = cell_rect;
-			text_rect.x += table->cell_padding.x;
-			text_rect.y += Max((cell_rect.h - text_size.y) * 0.5f, 0.f);
-
-			// Clip each cell independently so constrained tables hide overflow
-			// instead of allowing one value to collide with the next column.
-			rect_i32 clip = rect_i32_intersect(rect_i32_from_f32(cell_rect), rect_i32_from_f32(table->rect));
-			ui_push_clip(table->ui, rect_f32_from_i32(clip));
-			ui_draw_text(table->ui, text_rect, cell->style, cell->text);
-			ui_pop_clip(table->ui);
-		}
-	}
 }

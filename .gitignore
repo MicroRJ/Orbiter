@@ -1,5 +1,7 @@
 .vs/
 /build/
+/.bob/
+/dist/
 *.exe
 !/tools/bob/bob.exe
 *.ilk
@@ -15,8 +17,13 @@
 
 # Runtime and local development data.
 /data/debugger.cfg
+/data/user.tab
+/data/*.orb
 /data/*.orbiter
+/data/orbs/
+/data/library/
 /data/*.gif
+/data/*.png
 /data/roms/
 /data/saves/
 /data/dev/

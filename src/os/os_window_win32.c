@@ -70,12 +70,12 @@ static b32 os_win32_set_title_bar_style(HWND window, OS_WindowTitleBarStyle styl
 	return SUCCEEDED(dark_result) || SUCCEEDED(background_result) || SUCCEEDED(text_result) || SUCCEEDED(border_result);
 }
 
-static u32 os_win32_modifiers(const OS_Window *window)
+static u32 os_win32_modifiers(void)
 {
 	u32 modifiers = OS_MODIFIER_NONE;
-	if ((window->keys[OS_Key_LeftShift] | window->keys[OS_Key_RightShift]) & OS_KEY_DOWN) modifiers |= OS_MODIFIER_SHIFT;
-	if ((window->keys[OS_Key_LeftControl] | window->keys[OS_Key_RightControl]) & OS_KEY_DOWN) modifiers |= OS_MODIFIER_CONTROL;
-	if ((window->keys[OS_Key_LeftAlt] | window->keys[OS_Key_RightAlt]) & OS_KEY_DOWN) modifiers |= OS_MODIFIER_ALT;
+	if (GetKeyState(VK_SHIFT) & 0x8000) modifiers |= OS_MODIFIER_SHIFT;
+	if (GetKeyState(VK_CONTROL) & 0x8000) modifiers |= OS_MODIFIER_CONTROL;
+	if (GetKeyState(VK_MENU) & 0x8000) modifiers |= OS_MODIFIER_ALT;
 	return modifiers;
 }
 
@@ -83,7 +83,7 @@ static OS_Event *os_win32_push_event(OS_Window *window, OS_EventType type)
 {
 	OS_Event *event = os_graphical_push_event(window, type);
 	if (!event) return NULL;
-	event->modifiers = os_win32_modifiers(window);
+	event->modifiers = os_win32_modifiers();
 	event->mouse_position = window->mouse_position;
 	return event;
 }
@@ -91,33 +91,21 @@ static OS_Event *os_win32_push_event(OS_Window *window, OS_EventType type)
 static void os_win32_key_up(OS_Window *window, OS_Key key)
 {
 	if (key <= OS_Key_Null || key >= OS_Key_COUNT) return;
-	if (!(window->keys[key] & OS_KEY_DOWN)) return;
-	u32 modifiers = os_win32_modifiers(window);
-	window->keys[key] |= OS_KEY_RELEASED;
-	window->keys[key] &= ~OS_KEY_DOWN;
 	OS_Event *event = os_win32_push_event(window, OS_EVENT_KEY_RELEASE);
 	if (event)
 	{
 		event->key = key;
-		event->modifiers = modifiers;
 	}
 }
 
 static void os_win32_key_down(OS_Window *window, OS_Key key, b32 repeat)
 {
 	if (key <= OS_Key_Null || key >= OS_Key_COUNT) return;
-	if (!(window->keys[key] & OS_KEY_DOWN))
-	{
-		window->keys[key] |= OS_KEY_PRESSED;
-	}
-	if (repeat) window->keys[key] |= OS_KEY_REPEAT;
-	window->keys[key] |= OS_KEY_DOWN;
 	OS_Event *event = os_win32_push_event(window, OS_EVENT_KEY_PRESS);
 	if (event)
 	{
 		event->key = key;
 		event->repeat = repeat;
-		event->modifiers = os_win32_modifiers(window);
 	}
 }
 
@@ -221,7 +209,7 @@ static b32 os_win32_window_init(void)
 		.hInstance = GetModuleHandleW(0),
 		.lpszClassName = OS_WIN32_WINDOW_CLASS,
 		.hCursor = os_win32.cursors[OS_CURSOR_POINTER],
-		.hIcon = LoadIconW(NULL, IDI_APPLICATION),
+		.hIcon = LoadIconA(NULL, IDI_APPLICATION),
 	};
 	if (!RegisterClassExW(&window_class))
 	{
@@ -295,15 +283,12 @@ void os_window_destroy(OS_Window *base)
 	free(window);
 }
 
-void os_graphical_poll(void)
+void os_poll_windows(void)
 {
 	for (OS_Win32Window *window = os_win32_first_window; window; window = window->next)
 	{
 		OS_Window *base = &window->base;
 		os_graphical_reset_events(base);
-		for (u32 key = 0; key < OS_Key_COUNT; ++key) {
-			base->keys[key] &= OS_KEY_DOWN;
-		}
 		base->mouse_wheel = v2i(0, 0);
 	}
 
@@ -421,10 +406,6 @@ LRESULT CALLBACK os_win32_window_proc(HWND handle, UINT message, WPARAM wparam, 
 		case WM_KILLFOCUS:
 		{
 			base->status &= ~OS_WINDOW_FOCUSED;
-			for (u32 key = 0; key < OS_Key_COUNT; ++key)
-			{
-				if (base->keys[key] & OS_KEY_DOWN) os_win32_key_up(base, (OS_Key)key);
-			}
 			os_win32_push_event(base, OS_EVENT_WINDOW_FOCUS_LOST);
 			return 0;
 		}
@@ -475,7 +456,7 @@ LRESULT CALLBACK os_win32_window_proc(HWND handle, UINT message, WPARAM wparam, 
 				SetCapture(handle);
 			} else {
 				os_win32_key_up(base, key);
-				if (!((base->keys[OS_Key_MouseLeft] | base->keys[OS_Key_MouseMiddle] | base->keys[OS_Key_MouseRight]) & OS_KEY_DOWN)) ReleaseCapture();
+				if (!(wparam & (MK_LBUTTON | MK_MBUTTON | MK_RBUTTON))) ReleaseCapture();
 			}
 			return 0;
 		}
@@ -565,7 +546,7 @@ LRESULT CALLBACK os_win32_window_proc(HWND handle, UINT message, WPARAM wparam, 
 				if (!path) continue;
 				OS_Event *event = os_win32_push_event(base, OS_EVENT_FILE_DROP);
 				if (event) {
-					event->path = string_from_data(path, (u32)utf8_size - 1);
+					event->path = str_from_data(path, (u32)utf8_size - 1);
 				} else {
 					free(path);
 				}

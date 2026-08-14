@@ -4,15 +4,87 @@
 #include "ui_box.h"
 #include "ui.h"
 
-UI_Box *ui_text_box(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, const char *format, ...) __attribute__((format(printf, 4, 5)));
-UI_Box *ui_text_box_sized(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, String sizing_text, const char *format, ...) __attribute__((format(printf, 5, 6)));
-UI_Box *ui_text_box_string(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, String text);
-UI_Box *ui_text_box_sized_string(UI_BoxBuilder *builder, u64 key, UI_TextStyle style, String sizing_text, String text);
+UI_Box *ui_text_box(UI_Context *ui, UI_Key key, UI_TextStyle style, const char *format, ...) __attribute__((format(printf, 4, 5)));
+UI_Box *ui_text_sized_f(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, const char *format, ...) __attribute__((format(printf, 5, 6)));
+UI_Box *ui_text(UI_Context *ui, UI_Key key, UI_TextStyle style, Str text);
+UI_Box *ui_text_sized(UI_Context *ui, UI_Key key, UI_TextStyle style, Str sizing_text, Str text);
 
-UI_Box *ui_text_box_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, const char *format, ...) __attribute__((format(printf, 5, 6)));
-UI_Box *ui_text_box_sized_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String sizing_text, const char *format, ...) __attribute__((format(printf, 6, 7)));
-UI_Box *ui_text_box_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String text);
-UI_Box *ui_text_box_sized_string_desc(UI_BoxBuilder *builder, u64 key, UI_BoxDesc desc, UI_TextStyle style, String sizing_text, String text);
+typedef enum
+{
+	UI_IMAGE_FIT_CONTAIN,
+	UI_IMAGE_FIT_COVER,
+	UI_IMAGE_FIT_STRETCH,
+}
+UI_ImageFit;
+
+typedef struct
+{
+	// Zero width or height extends the region to that texture edge.
+	rect_i32 region;
+	Color_SRGBA tint;
+	vec2 align;
+	UI_ImageFit fit;
+	GFX_Sampler sampler;
+}
+UI_ImageStyle;
+
+// The image box borrows the texture through the current frame.
+UI_ImageStyle ui_default_image_style(void);
+UI_Box *ui_image_box(UI_Context *ui, UI_Key key, UI_ImageStyle style, GFX_Texture *texture);
+
+UI_Response ui_button(UI_Context *ui, UI_Key key, Str text);
+
+// Tooltip content is a box subtree painted after layout. Immediate ui_draw_*
+// calls are not part of that subtree. Only one tooltip is built per frame.
+// A null result means another tooltip already claimed the overlay or the call
+// came from a virtual-list callback that materializes during layout. Call
+// ui_tooltip_end only for a non-null result.
+UI_Box *ui_tooltip_begin(UI_Context *ui, UI_Key owner_key, vec2 screen_anchor);
+void ui_tooltip_end(UI_Context *ui);
+
+void ui_box_paint(UI_Box *box);
+
+typedef void UI_VirtualListBuildItem(UI_Context *ui, u32 item_index, void *user);
+
+typedef struct
+{
+	u32 item_count;
+	void *user;
+	UI_VirtualListBuildItem *build_item;
+}
+UI_VirtualListDesc;
+
+// The first item supplies the fixed extent along the list axis. The callback
+// must append exactly one item box, which may contain any box subtree.
+UI_Box *ui_virtual_list(UI_Context *ui, UI_Key key, Str name, UI_VirtualListDesc list);
+
+typedef struct
+{
+	UI_Context *ui;
+	UI_Box *root;
+	UI_Box *viewport;
+	UI_Box *content;
+	UI_Box *track;
+	UI_Box *space_before;
+	UI_Box *thumb;
+	UI_Box *space_after;
+	AXIS axis;
+	b32 has_previous;
+	b32 reset;
+	f32 scroll_max;
+	f32 offset;
+	f32 target;
+	u32 parent_count;
+}
+UI_ScrollBox;
+
+// The active box properties configure only the scroll-box root. The scope
+// begins with default properties and must build exactly one content box. The
+// widget places that box in a clipped viewport and translates its complete
+// subtree while scrolling.
+UI_ScrollBox *ui_scroll_box_begin(UI_Context *ui, UI_Key key, AXIS axis);
+void ui_scroll_box_reset(UI_ScrollBox *scroll);
+void ui_scroll_box_end(UI_ScrollBox *scroll);
 
 typedef enum
 {
@@ -33,16 +105,17 @@ typedef struct
 {
 	const UI_BoxTableColumn *columns;
 	u32 column_count;
-	f32 row_height;
 	f32 column_gap;
 	f32 row_gap;
 	vec2 cell_padd;
+	// Todo, remove this, we don't need it and it makes layout weird!
+	f32 row_height;
 }
 UI_BoxTableDesc;
 
 typedef struct
 {
-	UI_BoxBuilder *builder;
+	UI_Context *ui;
 	UI_Box *box;
 	UI_Box *row;
 	UI_Box *cell;
@@ -54,8 +127,8 @@ UI_BoxTable;
 UI_BoxTableColumn ui_box_table_content(void);
 UI_BoxTableColumn ui_box_table_fixed(f32 width);
 UI_BoxTableColumn ui_box_table_flex(f32 weight);
-UI_BoxTable ui_box_table_begin(UI_BoxBuilder *builder, u64 key, String name, UI_BoxTableDesc desc);
-UI_Box *ui_box_table_row_begin(UI_BoxTable *table, u64 key);
+UI_BoxTable ui_box_table_begin(UI_Context *ui, UI_Key key, Str name, UI_BoxTableDesc desc);
+UI_Box *ui_box_table_row_begin(UI_BoxTable *table, UI_Key key);
 void ui_box_table_row_end(UI_BoxTable *table);
 UI_Box *ui_box_table_cell_begin(UI_BoxTable *table);
 void ui_box_table_cell_end(UI_BoxTable *table);

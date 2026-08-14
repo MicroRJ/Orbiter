@@ -12,8 +12,6 @@ Audio_ReadSpan;
 
 typedef struct
 {
-	u32 sample_rate;
-	u32 channels;
 	u32 frame_capacity;
 }
 Audio_StreamDesc;
@@ -27,7 +25,7 @@ Audio_ReadSpan audio_stream_acquire(Audio_Stream *stream);
 void audio_stream_consume(Audio_Stream *stream, u32 frame_count);
 void audio_stream_discard(Audio_Stream *stream);
 
-u32 audio_stream_available_frames(const Audio_Stream *stream);
+u32 audio_stream_queued_frames(const Audio_Stream *stream);
 u32 audio_stream_capacity_frames(const Audio_Stream *stream);
 u64 audio_stream_overrun_frames(const Audio_Stream *stream);
 

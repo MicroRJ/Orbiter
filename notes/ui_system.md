@@ -1,5 +1,111 @@
 ## UI system
 
+For the UI system we've settled on a model that closely follows that of RAD's debugger.
+
+The idea is to create a transient Box tree each frame.
+
+The Box tree represents an abstract layout. At the end of the frame, we process this
+tree and generate hard geometry from it.
+The key, is remembering relevant build artifacts for the next frame.
+
+This is the essence of RAD's UI system.
+
+
+We're essentially turning this:
+
+	Box:compute_geometry()
+	ui_button(Box:get_rect(), ...)
+
+Into this:
+
+	ui_button(Box:get_rect(), ...)
+	Box:compute_geometry()
+
+
+Additionally, not only is a box a node in a layout tree, but also a graphical object.
+Each box contains basic paint information.
+
+Every UI element is a Box, for instance, the thumb of a scrollbar is a Box.
+
+Boxes can have hooks, for painting, and other hooks for integrating with the layout
+system.
+
+When it comes to the layout algorithm;
+
+The main layout algorithm for containers, is based around Android's Linear Layout,
+but extended to support shrinking weights as well as expansion weights.
+
+
+### Box building
+RAD uses a linked list to build box children.
+
+For our builder I initially chose a flat ```**children``` array. The way we build it is by pushing boxes
+onto a designated stack in the builder, once you're done you pop the stack and get a copy of the
+boxes. This works great for parsers, so I thought it might work well here too.
+
+I think pretty much the only "advantage" this has, it's that it's just more convenient to deal
+in very narrow, internal cases (since user code doesn't typically access children).
+
+After experimenting with this, I now actually understand why LL's are the right move here.
+
+For instance, you can't create a box and add / remove children arbitrarily, you have to either comply
+with a very strict, or work around it. And most of it is complying.
+
+- Ordering code in specific ways to work with the stack.
+- Literally not being able to do something and having to do some wacky stuff.
+- Scrollbars needing awkward construction ordering.
+- Virtual lists rebuilding child arrays.
+- Builder stacks and child-array finalization.
+- Difficulty inserting decorators, overlays, or generated boxes.
+- General uncertainty about whether adding children later is valid.
+
+
+
+
+
+
+
+
+
+
+
+
+
+The simple layout problem already solves parent child dependencies very well.
+The main problem is virtual lists.
+Because they introduce yet another dimension.
+
+Here are the challenges:
+	The child height is unknown, the parent viewport is unknown.
+	The parent height may depend on child height and count.
+	The child width and or height depends on the parent's size.
+	And yet we have to have enough information to, know how big
+	the scrollable range is, and know which item is currently visible.
+
+In a retained mode UI system, you'd just know and remember child sizes. Knowing this you can
+setup the scrollbar, and offset children prior to laying them out.
+
+We're having to re-layout children because we don't know their sizes by the time we begin the
+scroll area.
+
+We did make a virtualization itself be part of the box, which makes the intended common case simpler,
+but the intended common case isn't common ...
+
+But we can't take it out either, we can't measure the child without it being in the parent, we can't
+wait for the parent to layout because its size may depend on the number of children.
+
+So it just seems like the right way to do it.
+
+The question is, do we experiment with a RAD style one frame persisted rectangles. If we knew the
+data from the previous frame, we'd know the size of the children, our rectangle, at the expense
+of having one frame delay, which doesn't sound that bad.
+
+We'd have to experiment.
+
+
+
+
+
 ----
 
 Our current UI system is pretty much a combination of immediate mode draw calls and some helper

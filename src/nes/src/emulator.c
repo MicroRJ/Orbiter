@@ -5,179 +5,135 @@
 #include "ppu/ppu.h"
 #include "apu/apu.h"
 #include "mappers/mapper.h"
-#include "runtime/scheduler.h"
-#include "nes/state_meta.h"
 
 static const NES_MapperClass nes_mapper_classes[] =
 {
-	{ "NROM",    nrom_init,  nrom_reset,  nrom_cpu,  nrom_ppu },
-	{ "MMC1",    mmc1_init,  mmc1_reset,  mmc1_cpu,  mmc1_ppu },
-	{ "UxROM",  uxrom_init, uxrom_reset, uxrom_cpu, uxrom_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "UNKNOWN", none_init,  none_reset,  none_cpu,  none_ppu },
-	{ "MMC2",    mmc2_init,  mmc2_reset,  mmc2_cpu,  mmc2_ppu },
-};
-
-static const NES_MapperClass nes_no_mapper =
-{
-	"NONE", none_init, none_reset, none_cpu, none_ppu,
+	{ "NROM",     nrom_valid,  nrom_reset,  nrom_cpu,  nrom_ppu },
+	{ "MMC1",     mmc1_valid,  mmc1_reset,  mmc1_cpu,  mmc1_ppu },
+	{ "UxROM",   uxrom_valid, uxrom_reset, uxrom_cpu, uxrom_ppu },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "UNKNOWN",          0,           0,         0,         0 },
+	{ "MMC2",     mmc2_valid,  mmc2_reset,  mmc2_cpu,  mmc2_ppu },
 };
 
 void nes_mapper_set_value(NES_Emulator *core, u32 index, u8 value)
 {
-	Assert(index < ArrayCount(core->core.values));
-	core->core.values[index] = value;
+	Assert(index < ArrayCount(core->values));
+	core->values[index] = value;
 }
 
-static void nes_zero_machine(NES_Emulator *core)
+static b32 nes_mapper_supported(u32 mapper)
 {
-	memory_zero(&core->core, sizeof(core->core));
-	memory_zero(core->video, sizeof(core->video));
+	if (mapper >= ArrayCount(nes_mapper_classes)) return false;
+	if (!nes_mapper_classes[mapper].valid)        return false;
+	if (!nes_mapper_classes[mapper].reset)        return false;
+	if (!nes_mapper_classes[mapper].cpu_bus)      return false;
+	if (!nes_mapper_classes[mapper].ppu_bus)      return false;
+	return true;
 }
 
-static void nes_reset_audio(NES_Emulator *core)
+b32 nes_emulator_valid(const NES_Emulator *emulator)
 {
-	core->core.audio_sample_phase = 0;
+	if (emulator->prg_rom_size == 0)                                      return false;
+	if (emulator->prg_rom_size > NES_MAX_PRG_ROM_SIZE)                    return false;
+	if (emulator->prg_rom_size % KiB(16))                                 return false;
+	if (emulator->chr_rom_size > NES_MAX_CHR_ROM_SIZE)                    return false;
+	if (emulator->chr_rom_size % KiB(8))                                  return false;
+	if (emulator->num_prg_banks != emulator->prg_rom_size / KiB(16))      return false;
+	if (emulator->num_chr_banks != emulator->chr_rom_size / KiB(8))       return false;
+	if (emulator->vmirror != 0 && emulator->vmirror != 1)                 return false;
+	if (emulator->ppu.xtick >= 341)                                       return false;
+	if (emulator->ppu.ytick >= 262)                                       return false;
+	if (emulator->ppu.t > 0x7FFF)                                         return false;
+	if (emulator->ppu.v > 0x7FFF)                                         return false;
+	if (emulator->ppu.x >= 8)                                             return false;
+	if (emulator->ppu.w > 1)                                              return false;
+	if (emulator->ppu.nsprs > NES_PPU_MAX_SPRITES_PER_SCANLINE)           return false;
+	if (emulator->apu.mode > 1)                                           return false;
+	if (emulator->apu.reset_mode > 1)                                     return false;
+	if (emulator->apu.reset_delay > 4)                                    return false;
+	if (emulator->apu.step_index >= (emulator->apu.mode ? 5 : 4))         return false;
+	if (emulator->apu.triangle.wave_phase >= 32)                          return false;
+	if (!nes_mapper_supported(emulator->mapper_number))                   return false;
+	if (!nes_mapper_classes[emulator->mapper_number].valid(emulator))     return false;
+	return true;
 }
 
-static void nes_zero_runtime(NES_Emulator *core)
+// TODO(RJ) return a proper error code here!
+b32 nes_supports_setup_params(NES_SetupParams params)
 {
-	core->scheduler_clock = 0;
-	memory_zero(&core->core.values, sizeof(core->core.values));
-	memory_zero(&core->core.input_state, sizeof(core->core.input_state));
-	memory_zero(&core->core.cpu_stall_cycles, sizeof(core->core.cpu_stall_cycles));
-	memory_zero(&core->core.controllers, sizeof(core->core.controllers));
-	memory_zero(&core->core._wram, sizeof(core->core._wram));
-	memory_zero(&core->core._vram, sizeof(core->core._vram));
-	memory_zero(&core->core.chr_ram, sizeof(core->core.chr_ram));
-	memory_zero(&core->core.prg_ram, sizeof(core->core.prg_ram));
-	nes_reset_audio(core);
+	if (params.has_trainer || params.four_screen)            return false;
+
+	if (params.prg_rom.size == 0)                            return false;
+	if (params.prg_rom.size > NES_MAX_PRG_ROM_SIZE)          return false;
+	if (params.prg_rom.size % KiB(16))                       return false;
+
+	if (params.chr_rom.size > NES_MAX_CHR_ROM_SIZE)          return false;
+	if (params.chr_rom.size % KiB(8))                        return false;
+
+	if (!nes_mapper_supported(params.mapper))                return false;
+	if (params.mapper == 0 && params.prg_rom.size > KiB(32)) return false;
+	if (params.mapper == 2 && params.chr_rom.size)           return false;
+	if (params.mapper == 9 && (params.prg_rom.size < KiB(32) || !params.chr_rom.size)) return false;
+	return true;
 }
 
-static b32 nes_instantiate_cartridge(NES_Emulator *core)
+b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 {
-	core->mapper = nes_no_mapper;
-	u32 mapper_number = core->core.mapper_number.number;
-	if (mapper_number >= ArrayCount(nes_mapper_classes)) return false;
-
-	NES_MapperClass mapper = nes_mapper_classes[mapper_number];
-	NES_MapperInitParams params = { .num_prg_banks = core->core.num_prg_banks };
-	b32 success = mapper.init(core, &params);
-	if (success) core->mapper = mapper;
-	return success;
+	if (!nes_supports_setup_params(params)) return false;
+	// TODO(RJ) only zero the live state
+	memory_zero(emulator, sizeof(* emulator));
+	memory_copy(emulator->prg_rom, params.prg_rom.data, params.prg_rom.size);
+	memory_copy(emulator->chr_rom, params.chr_rom.data, params.chr_rom.size);
+	emulator->mapper_number = params.mapper;
+	emulator->prg_rom_size = params.prg_rom.size;
+	emulator->chr_rom_size = params.chr_rom.size;
+	emulator->vmirror = params.vmirror;
+	// TODO(RJ) remove these two
+	emulator->num_prg_banks = params.prg_rom.size / KiB(16);
+	emulator->num_chr_banks = params.chr_rom.size / KiB(8);
+	emulator->mapper = nes_mapper_classes[params.mapper];
+	Assert(emulator->mapper.reset(emulator));
+	nes_ppu_power_on(&emulator->ppu);
+	nes_apu_power_on(&emulator->apu);
+	nes_cpu_power_on(emulator);
+	return true;
 }
 
-NES_Emulator *nes_emulator_create(Arena *arena, NES_EmulatorDesc desc)
+void nes_reset_emulator(NES_Emulator *emulator)
 {
-	NES_Emulator *core = arena_push_zero(arena, sizeof(*core));
-	core->mapper = nes_no_mapper;
-	core->audio_sample_rate = desc.audio_sample_rate ? desc.audio_sample_rate : 48000;
-	return core;
+	Assert(nes_emulator_ready_to_run(emulator));
+	emulator->cpu_stall_cycles = 0;
+	Assert(emulator->mapper.reset(emulator));
+	nes_ppu_reset(&emulator->ppu);
+	nes_apu_reset(&emulator->apu);
+	nes_cpu_reset(emulator);
 }
 
-b32 nes_emulator_has_cartridge(const NES_Emulator *core)
+b32 nes_emulator_ready_to_run(const NES_Emulator *core)
 {
-	return core && core->mapper.cpu_bus != none_cpu;
+	return core->mapper.reset != 0;
 }
 
 u32 nes_emulator_prg_rom_size(const NES_Emulator *core)
 {
-	return core ? core->core.prg_rom_size : 0;
-}
-
-b32 nes_emulator_load_cartridge(NES_Emulator *core, NES_CartridgeDesc cartridge)
-{
-	if (!cartridge.prg_rom.data || !cartridge.prg_rom.size ||
-		cartridge.prg_rom.size > NES_MAX_PRG_ROM_SIZE ||
-		cartridge.prg_rom.size % KiB(16) ||
-		cartridge.chr_rom.size > NES_MAX_CHR_ROM_SIZE ||
-		cartridge.chr_rom.size % KiB(8) ||
-		(cartridge.chr_rom.size && !cartridge.chr_rom.data) ||
-		cartridge.mapper >= ArrayCount(nes_mapper_classes))
-	{
-		return false;
-	}
-
-	nes_reset_audio(core);
-	nes_zero_machine(core);
-	memory_copy(core->core.prg_rom, cartridge.prg_rom.data, cartridge.prg_rom.size);
-	memory_copy(core->core.chr_rom, cartridge.chr_rom.data, cartridge.chr_rom.size);
-	core->core.num_prg_banks = cartridge.prg_rom.size / KiB(16);
-	core->core.num_chr_banks = cartridge.chr_rom.size / KiB(8);
-	core->core.prg_rom_size = cartridge.prg_rom.size;
-	core->core.chr_rom_size = cartridge.chr_rom.size;
-	core->core.mapper_number.number = cartridge.mapper;
-	core->core.vmirror = cartridge.vertical_mirroring;
-	if (!nes_instantiate_cartridge(core)) {
-		return false;
-	}
-	nes_emulator_reset(core);
-	return true;
-}
-
-void nes_emulator_reset(NES_Emulator *core)
-{
-	nes_zero_runtime(core);
-	memory_zero(core->video, sizeof(core->video));
-	core->mapper.reset(core);
-	nes_ppu_reset(&core->core.ppu);
-	nes_apu_reset(&core->core.apu);
-	nes_cpu_reset(core);
+	return core->prg_rom_size;
 }
 
 u64 nes_emulator_scheduler_clock(const NES_Emulator *core)
 {
-	return core ? core->scheduler_clock : 0;
+	return core->scheduler_clock;
 }
 
-void nes_emulator_run(NES_Emulator *core, u64 ppu_cycles)
-{
-	nes_scheduler_run(core, ppu_cycles);
-}
-
-u32 nes_emulator_step(NES_Emulator *core)
-{
-	return nes_scheduler_step(core);
-}
-
-u64 nes_emulator_run_samples(NES_Emulator *core, u64 minimum_samples, f32 *samples, u64 capacity)
-{
-	return nes_scheduler_run_samples(core, minimum_samples, samples, capacity);
-}
-
+// TODO(RJ) literally just pass this when running
 void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input)
 {
-	if (player < ArrayCount(core->core.input_state.inputs))
-		core->core.input_state.inputs[player] = (u8)input;
-}
-
-NES_CPUState nes_emulator_cpu_state(const NES_Emulator *core)
-{
-	return core->core.cpu;
-}
-
-NES_PPUState nes_emulator_ppu_state(const NES_Emulator *core)
-{
-	return core->core.ppu;
-}
-
-NES_APUState nes_emulator_apu_state(const NES_Emulator *core)
-{
-	return core->core.apu;
-}
-
-NES_VideoFrame nes_emulator_video_frame(const NES_Emulator *core)
-{
-	return (NES_VideoFrame) {
-		.pixels = &core->video[0][0],
-		.width = NES_VIDEO_WIDTH,
-		.height = NES_VIDEO_HEIGHT,
-		.stride = NES_VIDEO_WIDTH,
-	};
+	if (player < ArrayCount(core->input_state.inputs))
+	core->input_state.inputs[player] = (u8)input;
 }
 
 u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address)
@@ -197,66 +153,119 @@ NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address)
 	return nes_cpu_bus_map(core, address);
 }
 
-//	Pattern tiles are made up of two faces, each is 8 bytes.
-//	To create a palette index you join the two faces.
-NES_PatternTile nes_emulator_pattern_tile(NES_Emulator *core, u32 index)
+static inline u32 cpu_step(NES_Emulator *emulator, NES_TraceEntry *trace)
 {
-	Assert(index < NES_PATTERN_TILE_COUNT);
-	NES_PatternTile tile = {};
-	u32 address = index << 4;
-	for (u32 y = 0; y < 8; ++y)
+	NES_CPUState *cpu = & emulator->cpu;
+	// One PC sample is emitted per scheduler step. An interrupt-only step may
+	// sample a PC whose instruction does not execute; this is intentional because
+	// trace indices correspond exactly to scheduler-step indices.
+	if (trace)
 	{
-		u32 lo = nes_ppu_bus_peek(core, address + y);
-		u32 hi = nes_ppu_bus_peek(core, address + 8 + y);
-		for (u32 x = 0; x < 8; ++x)
-		{
-			u32 palette_index = ((lo >> (7 - x)) & 1) | (((hi >> (7 - x)) & 1) << 1);
-			tile.pixels[y][x] = (u8)palette_index;
+		NES_BusAccess access = nes_cpu_bus_peek_mapped(emulator, cpu->PC);
+		*trace = (NES_TraceEntry) {
+			.cpu_address = cpu->PC,
+			.cpu_mapped = access.mapped,
+			.cpu_byte = access.value,
+		};
+	}
+
+	// """
+	// If the CPU's /IRQ input is 0 at the end of an instruction, then the CPU pushes the program counter
+	// and the processor status register, sets the I flag to ignore further IRQs, and the Program Counter
+	// takes the value read at $fffe and $ffff.
+	// """
+	b32 irq_line = emulator->apu.irq_pending;
+	if (irq_line && (~ cpu->P & cpu_status_mask(CPU_STAT_I))) {
+		return nes_cpu_irq(emulator);
+	}
+	return nes_cpu_step(emulator);
+}
+
+typedef struct
+{
+	u32 cpu_cycles;
+	u32 ppu_events;
+}
+NES_InstructionStep;
+
+typedef struct
+{
+	f32 *samples;
+	u64 sample_count;
+	u64 sample_capacity;
+}
+NES_AudioOutput;
+
+static inline b32 nes_sample_phase_advance(u64 *sample_phase, u64 sample_rate)
+{
+	*sample_phase += sample_rate;
+	if (*sample_phase < NES_CPU_HZ) return false;
+	*sample_phase -= NES_CPU_HZ;
+	return true;
+}
+
+static inline void nes_audio_output_sample(NES_Emulator *emulator, NES_AudioOutput *output)
+{
+	if (output->samples)
+	{
+		Assert(output->sample_count < output->sample_capacity);
+		output->samples[output->sample_count] = nes_apu_dac(&emulator->apu);
+	}
+	output->sample_count ++;
+}
+
+static NES_InstructionStep nes_emulator_step_internal(NES_Emulator *emulator, NES_AudioOutput *output, NES_TraceEntry *trace)
+{
+	u32 ppu_events = 0;
+	u32 cpu_cycles = cpu_step(emulator, trace);
+	for (u32 cycle = 0; cycle < cpu_cycles; ++cycle)
+	{
+		for (u32 ppu_cycle = 0; ppu_cycle < 3; ++ppu_cycle) {
+			u32 events = nes_ppu_step(emulator);
+			ppu_events |= events;
+			if (events & NES_PPU_EVENT_NMI) nes_cpu_nmi(emulator);
 		}
+
+		nes_apu_clock_cpu_cycle(&emulator->apu);
+		b32 emulator_sample = nes_sample_phase_advance(&emulator->sample_phase, nes_sample_rate(emulator));
+		if (output && emulator_sample) nes_audio_output_sample(emulator, output);
 	}
-	return tile;
+	prof_add_metric(PROF_METRIC_CPU_CYCLES, cpu_cycles);
+	emulator->scheduler_clock ++;
+	return (NES_InstructionStep) { .cpu_cycles = cpu_cycles, .ppu_events = ppu_events };
 }
 
-void nes_emulator_capture_chr_map(NES_Emulator *core, NES_CHRMap *map)
+u32 nes_emulator_step(NES_Emulator *emulator, NES_TraceEntry *trace)
 {
-	Assert(map);
-	for (u32 index = 0; index < NES_PATTERN_TILE_COUNT; ++index)
+	return nes_emulator_step_internal(emulator, 0, trace).cpu_cycles;
+}
+
+NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, NES_RunParams params)
+{
+	Assert(params.samples || !params.sample_capacity);
+	Assert(params.trace || !params.trace_capacity);
+	NES_AudioOutput output = {
+		.samples = params.samples,
+		.sample_capacity = params.sample_capacity,
+	};
+	b32 frame_event = false;
+	u64 steps = 0;
+	while (!frame_event)
 	{
-		map->tiles[index] = nes_emulator_pattern_tile(core, index);
-		map->mappings[index] = nes_ppu_bus_map(core, (u16)(index << 4));
+		NES_TraceEntry *trace = 0;
+		if (params.trace)
+		{
+			Assert(steps < params.trace_capacity);
+			trace = params.trace + steps;
+		}
+		NES_InstructionStep step = nes_emulator_step_internal(emulator, &output, trace);
+		frame_event = !!(step.ppu_events & NES_PPU_EVENT_FRAME);
+		steps ++;
 	}
-	for (u32 index = 0; index < NES_PALETTE_RAM_SIZE; ++index) {
-		map->palette[index] = nes_ppu_bus_peek(core, 0x3F00 + index);
-	}
-}
 
-NES_SchedulerTraceView nes_emulator_scheduler_trace(const NES_Emulator *core)
-{
-	return (NES_SchedulerTraceView) { .trace = core->scheduler_trace, .index = core->scheduler_trace_index, .scheduler_clock = core->scheduler_clock };
-}
-
-void nes_emulator_cpu_write(NES_Emulator *core, u16 address, u8 value)
-{
-	nes_cpu_bus_write(core, address, value);
-}
-
-ByteSpan nes_emulator_save_state(NES_Emulator *core, Arena *arena)
-{
-	u8 *start = arena_top(arena);
-	arena_ensure_committed(arena, arena->reserved_size - arena->position);
-	u64 size = serialize_write_record(byte_span(start, arena->reserved_size - arena->position), nes_state_record_map(), NES_RECORD_EMULATOR, core);
-	arena->position += size;
-	return byte_span(start, size);
-}
-
-b32 nes_emulator_load_state(NES_Emulator *core, ByteSpan state)
-{
-	if (!serialize_read_record(state, nes_state_record_map(), NES_RECORD_EMULATOR, core)) {
-		return false;
-	}
-	b32 success = nes_instantiate_cartridge(core);
-	if (success) {
-		core->scheduler_clock = 0;
-	}
-	return success;
+	NES_RunFrameResult result = {
+		.steps = steps,
+		.samples = output.sample_count,
+	};
+	return result;
 }

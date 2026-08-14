@@ -1,5 +1,7 @@
 #include "base.h"
 #include "graphics.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 #define MSF_GIF_IMPL
 #include "gif_recorder.h"
 
@@ -8,6 +10,30 @@ enum { GIF_RECORDER_BIT_DEPTH = 16 };
 static size_t gif_recorder_write(const void *buffer, size_t size, size_t count, void *stream)
 {
 	return fwrite(buffer, size, count, stream);
+}
+
+b32 screenshot_write_png(Color_RGBA8 *pixels, vec2i size, u32 stride, const char *name)
+{
+	Assert(pixels);
+	Assert(size.x > 0 && size.y > 0);
+	Assert(stride >= (u32)size.x * sizeof(*pixels));
+	Assert(name);
+
+	char path[256];
+	b32 path_available = false;
+	for (u32 index = 1; index < 10000; ++index)
+	{
+		snprintf(path, sizeof(path), "data/%s_%03u.png", name, index);
+		Platform_File_Info info;
+		if (!platform_get_file_info(path, &info))
+		{
+			path_available = true;
+			break;
+		}
+	}
+	if (!path_available || !stbi_write_png(path, size.x, size.y, 4, pixels, stride)) return false;
+	LOG_INFO("saved screenshot to '%s'", path);
+	return true;
 }
 
 b32 gif_recorder_begin(GifRecorder *recorder, vec2i size, const char *name)

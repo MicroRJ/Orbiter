@@ -75,7 +75,7 @@ Text_DrawRun;
 Text_Context *text_create(Arena *owner);
 // Size is the desired ascender-to-descender line height in pixels.
 void text_preload_ascii(Text_Context *text, Font_Handle font, i32 size);
-Text_Layout text_layout(Arena *arena, Text_Context *text, Font_Handle font, i32 size, String string);
+Text_Layout text_layout(Arena *arena, Text_Context *text, Font_Handle font, i32 size, Str string);
 // Groups an existing layout by raster page without consulting the glyph cache.
 Text_DrawRun text_make_draw_run(Arena *arena, const Text_Layout *layout);
 u32 text_raster_page_count(const Text_Context *text);

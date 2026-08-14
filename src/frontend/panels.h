@@ -9,6 +9,7 @@
 typedef struct Panels Panels;
 typedef struct Panel Panel;
 typedef struct PanelViewAllocation PanelViewAllocation;
+typedef struct elf_State elf_State;
 
 typedef enum
 {
@@ -27,7 +28,7 @@ struct Panel
 	PanelType kind;
 	AXIS axis;
 	f32 ratio;
-	PanelViewData *view;
+	DF_PanelViewData *view;
 	Panel *next_free;
 };
 
@@ -44,9 +45,12 @@ struct Panels
 };
 
 Panels *panels_create(Arena *owner);
-void panels_update_and_draw(Panels *panels, OS_Window *window, ViewFrameData *frame, rect_f32 rect);
-String panels_save_layout(Panels *panels, Arena *arena);
-b32 panels_restore_layout(Panels *panels, String text);
+UI_Box *panels_build_ui(Panels *panels, OS_Window *window, ViewFrameData *frame, rect_f32 rect);
+void panels_layout_push(elf_State *state, const Panels *panels);
+b32 panels_layout_read(elf_State *state, i32 index, Panels *panels);
+void panel_close(Panels *panels, Panel *panel);
+void panel_split(Panels *panels, Panel *panel, AXIS axis, f32 ratio);
+void panel_open_view(Panels *panels, Panel *panel, const ViewDesc *desc);
 
 
 #endif

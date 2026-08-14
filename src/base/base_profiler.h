@@ -10,17 +10,18 @@ _(METRIC_HASH_BYTES              ,            "hash_bytes"        ) \
 _(METRIC_TEXT_LAYOUT_CALLS       ,          "text_layout_calls"   ) \
 _(METRIC_TEXT_LAYOUT_BYTES       ,          "text_layout_bytes"   ) \
 _(METRIC_BUILD_TEXT_RUN_CALLS    ,       "build_text_run_calls"   ) \
-_(METRIC_UI_COMMANDS             ,             "ui_commands"      ) \
-_(METRIC_UI_COMMAND_BYTES        ,       "ui_command_bytes"       ) \
-_(METRIC_UI_RECT_COMMANDS        ,        "ui_rect_commands"      ) \
-_(METRIC_UI_IMAGE_COMMANDS       ,       "ui_image_commands"      ) \
-_(METRIC_UI_TEXT_COMMANDS        ,        "ui_text_commands"      ) \
-_(METRIC_UI_EFFECT_COMMANDS      ,      "ui_effect_commands"      ) \
-_(METRIC_UI_CLIPPED_COMMANDS     ,     "ui_clipped_commands"      ) \
-_(METRIC_UI_EMISSIVE_COMMANDS    ,    "ui_emissive_commands"      ) \
-_(METRIC_UI_COMMAND_REPLAYS      ,      "ui_command_replays"      ) \
-_(METRIC_UI_BACKDROP_BLURS       ,       "ui_backdrop_blurs"      ) \
-_(METRIC_UI_BLOOM_LAYERS         ,         "ui_bloom_layers"      ) \
+_(METRIC_DRAW_RUNS               ,               "draw_runs"      ) \
+_(METRIC_DRAW_RUN_BYTES          ,          "draw_run_bytes"      ) \
+_(METRIC_DRAW_COMMANDS           ,           "draw_commands"      ) \
+_(METRIC_DRAW_COMMAND_BYTES      ,     "draw_command_bytes"       ) \
+_(METRIC_DRAW_RECT_COMMANDS      ,      "draw_rect_commands"      ) \
+_(METRIC_DRAW_TEXT_COMMANDS      ,      "draw_text_commands"      ) \
+_(METRIC_DRAW_EFFECT_COMMANDS    ,    "draw_effect_commands"      ) \
+_(METRIC_DRAW_CLIPPED_COMMANDS   ,   "draw_clipped_commands"      ) \
+_(METRIC_DRAW_EMISSIVE_COMMANDS  ,  "draw_emissive_commands"      ) \
+_(METRIC_DRAW_COMMAND_REPLAYS    ,    "draw_command_replays"      ) \
+_(METRIC_DRAW_BACKDROP_BLURS     ,     "draw_backdrop_blurs"      ) \
+_(METRIC_DRAW_BLOOM_SLICES       ,       "draw_bloom_slices"      ) \
 _(METRIC_DRAW_PASSES             ,              "draw_passes"     ) \
 _(METRIC_DRAW_BATCHES            ,             "draw_batches"     ) \
 _(METRIC_DRAW_CALLS              ,               "draw_calls"     ) \
@@ -45,6 +46,8 @@ _(METRIC_AUDIO_SAMPLES_GENERATED ,      "audio_samples_generated" ) \
 _(METRIC_CPU_CYCLES              ,                   "cpu_cycles" ) \
 _(METRIC_PPU_SCANLINES           ,                   "ppu_cycles" ) \
 _(METRIC_PPU_VBLANKS             ,                  "ppu_vblanks" ) \
+_(METRIC_LAYOUT_CALLS            ,                  "ui_layout_calls"  ) \
+_(METRIC_MEASURE_CALLS           ,                  "ui_measure_calls" ) \
 /* end */
 
 typedef enum
@@ -62,39 +65,44 @@ typedef struct
 }
 Prof_MetricBlock;
 
-#define PROF_MAX_SCOPES 32
+#define PROF_MAX_SCOPES 64
+
+typedef struct Prof_Scope Prof_Scope;
+struct Prof_Scope
+{
+	Prof_Scope  *parent;
+	u16 has_field_index;
+	u16     field_index;
+};
 
 typedef struct
 {
-	u32 id;
-}
-Prof_Scope;
-
-typedef struct
-{
-	String     name;
-	Seconds    time;
-	u32        freq;
+	f64  time;
+	u32  freq;
 }
 Prof_Field;
 
 typedef struct
 {
 	Prof_MetricBlock metrics;
-	u64                  id;
-	Seconds             time;
+	u64                   id;
+	f64                 time;
 	u32              nfields;
 	Prof_Field        fields[PROF_MAX_SCOPES];
 }
 Prof_Frame;
 
+// Roughly 2.5 minutes before circling back.
+#define PROF_TIMELINE_CAPACITY (64 * 128)
+STATIC_ASSERT(!(PROF_TIMELINE_CAPACITY & (PROF_TIMELINE_CAPACITY - 1)));
+
 void prof_begin_frame();
 void prof_close_frame();
-i64 prof_timeline_index();
-Prof_Frame *prof_timeline_frame(i64 index);
-Prof_Frame *prof_frame();
-void prof_begin_scope(Prof_Scope *scope, String name);
+u64 prof_timeline_cursor();
+const Prof_Frame *prof_timeline_frame(u64 index);
+void prof_begin_scope(Prof_Scope *scope, Str name);
 void prof_close_scope(Prof_Scope *scope);
+Prof_Field prof_get_total(u32 index);
 
 #define PROF_BLOCK_AUTO(SCOPE, LABEL) \
 	static Prof_Scope SCOPE;           \
@@ -103,3 +111,4 @@ void prof_close_scope(Prof_Scope *scope);
 #define PROF_BLOCK(LABEL) PROF_BLOCK_AUTO(CONCAT(prof_scope_,__COUNTER__), LIT(LABEL))
 
 void prof_add_metric(Prof_Metric metric, i64 add);
+Str prof_get_field_name(u32 index);
