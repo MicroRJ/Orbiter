@@ -438,14 +438,27 @@ static void app_draw_ui_debug_bounds(App_Window *window, UI_Box *root, rect_f32 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static void app_build_library_item(UI_Context *ui, u32 index, void *user)
+typedef struct
 {
-	App_Window *window = user;
-	App_Library *library = &window->app->library_store->library;
-	Assert(index < library->game_count);
-	App_LibraryGame *game = &library->games[index];
-	GFX_Texture *texture = 0;
-	u64 play_time_ms = game->play_time_ms;
+	Str title;
+	u32 mapper;
+	u32 prg_size;
+	u32 chr_size;
+	u64 play_time_ms;
+	u32 save_count;
+	GFX_Texture *thumbnail;
+}
+LibraryCardModel;
+
+typedef struct
+{
+	b32 activated;
+}
+LibraryCardOutput;
+
+static LibraryCardOutput library_card_component(UI_Context *ui, UI_Key key, const LibraryCardModel *model)
+{
+	LibraryCardOutput output = {};
 	UI_Palette *palette = &ui->theme.palette;
 
 	ui_clean(ui);
@@ -460,7 +473,7 @@ static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 	ui_background(ui, palette->raised);
 	ui_border(ui, palette->divider, 1.f);
 	ui_roundness(ui, 8.f);
-	UI_Box *card = ui_begin_horz(ui, 1);
+	UI_Box *card = ui_begin_horz(ui, key);
 	UI_Response response = ui_signal_from_box(card);
 	if (response.hovered)
 	{
@@ -474,7 +487,7 @@ static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 	ui_size(ui, AXIS_Y, ui_fill());
 	ui_background(ui, palette->panel);
 	ui_roundness(ui, 5.f);
-	ui_image_box(ui, 1, (UI_ImageStyle) { .fit = UI_IMAGE_FIT_COVER, .align = v2(0.5f, 0.5f), .tint = texture ? COLOR_WHITE : color_srgba_mix(palette->panel, palette->violet, 0.35f) }, texture);
+	ui_image_box(ui, 1, (UI_ImageStyle) { .fit = UI_IMAGE_FIT_COVER, .align = v2(0.5f, 0.5f), .tint = model->thumbnail ? COLOR_WHITE : color_srgba_mix(palette->panel, palette->violet, 0.35f) }, model->thumbnail);
 
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_fill());
@@ -489,7 +502,7 @@ static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 		ui_size(ui, AXIS_X, ui_fill());
 		ui_size(ui, AXIS_Y, ui_wrap());
 		ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
-		ui_text(ui, 1, title_style, game->title);
+		ui_text(ui, 1, title_style, model->title);
 
 		UI_TextStyle detail_style = ui->theme.code;
 		detail_style.size = 17;
@@ -498,12 +511,12 @@ static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 		ui_clean(ui);
 		ui_size(ui, AXIS_X, ui_fill());
 		ui_size(ui, AXIS_Y, ui_wrap());
-		ui_text_box(ui, 2, detail_style, "MAPPER %u  |  PRG %u KiB  |  CHR %u KiB", game->cartridge.mapper, game->cartridge.prg_size / 1024, game->cartridge.chr_size / 1024);
+		ui_text_box(ui, 2, detail_style, "MAPPER %u  |  PRG %u KiB  |  CHR %u KiB", model->mapper, model->prg_size / 1024, model->chr_size / 1024);
 
 		ui_clean(ui);
 		ui_size(ui, AXIS_X, ui_fill());
 		ui_size(ui, AXIS_Y, ui_wrap());
-		ui_text_box(ui, 3, detail_style, "%lluh %02llum played  |  %u save%s", play_time_ms / (60 * 60 * 1000), play_time_ms / (60 * 1000) % 60, game->save_count, game->save_count == 1 ? "" : "s");
+		ui_text_box(ui, 3, detail_style, "%lluh %02llum played  |  %u save%s", model->play_time_ms / (60 * 60 * 1000), model->play_time_ms / (60 * 1000) % 60, model->save_count, model->save_count == 1 ? "" : "s");
 	}
 	ui_box_end(ui);
 	ui_box_end(ui);
@@ -511,8 +524,27 @@ static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 	if (response.pressed)
 	{
 		ui_feedback_emit(ui, UI_FEEDBACK_PRESS);
-		app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_LIBRARY_GAME, .open_library_game = { index } });
+		output.activated = true;
 	}
+	return output;
+}
+
+static void app_build_library_item(UI_Context *ui, u32 index, void *user)
+{
+	App_Window *window = user;
+	App_Library *library = &window->app->library_store->library;
+	Assert(index < library->game_count);
+	const App_LibraryGame *game = &library->games[index];
+	LibraryCardModel model = {
+		.title = game->title,
+		.mapper = game->cartridge.mapper,
+		.prg_size = game->cartridge.prg_size,
+		.chr_size = game->cartridge.chr_size,
+		.play_time_ms = game->play_time_ms,
+		.save_count = game->save_count,
+	};
+	LibraryCardOutput output = library_card_component(ui, UI_KEY("library card"), &model);
+	if (output.activated) app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_LIBRARY_GAME, .open_library_game = { index } });
 }
 
 static void library_build_ui(App_Window *window)

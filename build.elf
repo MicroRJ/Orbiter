@@ -175,7 +175,7 @@ object_files := ""
 
 join_prefixed := fun(values, prefix) {
 	result := ""
-	for value := values[0 ... values:length()] ? {
+	for value := values[...] ? {
 		result += f" ${prefix}${value}"
 	}
 	ret result

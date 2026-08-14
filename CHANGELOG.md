@@ -1,10 +1,15 @@
-[CHANGED]
+[TODO]
+	- Update to latest Bob!
+	- Better UI ergonomics, dedicated DSL that translates UI code to C directly.
+	- Proper graphics module
+
+[DONE]
 	- Live disassembler is now incredibly simple, as explained in the program notes.
 
 [TODO]
 	- Simplify the live disassembler process!
 
-[CHANGED]
+[DONE]
 	- Fixed Mike Tyson's punch out bug, it a simple vmirror mishandling.
 	- Simplified the MMC2 mapper a bit by removing the fixed bank vs switchable bank branch.
  		No substantial speedups since the branch seemed to be highly predictable.
@@ -25,7 +30,7 @@
 
 	- Orb card text not clipping properly!
 
-[CHANGED]
+[DONE]
 	---
 	Introduced app windows, these take care of building and representing the UI state for an
 	entire window, including drawing contexts and presenting to graphics window.
