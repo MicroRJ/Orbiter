@@ -31,7 +31,6 @@ typedef struct
 	const NES_TargetPublication *publication;
 	GFX_Texture *texture;
 	CHRMapSelection selection;
-	b32 available;
 }
 CHRMapBoxData;
 
@@ -199,15 +198,6 @@ static void chr_map_box_paint(UI_Box *box)
 	Assert(data->texture);
 	UI_Context *ui = box->ui;
 	ui_push_clip(ui, box->viewport);
-	if (!data->available)
-	{
-		UI_TextStyle style = ui->theme.code;
-		style.color = ui->theme.text_subtle;
-		ui_draw_text(ui, box->viewport, style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
-		ui_pop_clip(ui);
-		return;
-	}
-
 	CHRMapLayout layout = chr_map_layout(box->viewport);
 	if (layout.atlas.w <= 0.f || layout.atlas.h <= 0.f)
 	{
@@ -262,8 +252,7 @@ void chr_map_view_build_ui(ViewFrameData *frame)
 	CHRMapBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));
 	data->publication = frame->publication;
 	data->texture = frame->chr_texture;
-	data->available = frame->publication->valid && nes_emulator_ready_to_run(frame->emulator);
-	if (data->available && content.content_box->has_previous && ui_box_contains_hot(content.content_box)) {
+	if (content.content_box->has_previous && ui_box_contains_hot(content.content_box)) {
 		data->selection = chr_map_selection_from_mouse(frame->ui, frame->publication, chr_map_layout(content.content_box->state->viewport));
 	}
 	content.content_box->hooks = &chr_map_box_hooks;

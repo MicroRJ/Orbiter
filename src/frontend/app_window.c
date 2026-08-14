@@ -940,6 +940,7 @@ void app_window_render(App_Window *window)
 	}
 	else {
 		ViewFrameData view_frame = {
+			.window = window,
 			.emulator = &app->emulator,
 			.debugger = app->debugger,
 			.execution_graph = debugger_execution_graph(app->debugger),

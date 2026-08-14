@@ -268,12 +268,6 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	const Program *program = debugger_program(debugger);
 	b32 include_prg_ram = prg_activity_has_mapped_ram(debugger);
 	u32 program_size = program->prg_rom_byte_count + (include_prg_ram ? program->prg_ram_byte_count : 0);
-	if (!program->prg_rom_byte_count)
-	{
-		ui_draw_text(ui, layout, text_style, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
-		return;
-	}
-
 	u16 pc = frame->publication->cpu.PC;
 	b32 hovered = ui_box_contains_hot(frame->content_box) && rect_f32_contains(frame->rect, ui->mouse);
 	b32 control = !!(ui->input->keys[OS_Key_LeftControl] & INPUT_KEY_DOWN) || !!(ui->input->keys[OS_Key_RightControl] & INPUT_KEY_DOWN);

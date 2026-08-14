@@ -11,11 +11,21 @@
 
 typedef struct ViewFrameData ViewFrameData;
 typedef void ViewBuildUIProc(ViewFrameData *frame);
+typedef struct App_Window App_Window;
+
+typedef enum
+{
+	VIEW_REQUIRE_NONE        = 0,
+	VIEW_REQUIRE_ACTIVE_GAME = 1 << 0,
+}
+ViewRequirements;
 
 typedef struct
 {
 	const char *name;
+	const char *title;
 	OS_Key hotkey;
+	u32 requirements;
 	ViewBuildUIProc *build_ui;
 }
 ViewDesc;
@@ -69,6 +79,7 @@ struct DF_PanelViewData
 struct ViewFrameData
 {
 	DF_PanelViewData *view;
+	App_Window    *window;
 	NES_Emulator  *emulator;
 	Debugger      *debugger;
 	UI_Context    *ui;

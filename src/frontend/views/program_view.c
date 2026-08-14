@@ -125,12 +125,6 @@ static void program_view_content(ViewFrameData *frame)
 	main_rect.h += frame->header_height;
 	Arena *scratch = frame->scratch;
 	UI_TextStyle font = ui->theme.code;
-	if (!frame->publication->valid || !nes_emulator_ready_to_run(frame->emulator))
-	{
-		ui_draw_text(ui, main_rect, font, LIT("No cartridge loaded - Ctrl+O to open an iNES ROM"));
-		return;
-	}
-
 	const Program *program = debugger_program(debugger);
 	b32 listing_current = !program->listing_dirty;
 	u32 instruction_count = program->row_count;
@@ -295,22 +289,19 @@ void program_view_build_ui(ViewFrameData *frame)
 	Debugger *debugger = frame->debugger;
 	const Program *program = debugger_program(debugger);
 	b32 listing_current = !program->listing_dirty;
-	Str title = LIT("PROGRAM");
-	if (nes_emulator_ready_to_run(frame->emulator) && frame->publication->valid)
-	{
-		u16 cpu_address = program->cpu_pc;
-		NES_MapAddr mapped = program->cpu_pc_mapping;
-		u32 instruction_index = 0;
-		const char *mode = !listing_current ? "frozen" : seconds_now().seconds >= frame->view->program.tracking_resume_time.seconds ? "tracking" : "manual";
-		if (mapped.device == NES_DEVICE_PRG_ROM && program_index_from_cpu_address(program, cpu_address, &instruction_index)) {
-			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, PRG=$%05X] (%s)", instruction_index, cpu_address, mapped.address, mode);
-		} else if (mapped.device == NES_DEVICE_PRG_ROM) {
-			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=$%05X] (%s)", cpu_address, mapped.address, mode);
-		} else if (mapped.device == NES_DEVICE_PRG_RAM && program_index_from_cpu_address(program, cpu_address, &instruction_index)) {
-			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, RAM=$%04X] (%s)", instruction_index, cpu_address, mapped.address, mode);
-		} else {
-			title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=?] (%s)", cpu_address, mode);
-		}
+	u16 cpu_address = program->cpu_pc;
+	NES_MapAddr mapped = program->cpu_pc_mapping;
+	u32 instruction_index = 0;
+	const char *mode = !listing_current ? "frozen" : seconds_now().seconds >= frame->view->program.tracking_resume_time.seconds ? "tracking" : "manual";
+	Str title;
+	if (mapped.device == NES_DEVICE_PRG_ROM && program_index_from_cpu_address(program, cpu_address, &instruction_index)) {
+		title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, PRG=$%05X] (%s)", instruction_index, cpu_address, mapped.address, mode);
+	} else if (mapped.device == NES_DEVICE_PRG_ROM) {
+		title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=$%05X] (%s)", cpu_address, mapped.address, mode);
+	} else if (mapped.device == NES_DEVICE_PRG_RAM && program_index_from_cpu_address(program, cpu_address, &instruction_index)) {
+		title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=%u, CPU=$%04X, RAM=$%04X] (%s)", instruction_index, cpu_address, mapped.address, mode);
+	} else {
+		title = str_push_copy_f(frame->scratch, "PROGRAM [IDX=?, CPU=$%04X, PRG=?] (%s)", cpu_address, mode);
 	}
 	ViewFrameData content = view_begin_frame(frame, title);
 	ProgramBoxData *data = arena_push_zero(&frame->ui->frame_arena, sizeof(*data));

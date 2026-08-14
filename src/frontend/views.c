@@ -1,13 +1,14 @@
+#include "app_window.h"
 #include "ui_widgets.h"
 #include "views.h"
 
 const ViewDesc view_descs[] = {
-	{ "video",        OS_Key_1, video_view_build_ui },
-	{ "program",      OS_Key_2, program_view_build_ui },
-	{ "cpu",          OS_Key_3, cpu_view_build_ui },
-	{ "profiler",     OS_Key_4, profiler_view_build_ui },
-	{ "prg_activity", OS_Key_5, prg_activity_view_build_ui },
-	{ "chr_map",      OS_Key_6, chr_map_view_build_ui },
+	{ .name = "video",        .title = "VIDEO",          .hotkey = OS_Key_1, .requirements = VIEW_REQUIRE_ACTIVE_GAME, .build_ui = video_view_build_ui },
+	{ .name = "program",      .title = "PROGRAM",        .hotkey = OS_Key_2, .requirements = VIEW_REQUIRE_ACTIVE_GAME, .build_ui = program_view_build_ui },
+	{ .name = "cpu",          .title = "CPU",            .hotkey = OS_Key_3, .requirements = VIEW_REQUIRE_ACTIVE_GAME, .build_ui = cpu_view_build_ui },
+	{ .name = "profiler",     .title = "PROFILER",       .hotkey = OS_Key_4, .requirements = VIEW_REQUIRE_NONE,        .build_ui = profiler_view_build_ui },
+	{ .name = "prg_activity", .title = "EXECUTION FLOW", .hotkey = OS_Key_5, .requirements = VIEW_REQUIRE_ACTIVE_GAME, .build_ui = prg_activity_view_build_ui },
+	{ .name = "chr_map",      .title = "CHR MAP",        .hotkey = OS_Key_6, .requirements = VIEW_REQUIRE_ACTIVE_GAME, .build_ui = chr_map_view_build_ui },
 };
 
 const u32 view_desc_count = ArrayCount(view_descs);
@@ -74,27 +75,74 @@ void view_end_frame(ViewFrameData *frame)
 	ui_box_end(frame->ui);
 }
 
+static void view_build_active_game_required(ViewFrameData *frame)
+{
+	Assert(frame->window);
+	const ViewDesc *desc = frame->view->desc;
+	ViewFrameData content = view_begin_frame(frame, str_from_cstr(desc->title));
+	UI_Context *ui = frame->ui;
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_grow(1.f));
+	ui_begin_flat(ui, UI_KEY("game required"));
+
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_wrap());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_align(ui, AXIS_X, 0.5f);
+	ui_align(ui, AXIS_Y, 0.5f);
+	ui_gap(ui, 8.f);
+	ui_box_begin(ui, 1, LIT("game required message"));
+
+	UI_TextStyle title = ui->theme.code;
+	title.size += 4;
+	title.color = ui->theme.text_neutral;
+	title.align.x = 0.5f;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_text(ui, 1, title, LIT("NO GAME LOADED"));
+
+	UI_TextStyle detail = ui->theme.code;
+	detail.color = ui->theme.text_subtle;
+	detail.align.x = 0.5f;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_wrap());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_text(ui, 2, detail, LIT("Open the library to choose or import a game."));
+
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_begin_flat(ui, 3);
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_wrap());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_align(ui, AXIS_X, 0.5f);
+	UI_Response open = ui_button(ui, 1, LIT("OPEN LIBRARY  TAB"));
+	ui_box_end(ui);
+
+	ui_box_end(ui);
+	ui_box_end(ui);
+	view_end_frame(&content);
+	if (open.pressed) app_window_set_library_visible(frame->window, true);
+}
+
 void view_build_ui(ViewFrameData *frame)
 {
 	Assert(frame);
 	Assert(frame->view);
 	Assert(frame->view->desc);
 	Assert(frame->view->desc->build_ui);
+	const ViewDesc *desc = frame->view->desc;
+	Assert(!(desc->requirements & ~VIEW_REQUIRE_ACTIVE_GAME));
+	b32 active_game = frame->emulator && frame->publication && nes_emulator_ready_to_run(frame->emulator) && frame->publication->valid;
+	if ((desc->requirements & VIEW_REQUIRE_ACTIVE_GAME) && !active_game)
+	{
+		view_build_active_game_required(frame);
+		return;
+	}
 	frame->view->desc->build_ui(frame);
 }
-
-// if (!frame->publication->valid || !nes_emulator_ready_to_run(frame->emulator))
-// {
-// 	UI_TextStyle style = frame->ui->theme.code;
-// 	style.color = frame->ui->theme.text_subtle;
-// 	ui_clean(frame->ui);
-// 	ui_size(frame->ui, AXIS_X, ui_grow(1.f));
-// 	ui_size(frame->ui, AXIS_Y, ui_grow(1.f));
-// 	ui_begin_flat(frame->ui, 1);
-// 	ui_clean(frame->ui);
-// 	ui_align(frame->ui, AXIS_X, 0.5f);
-// 	ui_align(frame->ui, AXIS_Y, 0.5f);
-// 	ui_text(frame->ui, 1, style, LIT("No Game Loaded"));
-// 	ui_box_end(frame->ui);
-// 	return;
-// }
