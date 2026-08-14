@@ -83,11 +83,10 @@ static void nes_target_publish_palettes(NES_TargetPublication *publication)
 	}
 }
 
-static void nes_target_colorize_video(NES_TargetPublication *publication)
+void nes_target_colorize_pixels(Color_RGBA8 *output, const u8 *indices, u32 count)
 {
-	for (u32 index = 0; index < NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT; ++index) {
-		publication->video[index] = publication->palette[publication->palletised_video[index] & 63];
-	}
+	Assert(output && indices);
+	for (u32 index = 0; index < count; ++index) output[index] = nes_target_palette[indices[index] & 63];
 }
 
 static void nes_target_render_chr(NES_TargetPublication *publication)
@@ -179,7 +178,7 @@ void nes_target_publish(NES_TargetPublication *publication, NES_Emulator *emulat
 	memory_copy(publication->palette, nes_target_palette, sizeof(publication->palette));
 	PROF_BLOCK("publish sprites") nes_target_publish_sprites(publication);
 	PROF_BLOCK("publish palettes") nes_target_publish_palettes(publication);
-	PROF_BLOCK("colorize video") nes_target_colorize_video(publication);
+	PROF_BLOCK("colorize video") nes_target_colorize_pixels(publication->video, publication->palletised_video, ArrayCount(publication->video));
 	PROF_BLOCK("render CHR image") nes_target_render_chr(publication);
 	publication->generation++;
 	publication->valid = true;

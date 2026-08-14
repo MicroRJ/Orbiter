@@ -81,5 +81,6 @@ struct NES_TargetPublication
 };
 
 void nes_target_publish(NES_TargetPublication *publication, NES_Emulator *emulator);
+void nes_target_colorize_pixels(Color_RGBA8 *output, const u8 *indices, u32 count);
 
 #endif

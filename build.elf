@@ -1,5 +1,6 @@
 cc ::= "clang-cl"
 orbiter_version ::= "0.1.0"
+workers ::= 6
 
 warnings := {
 	"-Wfloat-conversion",
@@ -428,7 +429,7 @@ package_run := fun(name, command_line) {
 
 entries := {}
 entries.build = fun() {
-	success := bob.build({targets=executable_tasks,workers=8})
+	success := bob.build({targets=executable_tasks,workers=workers})
 	ret success
 }
 
@@ -438,7 +439,7 @@ entries.test = fun() {
 		elf.process.exit(1)
 		ret false
 	}
-	success := bob.build({targets=test_executable_tasks,workers=8})
+	success := bob.build({targets=test_executable_tasks,workers=workers})
 	if success == 0 ? {
 		ret false
 	}
@@ -476,7 +477,7 @@ entries.conformance = fun() {
 		elf.process.exit(1)
 		ret false
 	}
-	success := bob.build({targets=conformance_executable_tasks,workers=8})
+	success := bob.build({targets=conformance_executable_tasks,workers=workers})
 	if success == 0 ? {
 		ret false
 	}
@@ -507,7 +508,7 @@ entries.package = fun() {
 	elf.printl(f"Packaging ${package_name}")
 
 	package_require(elf.fs.remove_tree("build/release"), "could not clean release directory")
-	success := bob.build({targets={release_executable},workers=8})
+	success := bob.build({targets={release_executable},workers=workers})
 	if success == 0 ? {
 		ret false
 	}
@@ -539,7 +540,7 @@ entries.package = fun() {
 }
 
 entries.release = fun() {
-	success := bob.build({targets={release_executable},workers=8})
+	success := bob.build({targets={release_executable},workers=workers})
 	ret success
 }
 

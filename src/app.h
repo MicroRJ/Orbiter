@@ -18,6 +18,23 @@ typedef struct App_Window App_Window;
 
 typedef struct App_LibraryStore App_LibraryStore;
 
+enum { APP_THUMBNAIL_CACHE_CAPACITY = 32 };
+
+typedef struct
+{
+	const App_LibrarySave *save;
+	u64 updated_unix_ms;
+	u64 last_used_frame;
+	GFX_Texture *texture;
+}
+App_ThumbnailCacheEntry;
+
+typedef struct
+{
+	App_ThumbnailCacheEntry entries[APP_THUMBNAIL_CACHE_CAPACITY];
+}
+App_ThumbnailCache;
+
 typedef struct App App;
 struct App
 {
@@ -26,6 +43,8 @@ struct App
 	App_LibraryGame *active_game;
 	App_LibrarySave *active_save;
 	App_SaveData active_save_data;
+	App_ThumbnailCache thumbnail_cache;
+	u64 frame_index;
 
 	f32 ppu_volume;
 	f32 ppu_volume_target;
@@ -55,5 +74,7 @@ struct App
 	b32 ppu_screenshot_requested;
 	Seconds frame_begin;
 };
+
+GFX_Texture *app_thumbnail_texture(App *app, const App_LibrarySave *save);
 
 #endif

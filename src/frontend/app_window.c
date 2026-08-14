@@ -41,6 +41,58 @@ struct App_Window
 
 static void app_window_route_action(App_Window *window, App_Action action);
 
+GFX_Texture *app_thumbnail_texture(App *app, const App_LibrarySave *save)
+{
+	Assert(app && save);
+	App_ThumbnailCacheEntry *entry = 0;
+	App_ThumbnailCacheEntry *available = 0;
+	for (u32 index = 0; index < ArrayCount(app->thumbnail_cache.entries); index ++)
+	{
+		App_ThumbnailCacheEntry *candidate = &app->thumbnail_cache.entries[index];
+		if (candidate->save == save)
+		{
+			entry = candidate;
+			break;
+		}
+		if (!candidate->save)
+		{
+			if (!available) available = candidate;
+			continue;
+		}
+		if (candidate->last_used_frame == app->frame_index) continue;
+		if (!available || candidate->last_used_frame < available->last_used_frame) available = candidate;
+	}
+
+	if (entry && entry->updated_unix_ms == save->updated_unix_ms)
+	{
+		entry->last_used_frame = app->frame_index;
+		return entry->texture;
+	}
+	if (!entry) entry = available;
+	if (!entry) return 0;
+	if (entry->texture) gfx_destroy_texture(entry->texture);
+	*entry = (App_ThumbnailCacheEntry) {
+		.save = save,
+		.updated_unix_ms = save->updated_unix_ms,
+		.last_used_frame = app->frame_index,
+	};
+
+	u64 arena_position = app->frame_arena.position;
+	App_SaveData *data = arena_push_zero(&app->frame_arena, sizeof(*data));
+	if (app_library_store_read_save(app->library_store, &app->frame_arena, save, data))
+	{
+		Color_RGBA8 *pixels = arena_push(&app->frame_arena, sizeof(*pixels) * NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT);
+		nes_target_colorize_pixels(pixels, &data->state.video[0][0], NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT);
+		entry->texture = gfx_create_texture_from_image(app->renderer, (Image_rgba_u8) {
+			.reso = v2i(NES_VIDEO_WIDTH, NES_VIDEO_HEIGHT),
+			.elem_stride = NES_VIDEO_WIDTH,
+			.data = (vec4_u8 *)pixels,
+		}, GRAPHICS_SAMPLER_POINT);
+	}
+	app->frame_arena.position = arena_position;
+	return entry->texture;
+}
+
 App_Window *app_window_create(Arena *owner, App *app, App_WindowDesc desc)
 {
 	Assert(owner);
@@ -78,6 +130,7 @@ void app_window_destroy(App_Window *window)
 {
 	Assert(window);
 	if (window->capture.recording) gif_recorder_end(&window->capture);
+	for (u32 index = 0; index < ArrayCount(window->app->thumbnail_cache.entries); index ++) gfx_destroy_texture(window->app->thumbnail_cache.entries[index].texture);
 	os_window_destroy(window->os);
 }
 
@@ -543,6 +596,15 @@ static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 		.play_time_ms = game->play_time_ms,
 		.save_count = game->save_count,
 	};
+	for (u32 save_index = 0; save_index < game->save_count; save_index ++)
+	{
+		const App_LibrarySave *save = &game->saves[save_index];
+		if (save->kind == APP_LIBRARY_SAVE_RESUME)
+		{
+			model.thumbnail = app_thumbnail_texture(window->app, save);
+			break;
+		}
+	}
 	LibraryCardOutput output = library_card_component(ui, UI_KEY("library card"), &model);
 	if (output.activated) app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_LIBRARY_GAME, .open_library_game = { index } });
 }
@@ -591,11 +653,23 @@ static void library_build_ui(App_Window *window)
 	UI_ScrollBox *scroll = ui_scroll_box_begin(ui, UI_KEY("library vertical scroll"), AXIS_Y);
 
 	ui_clean(ui);
-	ui_axis(ui, AXIS_Y);
 	ui_size(ui, AXIS_X, ui_grow(1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	ui_padd(ui, AXIS_X, 32.f, 32.f);
 	ui_padd(ui, AXIS_Y, 32.f, 32.f);
+	ui_begin_vert(ui, 1);
+
+	UI_TextStyle style = ui->theme.code;
+	style.size = 48;
+	ui_clean(ui);
+	ui_size(ui, AXIS_X, ui_wrap());
+	ui_size(ui, AXIS_Y, ui_wrap());
+	ui_text(ui, UI_KEY("your_library"), style, LIT("Your Library"));
+
+	ui_clean(ui);
+	ui_axis(ui, AXIS_Y);
+	ui_size(ui, AXIS_X, ui_grow(1.f));
+	ui_size(ui, AXIS_Y, ui_wrap());
 	ui_gap(ui, 12.f);
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_virtual_list(ui, UI_KEY("library games"), LIT("library games"), (UI_VirtualListDesc) {
@@ -603,6 +677,8 @@ static void library_build_ui(App_Window *window)
 		.user = window,
 		.build_item = app_build_library_item,
 	});
+	ui_box_end(ui);
+
 	ui_scroll_box_end(scroll);
 }
 
@@ -835,7 +911,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 			ui_push_box_z(ui, UI_Z_OVERLAY);
 
 			ui_clean(ui);
-			ui_size(ui, AXIS_X, ui_grow(1.f));
+			ui_size(ui, AXIS_X, ui_fixed(window_rect.w * 0.45f));
 			ui_size(ui, AXIS_Y, ui_grow(1.f));
 			ui_backdrop(ui, 0.f);
 			ui_background(ui, (Color_SRGBA){0,0,0,0.2});

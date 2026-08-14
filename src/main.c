@@ -733,6 +733,8 @@ static void app_tick(App_WindowOutput input)
 static void app_frame(void)
 {
 	arena_reset(&app.frame_arena);
+	app.frame_index++;
+	Assert(app.frame_index);
 	prof_begin_frame();
 	gfx_renderer_begin_frame(app.renderer);
 	App_WindowOutput window_output = app_window_begin_frame(app.window, (App_KeyMap) { app_key_bindings, ArrayCount(app_key_bindings) });

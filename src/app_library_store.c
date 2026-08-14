@@ -154,6 +154,17 @@ void app_library_store_close(App_LibraryStore *store)
 	free(store);
 }
 
+b32 app_library_store_read_save(App_LibraryStore *store, Arena *arena, const App_LibrarySave *save, App_SaveData *data)
+{
+	Assert(store && arena && save && data);
+	u64 arena_position = arena->position;
+	Str save_path = app_library_store_resolve(arena, store, save->path);
+	ByteSpan encoded = save_path.data ? app_library_store_read_file(arena, save_path.data) : (ByteSpan) {};
+	if (encoded.data && app_save_decode(arena, encoded, data)) return true;
+	arena->position = arena_position;
+	return false;
+}
+
 b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App_LibraryGame *game, const App_LibrarySave *save, App_LibraryGameData *data)
 {
 	Assert(store && arena && game && save && data);
@@ -176,9 +187,7 @@ b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App
 		trainer = trainer_path.data ? app_library_store_read_file(arena, trainer_path.data) : (ByteSpan) {};
 		if (!trainer.data || trainer.size != 512) goto failed;
 	}
-	Str save_path = app_library_store_resolve(arena, store, save->path);
-	ByteSpan encoded_save = save_path.data ? app_library_store_read_file(arena, save_path.data) : (ByteSpan) {};
-	if (!encoded_save.data || !app_save_decode(arena, encoded_save, &result.save)) goto failed;
+	if (!app_library_store_read_save(store, arena, save, &result.save)) goto failed;
 	result.game = (Orb_Game) {
 		.metadata = {
 			.mapper = game->cartridge.mapper,
