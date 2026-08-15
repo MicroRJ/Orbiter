@@ -44,8 +44,8 @@ b32 nes_emulator_valid(const NES_Emulator *emulator)
 	if (emulator->chr_rom_size > NES_MAX_CHR_ROM_SIZE)                    return false;
 	if (emulator->chr_rom_size % KiB(8))                                  return false;
 	if (emulator->vmirror != 0 && emulator->vmirror != 1)                 return false;
-	if (emulator->ppu.xtick >= 341)                                       return false;
-	if (emulator->ppu.ytick >= 262)                                       return false;
+	if (emulator->ppu.dot >= 341)                                       return false;
+	if (emulator->ppu.scanline >= 262)                                       return false;
 	if (emulator->ppu.t > 0x7FFF)                                         return false;
 	if (emulator->ppu.v > 0x7FFF)                                         return false;
 	if (emulator->ppu.x >= 8)                                             return false;
@@ -161,11 +161,11 @@ static inline u32 cpu_step(NES_Emulator *emulator, NES_TraceEntry *trace)
 	// trace indices correspond exactly to scheduler-step indices.
 	if (trace)
 	{
-		NES_BusAccess access = nes_cpu_bus_peek_mapped(emulator, cpu->PC);
+		NES_BusResult result = nes_cpu_bus_peek_mapped(emulator, cpu->PC);
 		*trace = (NES_TraceEntry) {
 			.cpu_address = cpu->PC,
-			.cpu_mapped = access.mapped,
-			.cpu_byte = access.value,
+			.cpu_mapped = nes_map_addr((NES_DeviceId)result.device, result.address),
+			.cpu_byte = result.value,
 		};
 	}
 

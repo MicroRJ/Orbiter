@@ -42,22 +42,16 @@ void nes_ppu_reset(NES_PPUState *ppu)
 	memory_copy(ppu->_pram, previous._pram, sizeof(ppu->_pram));
 }
 
-NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
+NES_BusResult nes_ppu_register_access(NES_Emulator *core, NES_BusMode mode, u32 address, u8 value)
 {
-	Assert(access.address < 8);
-	access = nes_bus_access_mapped(access, NES_DEVICE_PPU);
-	if (access.kind == NES_BUS_ACCESS_PEEK ||
-		access.kind == NES_BUS_ACCESS_MAP)
-	{
-		return access;
-	}
+	Assert(address < 8);
+	if (mode == NES_BUS_PEEK) return nes_bus_result(NES_DEVICE_PPU, address, value);
 
-	Assert(access.kind == NES_BUS_ACCESS_READ || access.kind == NES_BUS_ACCESS_WRITE);
+	Assert(mode == NES_BUS_READ || mode == NES_BUS_WRITE);
 	NES_PPUState *ppu = &core->ppu;
-	b32 write = access.kind == NES_BUS_ACCESS_WRITE;
-	u8 value = access.value;
+	b32 write = mode == NES_BUS_WRITE;
 
-	switch (access.address)
+	switch (address)
 	{
 		case 0: // PPUCTRL
 		{
@@ -167,8 +161,7 @@ NES_BusAccess nes_ppu_register_access(NES_Emulator *core, NES_BusAccess access)
 		} break;
 	}
 
-	access.value = value;
-	return access;
+	return nes_bus_result(NES_DEVICE_PPU, address, value);
 }
 
 static void ppu_shift_background(NES_Emulator *core)
@@ -227,55 +220,29 @@ static void ppu_fetch_pattern_high_and_reload(NES_Emulator *core)
 	core->ppu.atr_l1 = (u8)((ppu->atr_b >> (attribute_shift + 1)) & 1);
 }
 
-static void ppu_increment_horizontal(NES_Emulator *core)
+// """
+// The coarse X component of v needs to be incremented when the next tile is reached.
+// Bits 0-4 are incremented, with overflow toggling bit 10.
+// This means that bits 0-4 count from 0 to 31 across a single nametable, and bit 10 selects the
+// current nametable horizontally.
+// """
+static inline u16 ppu_increment_horizontal(u16 v)
 {
-	NES_PPUState *ppu = &core->ppu;
-	if ((ppu->v & 31) == 31)
-	{
-		core->ppu.v = (u16)((ppu->v & ~31) ^ 0x0400);
-	}
-	else
-	{
-		core->ppu.v = (u16)(ppu->v + 1);
-	}
+	return ((v & 31) == 31) ? ((v & ~31) ^ 0x0400) : (v + 1);
 }
 
-static void ppu_increment_vertical(NES_Emulator *core)
+// """
+// If rendering is enabled, fine Y is incremented at dot 256 of each scanline, overflowing to coarse Y,
+// and finally adjusted to wrap among the nametables vertically.
+// Bits 12-14 are fine Y. Bits 5-9 are coarse Y. Bit 11 selects the vertical nametable.
+// """
+static inline u16 ppu_increment_vertical(u16 v)
 {
-	NES_PPUState *ppu = &core->ppu;
-	if (((ppu->v >> 12) & 7) != 7)
-	{
-		core->ppu.v = (u16)(ppu->v + 0x1000);
-		return;
-	}
-
-	u32 v = ppu->v & ~0x7000;
-	u32 coarse_y = (ppu->v >> 5) & 31;
-	if (coarse_y == 29)
-	{
-		v = (v & ~0x03E0) ^ 0x0800;
-	}
-	else if (coarse_y == 31)
-	{
-		v &= ~0x03E0;
-	}
-	else
-	{
-		v += 0x0020;
-	}
-	core->ppu.v = (u16)(v);
-}
-
-static void ppu_copy_horizontal(NES_Emulator *core)
-{
-	NES_PPUState *ppu = &core->ppu;
-	core->ppu.v = (u16)((ppu->v & ~0x041F) | (ppu->t & 0x041F));
-}
-
-static void ppu_copy_vertical(NES_Emulator *core)
-{
-	NES_PPUState *ppu = &core->ppu;
-	core->ppu.v = (u16)((ppu->v & ~0x7BE0) | (ppu->t & 0x7BE0));
+	if ((v & 0x7000) != 0x7000) return v + 0x1000;
+	u32 y = (v >> 5) & 31;
+	if      (y == 29) return (v & ~0x73E0) ^ 0x0800;
+	else if (y == 31) return (v & ~0x73E0);
+	else              return (v & ~0x7000) + 0x0020;
 }
 
 static u8 ppu_background_pixel(const NES_PPUState *ppu)
@@ -283,7 +250,7 @@ static u8 ppu_background_pixel(const NES_PPUState *ppu)
 	if (!(ppu->PPUMASK & PPUMASK_BACKGROUND)) return 0;
 	u32 pattern_bit = 15 - ppu->x;
 	return ((ppu->chr_r0 >> pattern_bit) & 1) |
-		(((ppu->chr_r1 >> pattern_bit) & 1) << 1);
+	(((ppu->chr_r1 >> pattern_bit) & 1) << 1);
 }
 
 static u16 ppu_sprite_pattern_address(const NES_PPUState *ppu, NES_PPUSprite sprite, i32 row, u16 plane)
@@ -341,13 +308,98 @@ static inline void ppu_render_pixel(NES_Emulator *core, i32 screen_x, i32 screen
 	if (!palette_index && background_pixel)
 	{
 		palette_index = background_pixel |
-			(((ppu->atr_r0 >> ppu->x) & 1) << 2) |
-			(((ppu->atr_r1 >> ppu->x) & 1) << 3);
+		(((ppu->atr_r0 >> ppu->x) & 1) << 2) |
+		(((ppu->atr_r1 >> ppu->x) & 1) << 3);
 	}
 
 	Assert(screen_x >= 0 && screen_x < 256);
 	Assert(screen_y >= 0 && screen_y < 240);
 	core->video[screen_y][screen_x] = ppu_bus_read(core, 0x3F00 + palette_index);
+}
+
+static inline b32 ppu_sprite_y_in_range(u8 ypos, u32 scanline, u32 sprite_height)
+{
+	return (u8)(scanline - ypos) < sprite_height;
+}
+
+static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
+{
+	Assert(dot >= 1 && dot <= 256);
+
+	// Dots 1-64 clear the 32 bytes of secondary OAM. The odd dot performs
+	// a forced $FF read and the even dot writes it to secondary OAM.
+	if (dot <= 64)
+	{
+		if (dot == 1)
+		{
+			ppu->oam_index  = 0;
+			ppu->oam_offset = 0;
+			ppu->oam_latch  = 0xFF;
+			ppu->soam_index = 0;
+		}
+		else if (!(dot & 1))
+		{
+			ppu->soam[(dot >> 1) - 1] = 0xFF;
+		}
+		return;
+	}
+
+	// Reaching the end of primary OAM leaves the evaluator idle for the
+	// remainder of dots 65-256.
+	if (ppu->oam_index >= ArrayCount(ppu->OAM)) return;
+
+	// Odd dots read one byte from primary OAM. Even dots consume that byte.
+	if (dot & 1)
+	{
+		ppu->oam_latch = ppu->_oam[ppu->oam_index * sizeof(NES_PPUSprite) + ppu->oam_offset];
+		return;
+	}
+
+	u32 sprite_height = (ppu->PPUCTRL & PPUCTRL_SPRITE_SIZE_8X16) ? 16 : 8;
+	if (ppu->soam_index < sizeof(ppu->soam))
+	{
+		Assert(ppu->oam_offset < sizeof(NES_PPUSprite));
+		ppu->soam[ppu->soam_index] = ppu->oam_latch;
+
+		if (ppu->oam_offset == 0)
+		{
+			if (ppu_sprite_y_in_range(ppu->oam_latch, scanline, sprite_height))
+			{
+				ppu->soam_index++;
+				ppu->oam_offset = 1;
+			}
+			else
+			{
+				ppu->oam_index++;
+			}
+		}
+		else
+		{
+			ppu->soam_index++;
+			ppu->oam_offset++;
+			if (ppu->oam_offset == sizeof(NES_PPUSprite))
+			{
+				ppu->oam_offset = 0;
+				ppu->oam_index++;
+			}
+		}
+		return;
+	}
+
+	// Secondary OAM is full. The hardware intends to examine only the Y byte
+	// of each remaining sprite, but its broken address increment also advances
+	// m when a value is out of range. Tile, attribute, and X bytes may therefore
+	// be interpreted as Y coordinates and set sprite overflow.
+	if (ppu_sprite_y_in_range(ppu->oam_latch, scanline, sprite_height))
+	{
+		ppu->PPUSTATUS |= 0x20;
+		ppu->oam_index = ArrayCount(ppu->OAM);
+	}
+	else
+	{
+		ppu->oam_index++;
+		ppu->oam_offset = (ppu->oam_offset + 1) & 3;
+	}
 }
 
 static void ppu_evaluate_sprites(NES_Emulator *core, i32 scanline)
@@ -380,19 +432,19 @@ static void ppu_evaluate_sprites(NES_Emulator *core, i32 scanline)
 static inline void ppu_advance_clock(NES_Emulator *core)
 {
 	NES_PPUState *ppu = &core->ppu;
-	core->ppu.xtick = (u16)(ppu->xtick + 1);
-	if (ppu->xtick < 341) return;
+	core->ppu.dot = (u16)(ppu->dot + 1);
+	if (ppu->dot < 341) return;
 
-	core->ppu.xtick = (u16)(0);
-	core->ppu.ytick = (u16)(ppu->ytick + 1);
-	if (ppu->ytick >= 262) core->ppu.ytick = (u16)(0);
+	core->ppu.dot = (u16)(0);
+	core->ppu.scanline = (u16)(ppu->scanline + 1);
+	if (ppu->scanline >= 262) core->ppu.scanline = (u16)(0);
 }
 
 u32 nes_ppu_step(NES_Emulator *core)
 {
 	NES_PPUState *ppu = &core->ppu;
-	u32 dot = ppu->xtick;
-	u32 scanline = ppu->ytick;
+	u32 dot = ppu->dot;
+	u32 scanline = ppu->scanline;
 	u32 events = NES_PPU_EVENT_NONE;
 
 	if (scanline == 241 && dot == 1)
@@ -412,19 +464,18 @@ u32 nes_ppu_step(NES_Emulator *core)
 
 	if (dot > 0 && rendering_scanline && ppu_rendering_enabled(ppu))
 	{
+		if (visible_scanline && dot <= 256) ppu_step_sprite_evaluation(ppu, dot, scanline);
+
 		if (dot < 337) ppu_shift_background(core);
 
 		b32 fetch_cycle = dot < 257 || dot > 320;
 		u32 fetch_phase = (dot - 1) & 7;
-		if (fetch_cycle)
+		if (fetch_cycle) switch (fetch_phase)
 		{
-			switch (fetch_phase)
-			{
-				case 1: ppu_fetch_nametable_byte(core); break;
-				case 3: ppu_fetch_attribute_byte(core); break;
-				case 5: ppu_fetch_pattern_low(core); break;
-				case 7: ppu_fetch_pattern_high_and_reload(core); break;
-			}
+			case 1: ppu_fetch_nametable_byte(core); break;
+			case 3: ppu_fetch_attribute_byte(core); break;
+			case 5: ppu_fetch_pattern_low(core); break;
+			case 7: ppu_fetch_pattern_high_and_reload(core); break;
 		}
 
 		if (visible_scanline && dot < 257)
@@ -432,10 +483,12 @@ u32 nes_ppu_step(NES_Emulator *core)
 			ppu_render_pixel(core, (i32)dot - 1, (i32)scanline);
 		}
 
-		if (fetch_cycle && fetch_phase == 7) ppu_increment_horizontal(core);
-		if (dot == 256) ppu_increment_vertical(core);
-		if (dot == 257) ppu_copy_horizontal(core);
-		if (prerender_scanline && dot == 304) ppu_copy_vertical(core);
+		if (fetch_cycle && fetch_phase == 7)  ppu->v = ppu_increment_horizontal(ppu->v);
+		// """ If rendering is enabled, the PPU increments the vertical position in v """
+		if (dot == 256)                       ppu->v = ppu_increment_vertical(ppu->v);
+		// """ If rendering is enabled, the PPU copies all bits related to horizontal position from t to v: """
+		if (dot == 257)                       ppu->v = ppu->v & ~0x041F | ppu->t & 0x041F;
+		if (dot == 304 && prerender_scanline) ppu->v = ppu->v & ~0x7BE0 | ppu->t & 0x7BE0;
 
 		if (visible_scanline && dot == 256 && (ppu->PPUMASK & PPUMASK_SPRITES))
 		{

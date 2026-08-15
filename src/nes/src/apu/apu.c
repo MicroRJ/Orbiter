@@ -136,13 +136,13 @@ static void apu_write_frame_counter(NES_APUState *apu, u8 value)
 	apu->reset_delay = (u8)(4);
 }
 
-static void apu_access_status(NES_APUState *apu, NES_BusAccess *access)
+static u8 apu_access_status(NES_APUState *apu, NES_BusMode mode, u8 value)
 {
-	if (access->kind == NES_BUS_ACCESS_WRITE)
+	if (mode == NES_BUS_WRITE)
 	{
-		apu->pulse[0].enable = (u8)(access->value >> 0 & 1);
-		apu->pulse[1].enable = (u8)(access->value >> 1 & 1);
-		apu->triangle.enable = (u8)(access->value >> 2 & 1);
+		apu->pulse[0].enable = (u8)(value >> 0 & 1);
+		apu->pulse[1].enable = (u8)(value >> 1 & 1);
+		apu->triangle.enable = (u8)(value >> 2 & 1);
 
 		// Writing a zero to a channel enable bit silences the channel and
 		// clears its length counter.
@@ -160,17 +160,18 @@ static void apu_access_status(NES_APUState *apu, NES_BusAccess *access)
 	{
 		// "will read as 1 if the corresponding length counter has not been halted through either
 		// expiring or a write of 0 to the corresponding bit."
-		access->value = 0;
-		access->value |= (apu->pulse[0].length_counter != 0) << 0;
-		access->value |= (apu->pulse[1].length_counter != 0) << 1;
-		access->value |= (apu->triangle.length_counter != 0) << 2;
-		access->value |= apu->irq_pending << 6;
+		value = 0;
+		value |= (apu->pulse[0].length_counter != 0) << 0;
+		value |= (apu->pulse[1].length_counter != 0) << 1;
+		value |= (apu->triangle.length_counter != 0) << 2;
+		value |= apu->irq_pending << 6;
 		// """
 		// can be cleared either by reading $4015 (which also returns its old status) or by setting the
 		// interrupt inhibit flag.
 		// """
 		apu->irq_pending = (u8)(0);
 	}
+	return value;
 }
 
 static void apu_pulse_write_control(NES_APU_Pulse *pulse, u8 value)
@@ -212,73 +213,74 @@ static void apu_pulse_write_timer_high(NES_APU_Pulse *pulse, u8 value)
 	pulse->env.reload_divider = (u8)(1);
 }
 
-NES_BusAccess nes_apu_register_access(NES_Emulator *core, NES_BusAccess access)
+NES_BusResult nes_apu_register_access(NES_Emulator *core, NES_BusMode mode, u32 address, u8 value)
 {
+	Assert(mode == NES_BUS_READ || mode == NES_BUS_WRITE);
 	NES_APUState *apu = &core->apu;
-	switch (access.address)
+	switch (address)
 	{
 		case 0x4017:
 		{
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
-				apu_write_frame_counter(apu, access.value);
+			if (mode == NES_BUS_WRITE) {
+				apu_write_frame_counter(apu, value);
 			}
 		} break;
 
 		case 0x4015:
 		{
-			apu_access_status(apu, &access);
+			value = apu_access_status(apu, mode, value);
 		} break;
 
 		// https://www.nesdev.org/wiki/APU_Pulse#Registers
 		// "Note: the addresses below are write-only! Reading from these addresses exhibits open-bus behavior."
 		case 0x4000: case 0x4004:
 		{
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
-				apu_pulse_write_control(apu_pulse_from_register(apu, access.address), access.value);
+			if (mode == NES_BUS_WRITE) {
+				apu_pulse_write_control(apu_pulse_from_register(apu, address), value);
 			}
 		} break;
 
 		case 0x4001: case 0x4005:
 		{
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
-				apu_pulse_write_sweep(apu_pulse_from_register(apu, access.address), access.value);
+			if (mode == NES_BUS_WRITE) {
+				apu_pulse_write_sweep(apu_pulse_from_register(apu, address), value);
 			}
 		} break;
 
 		case 0x4002: case 0x4006:
 		{
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
-				apu_pulse_write_timer_low(apu_pulse_from_register(apu, access.address), access.value);
+			if (mode == NES_BUS_WRITE) {
+				apu_pulse_write_timer_low(apu_pulse_from_register(apu, address), value);
 			}
 		} break;
 
 		case 0x4003: case 0x4007:
 		{
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
-				apu_pulse_write_timer_high(apu_pulse_from_register(apu, access.address), access.value);
+			if (mode == NES_BUS_WRITE) {
+				apu_pulse_write_timer_high(apu_pulse_from_register(apu, address), value);
 			}
 		} break;
 		case 0x4008: {
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
+			if (mode == NES_BUS_WRITE) {
 				NES_APU_Triangle *triangle = & apu->triangle;
-				triangle->length_counter_halt = (u8)(access.value >> 7);
-				triangle->linear_counter_reload_value = (u8)(access.value & 0x7F);
+				triangle->length_counter_halt = (u8)(value >> 7);
+				triangle->linear_counter_reload_value = (u8)(value & 0x7F);
 			}
 		}
 		break;
 		case 0x400A: {
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
+			if (mode == NES_BUS_WRITE) {
 				NES_APU_Triangle *triangle = & apu->triangle;
-				triangle->wave_period = (u16)(triangle->wave_period & 0x0700 | access.value);
+				triangle->wave_period = (u16)(triangle->wave_period & 0x0700 | value);
 			}
 		}
 		break;
 		case 0x400B: {
-			if (access.kind == NES_BUS_ACCESS_WRITE) {
+			if (mode == NES_BUS_WRITE) {
 				NES_APU_Triangle *triangle = & apu->triangle;
-				triangle->wave_period = (u16)(triangle->wave_period & 0x00FF | (access.value & 7) << 8);
+				triangle->wave_period = (u16)(triangle->wave_period & 0x00FF | (value & 7) << 8);
 				if (triangle->enable) {
-					triangle->length_counter = (u8)(apu_length_table[access.value >> 3]);
+					triangle->length_counter = (u8)(apu_length_table[value >> 3]);
 				}
 				triangle->linear_counter_reload = (u8)(1);
 			}
@@ -286,7 +288,7 @@ NES_BusAccess nes_apu_register_access(NES_Emulator *core, NES_BusAccess access)
 		break;
 	}
 
-	return access;
+	return nes_bus_result(NES_DEVICE_CPU, address, value);
 }
 
 // https://www.nesdev.org/wiki/APU_Envelope

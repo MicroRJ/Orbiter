@@ -62,8 +62,8 @@ static void ppu_test_power_and_reset(PPU_TestFixture *fixture)
 	ppu_test_name = "PPU power and reset state";
 	ppu_test_prepare(fixture);
 	NES_PPUState *ppu = &fixture->core->ppu;
-	ppu->xtick = 123;
-	ppu->ytick = 45;
+	ppu->dot = 123;
+	ppu->scanline = 45;
 	ppu->t = 0x3456;
 	ppu->v = 0x2345;
 	ppu->x = 7;
@@ -81,8 +81,8 @@ static void ppu_test_power_and_reset(PPU_TestFixture *fixture)
 	ppu->_pram[7] = 0x77;
 
 	nes_ppu_reset(ppu);
-	PPU_EXPECT_EQUAL(0, ppu->xtick);
-	PPU_EXPECT_EQUAL(0, ppu->ytick);
+	PPU_EXPECT_EQUAL(0, ppu->dot);
+	PPU_EXPECT_EQUAL(0, ppu->scanline);
 	PPU_EXPECT_EQUAL(0, ppu->t);
 	PPU_EXPECT_EQUAL(0x2345, ppu->v);
 	PPU_EXPECT_EQUAL(0, ppu->x);
@@ -316,6 +316,58 @@ static void ppu_test_oam_dma(PPU_TestFixture *fixture)
 	PPU_EXPECT_EQUAL(513, fixture->core->cpu_stall_cycles);
 }
 
+static void ppu_step_through_sprite_evaluation(PPU_TestFixture *fixture, u32 last_dot)
+{
+	NES_PPUState *ppu = &fixture->core->ppu;
+	for (u32 dot = 1; dot <= last_dot; ++dot)
+	{
+		PPU_EXPECT_EQUAL(dot, ppu->dot);
+		nes_ppu_step(fixture->core);
+	}
+}
+
+static void ppu_test_sprite_evaluation(PPU_TestFixture *fixture)
+{
+	ppu_test_name = "dot-stepped sprite evaluation";
+	ppu_test_prepare(fixture);
+	NES_PPUState *ppu = &fixture->core->ppu;
+
+	ppu->PPUMASK = 0x08;
+	ppu->dot = 1;
+	ppu->scanline = 20;
+	memory_zero(ppu->soam, sizeof(ppu->soam));
+	ppu_step_through_sprite_evaluation(fixture, 64);
+	for (u32 index = 0; index < sizeof(ppu->soam); ++index) PPU_EXPECT_EQUAL(0xFF, ppu->soam[index]);
+
+	ppu_test_prepare(fixture);
+	ppu->PPUMASK = 0x08;
+	ppu->dot = 1;
+	ppu->scanline = 20;
+	for (u32 index = 0; index < ArrayCount(ppu->OAM); ++index) ppu->OAM[index].ypos = 0x80;
+	ppu->OAM[0] = (NES_PPUSprite) { .ypos = 20, .index = 0x11, .attrs = 0x22, .xpos = 0x33 };
+	ppu->OAM[2] = (NES_PPUSprite) { .ypos = 14, .index = 0x44, .attrs = 0x55, .xpos = 0x66 };
+	ppu_step_through_sprite_evaluation(fixture, 256);
+	PPU_EXPECT_EQUAL(8, ppu->soam_index);
+	PPU_EXPECT_EQUAL(20, ppu->SOAM[0].ypos);
+	PPU_EXPECT_EQUAL(0x11, ppu->SOAM[0].index);
+	PPU_EXPECT_EQUAL(0x22, ppu->SOAM[0].attrs);
+	PPU_EXPECT_EQUAL(0x33, ppu->SOAM[0].xpos);
+	PPU_EXPECT_EQUAL(14, ppu->SOAM[1].ypos);
+	PPU_EXPECT_EQUAL(0x44, ppu->SOAM[1].index);
+	PPU_EXPECT_EQUAL(0x55, ppu->SOAM[1].attrs);
+	PPU_EXPECT_EQUAL(0x66, ppu->SOAM[1].xpos);
+
+	ppu_test_prepare(fixture);
+	ppu->PPUMASK = 0x08;
+	ppu->dot = 1;
+	ppu->scanline = 20;
+	for (u32 index = 0; index < ArrayCount(ppu->OAM); ++index) ppu->OAM[index].ypos = 0x80;
+	for (u32 index = 0; index < 9; ++index) ppu->OAM[index].ypos = 20;
+	ppu_step_through_sprite_evaluation(fixture, 256);
+	PPU_EXPECT_EQUAL(32, ppu->soam_index);
+	PPU_EXPECT_EQUAL(0x20, ppu->PPUSTATUS & 0x20);
+}
+
 static void ppu_test_forced_blank_preserves_vram_address(PPU_TestFixture *fixture)
 {
 	ppu_test_name = "forced blank preserves the CPU VRAM address";
@@ -325,26 +377,26 @@ static void ppu_test_forced_blank_preserves_vram_address(PPU_TestFixture *fixtur
 	ppu->PPUMASK = 0;
 	ppu->v = 0x2345;
 	ppu->t = 0x1ABC;
-	ppu->xtick = 256;
-	ppu->ytick = 0;
+	ppu->dot = 256;
+	ppu->scanline = 0;
 	nes_ppu_step(fixture->core);
 	PPU_EXPECT_EQUAL(0x2345, ppu->v);
 
-	ppu->xtick = 257;
+	ppu->dot = 257;
 	ppu->v = 0x2345;
 	nes_ppu_step(fixture->core);
 	PPU_EXPECT_EQUAL(0x2345, ppu->v);
 
-	ppu->xtick = 304;
-	ppu->ytick = 261;
+	ppu->dot = 304;
+	ppu->scanline = 261;
 	ppu->v = 0x2345;
 	nes_ppu_step(fixture->core);
 	PPU_EXPECT_EQUAL(0x2345, ppu->v);
 
 	ppu->PPUMASK = 0x08;
 	ppu->v = 0x1200;
-	ppu->xtick = 8;
-	ppu->ytick = 0;
+	ppu->dot = 8;
+	ppu->scanline = 0;
 	nes_ppu_step(fixture->core);
 	PPU_EXPECT_EQUAL(0x1201, ppu->v);
 }
@@ -355,35 +407,35 @@ static void ppu_test_clock_and_vblank_events(PPU_TestFixture *fixture)
 	ppu_test_prepare(fixture);
 	NES_PPUState *ppu = &fixture->core->ppu;
 
-	ppu->xtick = 340;
-	ppu->ytick = 0;
+	ppu->dot = 340;
+	ppu->scanline = 0;
 	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NONE, nes_ppu_step(fixture->core));
-	PPU_EXPECT_EQUAL(0, ppu->xtick);
-	PPU_EXPECT_EQUAL(1, ppu->ytick);
+	PPU_EXPECT_EQUAL(0, ppu->dot);
+	PPU_EXPECT_EQUAL(1, ppu->scanline);
 
-	ppu->xtick = 340;
-	ppu->ytick = 261;
+	ppu->dot = 340;
+	ppu->scanline = 261;
 	PPU_EXPECT_EQUAL(NES_PPU_EVENT_NONE, nes_ppu_step(fixture->core));
-	PPU_EXPECT_EQUAL(0, ppu->xtick);
-	PPU_EXPECT_EQUAL(0, ppu->ytick);
+	PPU_EXPECT_EQUAL(0, ppu->dot);
+	PPU_EXPECT_EQUAL(0, ppu->scanline);
 
 	ppu->PPUCTRL = 0;
 	ppu->PPUSTATUS = 0;
-	ppu->xtick = 1;
-	ppu->ytick = 241;
+	ppu->dot = 1;
+	ppu->scanline = 241;
 	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0x80, ppu->PPUSTATUS & 0x80);
 
 	ppu->PPUCTRL = 0x80;
 	ppu->PPUSTATUS = 0;
-	ppu->xtick = 1;
-	ppu->ytick = 241;
+	ppu->dot = 1;
+	ppu->scanline = 241;
 	PPU_EXPECT_EQUAL(NES_PPU_EVENT_FRAME | NES_PPU_EVENT_NMI, nes_ppu_step(fixture->core));
 	PPU_EXPECT_EQUAL(0x80, ppu->PPUSTATUS & 0x80);
 
 	ppu->PPUSTATUS = 0xE0;
-	ppu->xtick = 1;
-	ppu->ytick = 261;
+	ppu->dot = 1;
+	ppu->scanline = 261;
 	nes_ppu_step(fixture->core);
 	PPU_EXPECT_EQUAL(0, ppu->PPUSTATUS & 0xE0);
 }
@@ -396,8 +448,8 @@ static void ppu_test_video_is_published_separately(PPU_TestFixture *fixture)
 
 	ppu->_pram[0] = 0x2A;
 	ppu->PPUMASK = 0x10;
-	ppu->xtick = 1;
-	ppu->ytick = 0;
+	ppu->dot = 1;
+	ppu->scanline = 0;
 	nes_ppu_step(fixture->core);
 
 	PPU_EXPECT_EQUAL(0x2A, fixture->core->video[0][0]);
@@ -416,6 +468,7 @@ int main(void)
 	ppu_test_palette_mirroring(&fixture);
 	ppu_test_oam_data_port(&fixture);
 	ppu_test_oam_dma(&fixture);
+	ppu_test_sprite_evaluation(&fixture);
 	ppu_test_forced_blank_preserves_vram_address(&fixture);
 	ppu_test_clock_and_vblank_events(&fixture);
 	ppu_test_video_is_published_separately(&fixture);

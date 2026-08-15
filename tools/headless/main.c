@@ -74,7 +74,7 @@ static b32 check_determinism(NES_Process *process, NES_Emulator *emulator, NES_T
 			nes_target_publish(publication, emulator);
 			LOG_ERROR("determinism mismatch at frame %u: samples %llu/%llu, steps %llu/%llu, replay PC $%04X, PPU %u,%u",
 				frame, expected_frame.samples, replayed_frame.samples, expected_frame.steps, replayed_frame.steps,
-				publication->cpu.PC, publication->ppu.xtick, publication->ppu.ytick);
+				publication->cpu.PC, publication->ppu.dot, publication->ppu.scanline);
 			headless_write_file(
 				"determinism_expected.dump", expected.data, expected.size);
 			headless_write_file(

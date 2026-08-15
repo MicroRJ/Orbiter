@@ -15,15 +15,14 @@ CPU_TestFixture;
 static u32 cpu_test_failures;
 static const char *cpu_test_name;
 
-static NES_BusAccess cpu_test_expansion_bus(NES_Emulator *core,
-	NES_BusAccess access)
+static NES_BusResult cpu_test_expansion_bus(NES_Emulator *core,
+	NES_BusMode mode, u32 address, u8 value)
 {
-	if (access.address == 0x4020 &&
-		access.kind == NES_BUS_ACCESS_WRITE)
+	if (address == 0x4020 && mode == NES_BUS_WRITE)
 	{
-		core->values[31] = access.value;
+		core->values[31] = value;
 	}
-	return access;
+	return nes_bus_result(NES_DEVICE_CPU, address, value);
 }
 
 static void cpu_expect_equal_(u64 expected, u64 actual, const char *expression, i32 line)
@@ -123,13 +122,9 @@ static void cpu_test_explicit_bus_operations(CPU_TestFixture *fixture)
 	CPU_EXPECT_EQUAL(NES_DEVICE_PRG_ROM, prg.device);
 	CPU_EXPECT_EQUAL(0, prg.offset);
 
-	NES_BusAccess routed = nrom_cpu(fixture->core, (NES_BusAccess) {
-		.kind = NES_BUS_ACCESS_MAP,
-		.address = 0x8000,
-	});
+	NES_BusResult routed = nrom_cpu(fixture->core, NES_BUS_PEEK, 0x8000, 0);
 	CPU_EXPECT_EQUAL(0, routed.address);
-	CPU_EXPECT_EQUAL(NES_DEVICE_PRG_ROM, routed.mapped.device);
-	CPU_EXPECT_EQUAL(0, routed.mapped.offset);
+	CPU_EXPECT_EQUAL(NES_DEVICE_PRG_ROM, routed.device);
 
 	NES_BusFunc saved_cpu_bus = fixture->core->mapper.cpu_bus;
 	u8 saved_expansion_value = fixture->core->values[31];

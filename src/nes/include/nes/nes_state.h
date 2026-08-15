@@ -35,8 +35,8 @@ NES_PPUSprite;
 
 typedef struct
 {
-	u16           xtick;
-	u16           ytick;
+	u16           dot;
+	u16           scanline;
 	u16           t;
 	u16           v;
 	u8            x;
@@ -53,6 +53,7 @@ typedef struct
 	u8            atr_r1;
 	u8            spr0_enable;
 	u8            spr0_2cycle_delay;
+	// TODO(RJ): give these better names!
 	u8            PPUCTRL;
 	u8            PPUMASK;
 	u8            PPUSTATUS;
@@ -62,8 +63,17 @@ typedef struct
 	NES_PPUSprite sprs[NES_PPU_MAX_SPRITES_PER_SCANLINE];
 	union
 	{
-		NES_PPUSprite OAM[64];
+		NES_PPUSprite OAM[ 64];
 		u8           _oam[256];
+	};
+	u8 oam_index;
+	u8 oam_offset;
+	u8 oam_latch;
+	u8 soam_index;
+	union
+	{
+		NES_PPUSprite SOAM[ 8];
+		u8            soam[32];
 	};
 	u8 _pram[32];
 }

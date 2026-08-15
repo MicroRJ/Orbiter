@@ -24,11 +24,11 @@ NES_MAPPER_RSET_FUNC(nrom_reset) {
 	return true;
 }
 
-NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
-	switch (access.address >> 12)
+NES_BusResult nrom_ppu(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value) {
+	switch (address >> 12)
 	{
 		case 0: case 1: {
-			access = nes->chr_rom_size ? nes_chr_rom_access(nes, access) : nes_chr_ram_access(nes, access);
+			return nes->chr_rom_size ? nes_chr_rom_access(nes, mode, address, value) : nes_chr_ram_access(nes, mode, address, value);
 		} break;
 		case 2: {
 			b32 v = nes->vmirror;
@@ -53,11 +53,11 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 			// 2800 -> 2C00
 			//
 			//
-			access.address = access.address & 0x3FF | (access.address >> !v & 0x400);
-			access = nes_vram_access(nes, access);
+			address = address & 0x3FF | (address >> !v & 0x400);
+			return nes_vram_access(nes, mode, address, value);
 		} break;
 	}
-	return access;
+	return nes_bus_result(NES_DEVICE_PPU, address, value);
 }
 
 // """
@@ -65,22 +65,20 @@ NES_BusAccess nrom_ppu(NES_Emulator *nes, NES_BusAccess access) {
 // CPU $8000-$BFFF: First 16 KiB of PRG-ROM.
 // CPU $C000-$FFFF: Last 16 KiB of PRG-ROM (NROM-256) or mirror of $8000-$BFFF (NROM-128).
 // """
-NES_BusAccess nrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
-	switch (access.address >> 13)
+NES_BusResult nrom_cpu(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value) {
+	switch (address >> 13)
 	{
 		case 3: {
-			access.address &= KiB(8) - 1;
-			access = nes_prg_ram_access(nes, access);
+			return nes_prg_ram_access(nes, mode, address & (KiB(8) - 1), value);
 		}
 		break;
 		case 4: case 5: case 6: case 7: {
 			Assert(nes->prg_rom_size == KiB(16) || nes->prg_rom_size == KiB(32));
-			access.address &= nes->prg_rom_size - 1;
-			access = nes_prg_rom_access(nes, access);
+			return nes_prg_rom_access(nes, mode, address & (nes->prg_rom_size - 1), value);
 		}
 		break;
 	}
-	return access;
+	return nes_bus_result(NES_DEVICE_CPU, address, value);
 }
 
 // NES NROM mapper.

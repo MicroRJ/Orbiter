@@ -167,8 +167,8 @@ static const SerializeField nes_ppu_sprite_fields[] =
 
 static const SerializeField nes_ppu_fields[] =
 {
-	NES_SCALAR(NES_FIELD_PPU_XTICK,             NES_PPUState, xtick,               SERIALIZE_WIRE_U16,    0),
-	NES_SCALAR(NES_FIELD_PPU_YTICK,             NES_PPUState, ytick,               SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_XTICK,             NES_PPUState, dot,               SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_YTICK,             NES_PPUState, scanline,               SERIALIZE_WIRE_U16,    0),
 	NES_SCALAR(NES_FIELD_PPU_T,                 NES_PPUState, t,                   SERIALIZE_WIRE_U16,    0),
 	NES_SCALAR(NES_FIELD_PPU_V,                 NES_PPUState, v,                   SERIALIZE_WIRE_U16,    0),
 	NES_SCALAR(NES_FIELD_PPU_X,                 NES_PPUState, x,                   SERIALIZE_WIRE_U8,     0),

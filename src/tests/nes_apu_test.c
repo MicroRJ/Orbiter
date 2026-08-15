@@ -22,23 +22,19 @@ static void apu_expect_equal_(u64 expected, u64 actual,
 #define APU_EXPECT_EQUAL(expected, actual) \
 	apu_expect_equal_((u64)(expected), (u64)(actual), #actual, __LINE__)
 
-static NES_BusAccess apu_access(NES_BusAccessKind kind, u16 address, u8 value)
+static NES_BusResult apu_access(NES_BusMode mode, u16 address, u8 value)
 {
-	return nes_apu_register_access(apu_test_core, (NES_BusAccess) {
-		.kind = kind,
-		.address = address,
-		.value = value,
-	});
+	return nes_apu_register_access(apu_test_core, mode, address, value);
 }
 
 static void apu_write(u16 address, u8 value)
 {
-	apu_access(NES_BUS_ACCESS_WRITE, address, value);
+	apu_access(NES_BUS_WRITE, address, value);
 }
 
 static u8 apu_read(u16 address)
 {
-	return apu_access(NES_BUS_ACCESS_READ, address, 0).value;
+	return apu_access(NES_BUS_READ, address, 0).value;
 }
 
 static void apu_test_clear(NES_APUState *apu)

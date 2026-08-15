@@ -47,36 +47,33 @@ static void mapper_test_prepare(Mapper_TestFixture *fixture,
 	fixture->core->chr_rom_size = chr_rom_size;
 }
 
-static NES_BusAccess mapper_access(NES_Emulator *core, NES_BusFunc bus,
-	NES_BusAccessKind kind, u16 address, u8 value)
+static NES_BusResult mapper_access(NES_Emulator *core, NES_BusFunc bus,
+	NES_BusMode mode, u16 address, u8 value)
 {
-	return bus(core, (NES_BusAccess) {
-		.kind = kind,
-		.address = address,
-		.value = value,
-	});
+	return bus(core, mode, address, value);
 }
 
 static u8 mapper_read(NES_Emulator *core, NES_BusFunc bus, u16 address)
 {
-	return mapper_access(core, bus, NES_BUS_ACCESS_READ, address, 0).value;
+	return mapper_access(core, bus, NES_BUS_READ, address, 0).value;
 }
 
 static u8 mapper_peek(NES_Emulator *core, NES_BusFunc bus, u16 address)
 {
-	return mapper_access(core, bus, NES_BUS_ACCESS_PEEK, address, 0).value;
+	return mapper_access(core, bus, NES_BUS_PEEK, address, 0).value;
 }
 
 static void mapper_write(NES_Emulator *core, NES_BusFunc bus,
 	u16 address, u8 value)
 {
-	mapper_access(core, bus, NES_BUS_ACCESS_WRITE, address, value);
+	mapper_access(core, bus, NES_BUS_WRITE, address, value);
 }
 
 static NES_MapAddr mapper_map(NES_Emulator *core, NES_BusFunc bus,
 	u16 address)
 {
-	return mapper_access(core, bus, NES_BUS_ACCESS_MAP, address, 0).mapped;
+	NES_BusResult result = mapper_access(core, bus, NES_BUS_PEEK, address, 0);
+	return nes_map_addr((NES_DeviceId)result.device, result.address);
 }
 
 static void mapper_mark_prg_banks(NES_Emulator *core, u32 bank_size)

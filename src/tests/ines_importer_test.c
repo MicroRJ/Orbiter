@@ -59,7 +59,7 @@ static void ines_importer_test_app_save(Arena *encoded_arena, Arena *decoded_are
 		},
 	};
 	source.state.cpu.PC = 0x8123;
-	source.state.ppu.xtick = 123;
+	source.state.ppu.dot = 123;
 	source.state.video[7][11] = 0x2A;
 	source.state.scheduler_clock = 123456;
 

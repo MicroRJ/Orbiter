@@ -119,8 +119,8 @@ static void test_run_frame_audio_contract(void)
 		Assert(frame.samples > 0 && frame.samples <= sample_capacity);
 		Assert(guarded_samples[0] == -1234.5f);
 		Assert(guarded_samples[sample_capacity + 1] == 9876.5f);
-		Assert(core->ppu.ytick == 241);
-		Assert(core->ppu.xtick < 16);
+		Assert(core->ppu.scanline == 241);
+		Assert(core->ppu.dot < 16);
 
 		total_samples += frame.samples;
 		total_cpu_cycles += frame.steps * 3;

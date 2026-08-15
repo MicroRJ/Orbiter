@@ -10,41 +10,41 @@ NES_MAPPER_RSET_FUNC(uxrom_reset) {
 	return true;
 }
 
-NES_BusAccess uxrom_ppu(NES_Emulator *emulator, NES_BusAccess access) {
-	switch (access.address >> 12) {
+NES_BusResult uxrom_ppu(NES_Emulator *emulator, NES_BusMode mode, u32 address, u8 value) {
+	switch (address >> 12) {
 		case 0: case 1: {
-			access = nes_chr_ram_access(emulator, access);
+			return nes_chr_ram_access(emulator, mode, address, value);
 		} break;
 		case 2: {
 			b32 v = emulator->vmirror;
-			access.address = access.address & 0x3FF | (access.address >> !v & 0x400);
-			access = nes_vram_access(emulator, access);
+			address = address & 0x3FF | (address >> !v & 0x400);
+			return nes_vram_access(emulator, mode, address, value);
 		} break;
 	}
-	return access;
+	return nes_bus_result(NES_DEVICE_PPU, address, value);
 }
 
-NES_BusAccess uxrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
+NES_BusResult uxrom_cpu(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value) {
 	/* prg rom, 0x8000 + */
-	if ((access.address >> 15) == 1) {
-		if (access.kind == NES_BUS_ACCESS_WRITE) {
+	if ((address >> 15) == 1) {
+		if (mode == NES_BUS_WRITE) {
 			/* Todo: check spec about something about open bus conflicts... */
-			nes_mapper_set_value(nes, 0, access.value);
+			nes_mapper_set_value(nes, 0, value);
 		}
 		else {
 			i32 b = nes->values[0];
 			i32 k = (nes->prg_rom_size >> 14) - 1;
-			if (access.address < 0xC000)
+			if (address < 0xC000)
 			{
-				access.address = (access.address & 0x3FFF) + (b << 14);
+				address = (address & 0x3FFF) + (b << 14);
 			}
 			else
 			{
-				access.address = (access.address & 0x3FFF) + (k << 14);
+				address = (address & 0x3FFF) + (k << 14);
 			}
-			access = nes_prg_rom_access(nes, access);
+			return nes_prg_rom_access(nes, mode, address, value);
 		}
 	}
-	return access;
+	return nes_bus_result(NES_DEVICE_CPU, address, value);
 }
 // NES UxROM mapper.

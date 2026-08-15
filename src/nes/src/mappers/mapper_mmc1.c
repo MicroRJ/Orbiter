@@ -25,55 +25,52 @@ NES_MAPPER_RSET_FUNC(mmc1_reset) {
 	return true;
 }
 
-NES_BusAccess mmc1_ppu(NES_Emulator *nes, NES_BusAccess access) {
+NES_BusResult mmc1_ppu(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value) {
 	u32 control = nes->values[MMC1_CONTROL_R];
-	u32 table = access.address >> 12;
+	u32 table = address >> 12;
 	switch (table) {
 		case 0: case 1: {
 			if (control & 0x10) {
 				u32 bank = nes->values[MMC1_CHR_BANK0_R + table];
-				access.address = bank * KiB(4) + (access.address & 0x0FFF);
+				address = bank * KiB(4) + (address & 0x0FFF);
 			}
 			else {
 				u32 bank = nes->values[MMC1_CHR_BANK0_R] & 0x1E;
-				access.address = bank * KiB(4) + (access.address & 0x1FFF);
+				address = bank * KiB(4) + (address & 0x1FFF);
 			}
-			access = nes->chr_rom_size ? nes_chr_rom_access(nes, access) : nes_chr_ram_access(nes, access);
+			return nes->chr_rom_size ? nes_chr_rom_access(nes, mode, address, value) : nes_chr_ram_access(nes, mode, address, value);
 		} break;
 		case 2: {
 			switch (control & 3) {
-				case 0: { access.address = access.address & 0x3FF; } break;
-				case 1: { access.address = (access.address & 0x3FF) | 0x400; } break;
+				case 0: { address = address & 0x3FF; } break;
+				case 1: { address = (address & 0x3FF) | 0x400; } break;
 				case 2: case 3: {
 					b32 v = control & 1;
-					access.address = access.address & 0x3FF | (access.address >> v & 0x400);
+					address = address & 0x3FF | (address >> v & 0x400);
 				} break;
 			}
-			access = nes_vram_access(nes, access);
+			return nes_vram_access(nes, mode, address, value);
 		} break;
 	}
-	return access;
+	return nes_bus_result(NES_DEVICE_PPU, address, value);
 }
 
-NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
+NES_BusResult mmc1_cpu(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value) {
 	i32 c = nes->values[MMC1_CONTROL_R];
 
 	// NOP
-	if (access.address < 0x6000) {
-		goto esc;
+	if (address < 0x6000) return nes_bus_result(NES_DEVICE_CPU, address, value);
+	if (address < 0x8000) {
+		address &= 0x1FFF;
+		return nes_prg_ram_access(nes, mode, address, value);
 	}
-	if (access.address < 0x8000) {
-		access.address &= 0x1FFF;
-		access = nes_prg_ram_access(nes, access);
-		goto esc;
-	}
-	if (access.kind == NES_BUS_ACCESS_WRITE) {
-		if (access.value & 128) {
+	if (mode == NES_BUS_WRITE) {
+		if (value & 128) {
 			nes_mapper_set_value(nes, MMC1_LOAD_R, 16);
 			nes_mapper_set_value(nes, MMC1_CONTROL_R, nes->values[MMC1_CONTROL_R] | 0x0C);
 		}
 		else {
-			b32 r = nes->values[MMC1_LOAD_R] >> 1 | (access.value & 1) << 4;
+			b32 r = nes->values[MMC1_LOAD_R] >> 1 | (value & 1) << 4;
 			/* check reset bit */
 			if (nes->values[MMC1_LOAD_R] & 1) {
 				/* the shift register is cleared automatically */
@@ -86,7 +83,7 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 				// 0xD 1 10 1 .... ....
 				// 0xE 1 11 0 .... ....
 				// 0xF 1 11 1 .... ....
-				nes_mapper_set_value(nes, access.address >> 13 & 3, r);
+				nes_mapper_set_value(nes, address >> 13 & 3, r);
 			}
 			else {
 				nes_mapper_set_value(nes, MMC1_LOAD_R, r);
@@ -100,27 +97,26 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 
 		switch (c >> 2 & 3) {
 			case 0: case 1: {
-				access.address = (access.address & 0x7FFF) + ((b >> 1) << 15);
+				address = (address & 0x7FFF) + ((b >> 1) << 15);
 			} break;
 			case 2: {
-				if (access.address < 0xC000) access.address &= 0x3FFF;
-				else access.address = (access.address & 0x3FFF) | (b << 14);
+				if (address < 0xC000) address &= 0x3FFF;
+				else address = (address & 0x3FFF) | (b << 14);
 			} break;
 			case 3: {
-				if (access.address < 0xC000)
+				if (address < 0xC000)
 				{
-					access.address = (access.address & 0x3FFF) | (b << 14);
+					address = (address & 0x3FFF) | (b << 14);
 				}
 				else
 				{
-					access.address = (access.address & 0x3FFF) | (j << 14);
+					address = (address & 0x3FFF) | (j << 14);
 				}
 			} break;
 		}
 
-		access = nes_prg_rom_access(nes, access);
+		return nes_prg_rom_access(nes, mode, address, value);
 	}
-	esc:
-	return access;
+	return nes_bus_result(NES_DEVICE_CPU, address, value);
 }
 // NES MMC1 mapper.

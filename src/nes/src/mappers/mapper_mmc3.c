@@ -5,47 +5,52 @@
 #include "mapper.h"
 #include "../emulator_internal.h"
 
-enum {
-	R0, R1, R2, R3, R4, R5, R6, R7,
-	// hardware doesn't have r8 and r9! we fix them to mean -2 and -1, that way the addressing logic is cleaner!
-	R8, R9,
-	R_MODE,
-	R_VERT,
-	R_RAM,
-	R_IRQ_RELOAD,
-	R_IRQ_COUNTER,
-	R_IRQ_DISABLED,
-};
+enum { R0, R1, R2, R3, R4, R5, R6, R7, R8, R9 };
+typedef struct
+{
+	u8 banks[10];
+	u8 bank_update;
+	u8 prg_swap;
+	u8 chr_invert;
+	u8 horz_mirror;
+	u8 ram_enable;
+	u8 ram_protect;
+	u8 irq_pending;
+	u8 irq_reload;
+	u8 irq_latch;
+	u8 irq_enable;
+	u8 irq_counter;
+}
+MapperState;
+STATIC_ASSERT(sizeof(MapperState) <= sizeof(((NES_Emulator *)(0))->values));
+
 
 NES_MAPPER_RSET_FUNC(mmc3_reset) {
-	nes_mapper_set_value(nes, R8, (nes->prg_rom_size >> 13) - 2);
-	nes_mapper_set_value(nes, R9, (nes->prg_rom_size >> 13) - 1);
+	MapperState *state = (MapperState *) nes->values;
+	state->banks[R8] = (nes->prg_rom_size >> 13) - 2;
+	state->banks[R9] = (nes->prg_rom_size >> 13) - 1;
 	return true;
 }
 
-NES_BusAccess mmc3_ppu(NES_Emulator *nes, NES_BusAccess access)
+NES_BusResult mmc3_ppu(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value)
 {
+	(void)nes; (void)mode;
+	return nes_bus_result(NES_DEVICE_PPU, address, value);
 }
 
-NES_BusAccess mmc3_cpu(NES_Emulator *nes, NES_BusAccess access)
+NES_BusResult mmc3_cpu(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value)
 {
-	if (access.kind == NES_BUS_ACCESS_WRITE)
+	MapperState *state = (MapperState *) nes->values;
+
+	if (mode == NES_BUS_WRITE)
 	{
-		switch (access.address & 0xE001)
+		switch (address & 0xE001)
 		{
 			case 0x8000:
 			{
-				nes_mapper_set_value(nes, R_MODE, access.value);
-			}
-			break;
-			case 0xA000:
-			{
-				nes_mapper_set_value(nes, R_VERT, access.value);
-			}
-			break;
-			case 0xA001:
-			{
-				nes_mapper_set_value(nes, R_RAM, access.value);
+				state->bank_update = value & 0x07;
+				state->prg_swap    = !! (value & 0x40);
+				state->chr_invert  = !! (value & 0x80);
 			}
 			break;
 			case 0x8001: {
@@ -54,43 +59,57 @@ NES_BusAccess mmc3_cpu(NES_Emulator *nes, NES_BusAccess access)
 				// R0 and R1 ignore the bottom bit, as the value written still counts banks in 1KB units
 				// but odd numbered banks can't be selected
 				// """
-				u32 selected_register = nes->values[R_MODE] & 0x07;
-				if (selected_register == R0 || selected_register == R1) access.value &= ~0x01; else
-				if (selected_register == R6 || selected_register == R7) access.value &= ~0xC0;
-				nes_mapper_set_value(nes, selected_register, access.value);
+				u32 index = state->bank_update;
+				// TODO(RJ) do we actually need the mask or no?
+				u32 mask = (index == 0 || index == 1) ? ~0x01 : (index == 6 || index == 7) ? ~0xC0 : 0xFF;
+				state->banks[index] = value & mask;
+			}
+			break;
+			case 0xA000:
+			{
+				state->horz_mirror = value & 1;
+			}
+			break;
+			case 0xA001:
+			{
+				state->ram_enable  = !! (value & 0x80);
+            state->ram_protect = !! (value & 0x40);
 			}
 			break;
 			case 0xC000: {
-				nes_mapper_set_value(nes, R_IRQ_RELOAD, access.value);
+				state->irq_latch = value;
 			}
 			break;
 			case 0xC001: {
-				nes_mapper_set_value(nes, R_IRQ_COUNTER, 0);
+				state->irq_counter = 0;
+				state->irq_reload  = 1;
 			}
 			break;
 			// """
 			// Writing any value to this register will disable MMC3 interrupts AND acknowledge any pending interrupts.
 			// """
 			case 0xE000: {
-				nes_mapper_set_value(nes, R_IRQ_DISABLED, 1);
+				state->irq_enable  = 0;
+				state->irq_pending = 0;
 			}
 			break;
 			case 0xE001: {
-				nes_mapper_set_value(nes, R_IRQ_DISABLED, 0);
+				state->irq_enable  = 1;
 			}
 			break;
 		}
 	}
 	else
 	{
-		if (access.address >= 0x8000) {
+		if (address >= 0x8000) {
+			// TODO(RJ): just precompute this!
 			// Bit 6 of the last value written to $8000 swaps the PRG windows at $8000 and $C000
-			u32 index = (access.address >> 13) - 4;
-			if (~index & 1) index ^= nes->values[R_MODE] >> 5 & 2;
+			u32 index = (address >> 13) - 4;
+			if (~index & 1) index ^= state->prg_swap << 1;
 			u32 bank = nes->values[R6 + index];
-			access.address = (bank << 13) | (access.address & 0x1FFF);
-			access = nes_prg_rom_access(nes, access);
+			address = (bank << 13) | (address & 0x1FFF);
+			return nes_prg_rom_access(nes, mode, address, value);
 		}
 	}
-	return access;
+	return nes_bus_result(NES_DEVICE_CPU, address, value);
 }

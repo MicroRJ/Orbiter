@@ -275,7 +275,7 @@ int main(int argc, char **argv)
 	expected_save->state.scheduler_clock = 123456789;
 	expected_save->state.sample_phase = 987654;
 	expected_save->state.cpu.PC = 0x8123;
-	expected_save->state.ppu.xtick = 123;
+	expected_save->state.ppu.dot = 123;
 	expected_save->state._wram[0x123] = 0xA5;
 	expected_save->state.video[17][29] = 0x2A;
 	expected_save->thumbnail = (App_Thumbnail) {

@@ -69,27 +69,23 @@ static inline NES_MapAddr nes_map_addr(NES_DeviceId device, u32 address)
 
 typedef enum
 {
-	NES_BUS_ACCESS_READ,
-	NES_BUS_ACCESS_WRITE,
-	NES_BUS_ACCESS_PEEK,
-	// TODO(RJ) remove this additional mode??
-	NES_BUS_ACCESS_MAP,
+	NES_BUS_READ,
+	NES_BUS_WRITE,
+	NES_BUS_PEEK,
 }
-NES_BusAccessKind;
+NES_BusMode;
 
-// TODO(RJ) why are we passing in so much stuff in here, we only need mode addr and data
-// TODO(RJ) the result is the thing that contains the final addr the device and the data read.
 typedef struct
 {
-	NES_BusAccessKind kind;
-	u32               address;
-	// TODO(RJ) literally remove this!
-	NES_MapAddr       mapped;
-	u8                value;
+	u32 address;
+	u8   device;
+	u8    value;
 }
-NES_BusAccess;
+NES_BusResult;
 
-typedef NES_BusAccess (*NES_BusFunc)(NES_Emulator *nes, NES_BusAccess access);
+STATIC_ASSERT(sizeof(NES_BusResult) == 8);
+
+typedef NES_BusResult (*NES_BusFunc)(NES_Emulator *nes, NES_BusMode mode, u32 address, u8 value);
 #define NES_MAPPER_VALID_FUNC(NAME) b32 (NAME)(const NES_Emulator *nes)
 #define NES_MAPPER_RSET_FUNC(NAME) b32 (NAME)(NES_Emulator *nes)
 typedef NES_MAPPER_VALID_FUNC(*NES_MapperValidFunc);
@@ -178,33 +174,19 @@ static inline u64 nes_required_sample_capacity(void) {
 
 
 
-static inline NES_BusAccess nes_bus_access_mapped(NES_BusAccess access, NES_DeviceId device)
+static inline NES_BusResult nes_bus_result(NES_DeviceId device, u32 address, u8 value)
 {
-	access.mapped.device = device;
-	access.mapped.offset = access.address;
-	return access;
-}
-
-typedef struct
-{
-	NES_MapAddr mapped;
-	u8 value;
-}
-NES_MappedRead;
-
-// TODO(RJ) why are there so many exposed variants!
-NES_MappedRead nes_cpu_bus_read_mapped(NES_Emulator *core, u16 address);
-static inline u8 nes_cpu_bus_read(NES_Emulator *core, u16 address) {
-	return nes_cpu_bus_read_mapped(core, address).value;
+	Assert(device < NES_DEVICE_COUNT);
+	return (NES_BusResult) { .address = address, .device = (u8)device, .value = value };
 }
 
 u8 nes_emulator_cpu_peek(NES_Emulator *core, u16 address);
 u16 nes_emulator_cpu_peek_word(NES_Emulator *core, u16 address);
 NES_MapAddr nes_emulator_cpu_map(NES_Emulator *core, u16 address);
 
+u8 nes_cpu_bus_read(NES_Emulator *core, u16 address);
 void nes_cpu_bus_write(NES_Emulator *core, u16 address, u8 value);
 u8 nes_cpu_bus_peek(NES_Emulator *core, u16 address);
-NES_BusAccess nes_cpu_bus_peek_mapped(NES_Emulator *core, u16 address);
 NES_MapAddr nes_cpu_bus_map(NES_Emulator *core, u16 address);
 
 u8 nes_ppu_bus_read(NES_Emulator *core, u16 address);

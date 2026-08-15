@@ -60,8 +60,8 @@ int main(void)
 	NES_CPUState captured_cpu = core->cpu;
 	NES_PPUState captured_ppu = core->ppu;
 	NES_APUState captured_apu = core->apu;
-	Assert(captured_ppu.xtick < 341);
-	Assert(captured_ppu.ytick < 262);
+	Assert(captured_ppu.dot < 341);
+	Assert(captured_ppu.scanline < 262);
 	Assert(ArrayCount(captured_ppu.OAM) == 64);
 	Assert(ArrayCount(captured_apu.pulse) == 2);
 
@@ -71,7 +71,7 @@ int main(void)
 	Assert(core->cpu.PC != captured_cpu.PC);
 	Assert(ArrayCount(core->video) == NES_VIDEO_HEIGHT);
 	Assert(ArrayCount(core->video[0]) == NES_VIDEO_WIDTH);
-	Assert(core->ppu.xtick > 0);
+	Assert(core->ppu.dot > 0);
 	Assert(core->apu.cpu_cycle_counter < 7457);
 
 	// Setup is the single fresh-load boundary and resets all live device state.
@@ -79,8 +79,8 @@ int main(void)
 	core->_wram[5] = 0xA5;
 	Assert(nes_setup_emulator(core, setup));
 	Assert(core->cpu.PC == before.PC);
-	Assert(core->ppu.xtick == 0);
-	Assert(core->ppu.ytick == 0);
+	Assert(core->ppu.dot == 0);
+	Assert(core->ppu.scanline == 0);
 	Assert(core->apu.mode == 0);
 	Assert(core->apu.step_index == 0);
 	Assert(core->apu.cpu_cycle_counter == 10);
