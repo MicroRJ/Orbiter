@@ -1,5 +1,6 @@
-#include "debugger_internal.h"
+#include "debugger.h"
 
+// TODO(RJ): remove this!
 void debugger_get_rewind_markers(NES_Process *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker)
 {
 	if(rewind_marker) *rewind_marker = debugger->snapshots_rewind_marker;
@@ -7,15 +8,15 @@ void debugger_get_rewind_markers(NES_Process *debugger, u64 *rewind_marker, u64 
 	if(rewind_cursor) *rewind_cursor = debugger->snapshots_cursor;
 }
 
-void debugger_capture_snapshot(NES_Process *debugger)
+void nes_process_capture_snapshot(NES_Process *debugger)
 {
 	if (debugger->snapshots_cursor > 0) {
-		DBG_LiveSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
+		NES_ProcessSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
 		if (previous_snapshot->scheduler_clock == nes_emulator_scheduler_clock(debugger->emulator)) {
 			return;
 		}
 	}
-	DBG_LiveSnapshot *snapshot = (DBG_LiveSnapshot *) & debugger->snapshots[debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK];
+	NES_ProcessSnapshot *snapshot = (NES_ProcessSnapshot *) & debugger->snapshots[debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK];
 	debugger->snapshots_replay_marker = ++ debugger->snapshots_cursor;
 	debugger->snapshots_rewind_marker = debugger->snapshots_cursor - Min(debugger->snapshots_cursor, DEBUGGER_SNAPSHOT_CAPACITY);
 	Assert(debugger->snapshots_replay_marker >= debugger->snapshots_rewind_marker);
@@ -40,7 +41,7 @@ void debugger_capture_snapshot(NES_Process *debugger)
 	memory_copy(snapshot->video, emulator->video, sizeof(snapshot->video));
 }
 
-static void debugger_restore(NES_Process *debugger, const DBG_LiveSnapshot *snapshot)
+static void debugger_restore(NES_Process *debugger, const NES_ProcessSnapshot *snapshot)
 {
 	NES_Emulator *emulator = debugger->emulator;
 	memory_copy(emulator->values, snapshot->values, sizeof(snapshot->values));
@@ -59,7 +60,7 @@ static void debugger_restore(NES_Process *debugger, const DBG_LiveSnapshot *snap
 	memory_copy(emulator->video, snapshot->video, sizeof(snapshot->video));
 }
 
-b32 debugger_undo_snapshot(NES_Process *debugger)
+b32 nes_process_rewind(NES_Process *debugger)
 {
 	// Todo, we need to detect wrap around!
 	if (debugger->snapshots_cursor <= debugger->snapshots_rewind_marker) return 0;
@@ -69,7 +70,7 @@ b32 debugger_undo_snapshot(NES_Process *debugger)
 	return 1;
 }
 
-b32 debugger_redo_snapshot(NES_Process *debugger)
+b32 nes_process_replay(NES_Process *debugger)
 {
 	if (debugger->snapshots_cursor >= debugger->snapshots_replay_marker) return 0;
 	debugger_restore(debugger, &debugger->snapshots[debugger->snapshots_cursor ++ & DEBUGGER_SNAPSHOT_MASK]);
@@ -85,7 +86,7 @@ static void debugger_clear_snapshots(NES_Process *debugger)
 	debugger->snapshots_cursor = 0;
 }
 
-NES_Process *debugger_create(Arena *arena, NES_Emulator *emulator)
+NES_Process *nes_process_create(Arena *arena, NES_Emulator *emulator)
 {
 	Assert(arena && emulator);
 	NES_Process *debugger = arena_push_zero(arena, sizeof(*debugger));
@@ -97,6 +98,71 @@ NES_Process *debugger_create(Arena *arena, NES_Emulator *emulator)
 static b32 debugger_map_address_equal(NES_MapAddr a, NES_MapAddr b)
 {
 	return a.device == b.device && a.address == b.address;
+}
+
+static b32 debugger_program_storage_offset(const NES_Process *debugger, NES_MapAddr mapped, u32 *offset)
+{
+	if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < debugger->program.prg_rom_byte_count)
+	{
+		*offset = mapped.offset;
+		return true;
+	}
+	if (mapped.device == NES_DEVICE_PRG_RAM && mapped.offset < debugger->program.prg_ram_byte_count)
+	{
+		*offset = debugger->program.prg_rom_byte_count + mapped.offset;
+		return true;
+	}
+	return false;
+}
+
+static void debugger_observe_program_execution(NES_Process *debugger, NES_TraceEntry trace)
+{
+	u32 storage_offset = 0;
+	if (!debugger_program_storage_offset(debugger, trace.cpu_mapped, &storage_offset)) return;
+	u8 *evidence = &debugger->program_evidence[storage_offset];
+	if (trace.cpu_mapped.device == NES_DEVICE_PRG_RAM && *evidence && debugger->program_ram[trace.cpu_mapped.offset] != trace.cpu_byte) *evidence = 0;
+	if (!(*evidence & PROGRAM_INSTRUCTION_EXECUTED))
+	{
+		*evidence |= PROGRAM_INSTRUCTION_EXECUTED;
+		if (trace.cpu_mapped.device == NES_DEVICE_PRG_RAM) debugger->program_ram[trace.cpu_mapped.offset] = trace.cpu_byte;
+	}
+}
+
+static void debugger_seed_program_vector(NES_Process *debugger, u16 vector_address)
+{
+	u16 cpu_address = nes_emulator_cpu_peek_word(debugger->emulator, vector_address);
+	NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
+	u32 storage_offset = 0;
+	if (!debugger_program_storage_offset(debugger, mapped, &storage_offset)) return;
+	debugger->program_evidence[storage_offset] |= PROGRAM_INSTRUCTION_STATIC;
+	if (mapped.device == NES_DEVICE_PRG_RAM) debugger->program_ram[mapped.offset] = nes_emulator_cpu_peek(debugger->emulator, cpu_address);
+}
+
+static void debugger_validate_program_ram_evidence(NES_Process *debugger)
+{
+	for (u32 offset = 0; offset < debugger->program.prg_ram_byte_count; ++offset)
+	{
+		u8 *evidence = &debugger->program_evidence[debugger->program.prg_rom_byte_count + offset];
+		if (*evidence && debugger->program_ram[offset] != debugger->emulator->prg_ram[offset]) *evidence = 0;
+	}
+}
+
+void program_update(NES_Process *debugger)
+{
+	if (!debugger->program.listing_dirty) return;
+	debugger_validate_program_ram_evidence(debugger);
+	if (nes_emulator_ready_to_run(debugger->emulator))
+	{
+		u16 cpu_address = debugger->emulator->cpu.PC;
+		NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
+		u32 storage_offset = 0;
+		if (debugger_program_storage_offset(debugger, mapped, &storage_offset))
+		{
+			debugger->program_evidence[storage_offset] |= PROGRAM_INSTRUCTION_STATIC;
+			if (mapped.device == NES_DEVICE_PRG_RAM) debugger->program_ram[mapped.offset] = nes_emulator_cpu_peek(debugger->emulator, cpu_address);
+		}
+	}
+	program_rebuild(&debugger->program, debugger->emulator, debugger->program_evidence);
 }
 
 // TODO(RJ) we have to test whether the execution trace is faster than doing the checks read/write/exec
@@ -120,7 +186,7 @@ static void debugger_process_trace_(NES_Process *debugger, const NES_TraceEntry 
 	for (u64 trace_index = 0; trace_index < trace_count; ++trace_index)
 	{
 		NES_TraceEntry boundary = trace[trace_index];
-		program_observe_execution(debugger, boundary);
+		debugger_observe_program_execution(debugger, boundary);
 		execution_graph_observe_execution(&debugger->execution_graph, &debugger->execution_path, &debugger->program, boundary);
 
 		for (u32 breakpoint_index = 0; breakpoint_index < debugger->program_breakpoint_count; breakpoint_index++)
@@ -133,7 +199,7 @@ static void debugger_process_trace_(NES_Process *debugger, const NES_TraceEntry 
 				continue;
 			}
 
-			b32 success = debugger_undo_snapshot(debugger);
+			b32 success = nes_process_rewind(debugger);
 			Assert(success);
 
 			for (u64 replay_index = 0; replay_index < trace_index; ++replay_index) {
@@ -184,12 +250,20 @@ void debugger_reset(NES_Process *debugger)
 {
 	execution_path_discard(&debugger->execution_path);
 	execution_graph_reset(&debugger->execution_graph);
-	program_reset(debugger);
+	program_reset(&debugger->program, debugger->emulator->prg_rom_size, NES_MAX_PRG_RAM_SIZE);
+	memory_zero(debugger->program_evidence, sizeof(debugger->program_evidence));
+	memory_zero(debugger->program_ram, sizeof(debugger->program_ram));
+	if (nes_emulator_ready_to_run(debugger->emulator))
+	{
+		debugger_seed_program_vector(debugger, 0xFFFC);
+		debugger_seed_program_vector(debugger, 0xFFFA);
+		debugger_seed_program_vector(debugger, 0xFFFE);
+	}
 	debugger->breakpoint_hit_address = (NES_MapAddr) {};
 	debugger->breakpoint_hit = false;
 	debugger->breakpoint_resume_pending = false;
 	debugger_clear_snapshots(debugger);
-	debugger_capture_snapshot(debugger);
+	nes_process_capture_snapshot(debugger);
 }
 
 void debugger_clear_program_breakpoints(NES_Process *debugger)
@@ -204,14 +278,14 @@ void debugger_clear_program_breakpoints(NES_Process *debugger)
 static void debugger_ensure_has_restore_point_in_case_of_breakpoint(NES_Process *debugger)
 {
 	Assert(debugger->snapshots_cursor >= 1);
-	DBG_LiveSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
+	NES_ProcessSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
 	Assert(nes_emulator_scheduler_clock(debugger->emulator) == previous_snapshot->scheduler_clock);
 }
 
 u32 debugger_step(NES_Process *debugger)
 {
 	Assert(nes_emulator_ready_to_run(debugger->emulator));
-	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
+	PROF_BLOCK("snapshot") nes_process_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	u32 cycles = nes_emulator_step(debugger->emulator, debugger->trace);
 	debugger_process_trace(debugger, debugger->trace, 1);
@@ -222,7 +296,7 @@ u32 debugger_step(NES_Process *debugger)
 NES_RunFrameResult debugger_run_frame(NES_Process *debugger, f32 *sample_buffer, u64 sample_capacity)
 {
 	Assert(nes_emulator_ready_to_run(debugger->emulator));
-	PROF_BLOCK("snapshot") debugger_capture_snapshot(debugger);
+	PROF_BLOCK("snapshot") nes_process_capture_snapshot(debugger);
 	debugger_ensure_has_restore_point_in_case_of_breakpoint(debugger);
 	NES_RunFrameResult result = nes_emulator_run_frame(debugger->emulator, (NES_RunParams) {
 		.samples = sample_buffer,

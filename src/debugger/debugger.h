@@ -5,16 +5,77 @@
 #include "nes/emulator.h"
 #include "program.h"
 #include "execution_graph.h"
+#include "emulator_internal.h"
 
-typedef struct NES_Process NES_Process;
 
 enum
 {
-	CPU_MAPPING_CHUNK_SIZE = 0x2000,
-	CPU_MAPPING_CHUNK_COUNT = NES_CPU_ADDRESS_SPACE / CPU_MAPPING_CHUNK_SIZE,
+	CPU_MAPPING_CHUNK_SIZE                = KiB(8),
+	CPU_MAPPING_CHUNK_COUNT               = NES_CPU_ADDRESS_SPACE / CPU_MAPPING_CHUNK_SIZE,
+	DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY  = 256,
+	DEBUGGER_TRACE_CAPACITY               = 16 * 1024,
+	DEBUGGER_SNAPSHOT_CAPACITY            = 1024,
+	DEBUGGER_SNAPSHOT_MASK                = DEBUGGER_SNAPSHOT_CAPACITY - 1,
+	DEBUGGER_RUNTIME_CHR_RAM_SIZE         = KiB(8),
+	DEBUGGER_RUNTIME_PRG_RAM_SIZE         = KiB(8),
 };
 
-NES_Process *debugger_create(Arena *arena, NES_Emulator *emulator);
+typedef struct
+{
+	NES_MapAddr chunks[CPU_MAPPING_CHUNK_COUNT];
+	u64         revision;
+	u8          changed_chunks;
+	b32         initialized;
+}
+CPU_MappingSnapshot;
+
+typedef struct
+{
+	// ---
+	u64              sample_phase;
+	// ---
+	u8                 values[32];
+	NES_InputState    input_state;
+	u32          cpu_stall_cycles;
+	u64           scheduler_clock;
+	NES_CPUState              cpu;
+	NES_PPUState              ppu;
+	NES_APUState              apu;
+	u8             controllers[2];
+	u8        wram[NES_WRAM_SIZE];
+	u8        vram[NES_VRAM_SIZE];
+	u8 chr_ram[DEBUGGER_RUNTIME_CHR_RAM_SIZE];
+	u8 prg_ram[DEBUGGER_RUNTIME_PRG_RAM_SIZE];
+	u8 video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+}
+NES_ProcessSnapshot;
+
+// TODO(RJ): the timeline size will become configurable and compress-able!
+struct NES_Process
+{
+	NES_Emulator *emulator;
+	NES_TraceEntry *trace;
+	Program            program;
+	u8                 program_evidence[PROGRAM_MAX_SIZE];
+	u8                 program_ram[NES_MAX_PRG_RAM_SIZE];
+	ExecutionGraph     execution_graph;
+	ExecutionPathState execution_path;
+	CPU_MappingSnapshot cpu_mapping;
+	u32 program_breakpoint_count;
+	NES_MapAddr breakpoint_hit_address;
+	b32 breakpoint_hit;
+	b32 breakpoint_resume_pending;
+	b32 warned_missing_cartridge;
+
+	NES_MapAddr       program_breakpoints[DEBUGGER_PROGRAM_BREAKPOINT_CAPACITY];
+	u64               snapshots_rewind_marker;
+	u64               snapshots_replay_marker;
+	u64               snapshots_cursor;
+
+	NES_ProcessSnapshot  snapshots[DEBUGGER_SNAPSHOT_CAPACITY];
+};
+
+NES_Process *nes_process_create(Arena *arena, NES_Emulator *emulator);
 void debugger_reset(NES_Process *debugger);
 void debugger_clear_program_breakpoints(NES_Process *debugger);
 u32 debugger_step(NES_Process *debugger);
@@ -28,9 +89,9 @@ b32 debugger_breakpoint_hit(const NES_Process *debugger);
 void debugger_update_cpu_mapping(NES_Process *debugger);
 
 void debugger_get_rewind_markers(NES_Process *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker);
-void debugger_capture_snapshot(NES_Process *debugger);
-b32 debugger_undo_snapshot(NES_Process *debugger);
-b32 debugger_redo_snapshot(NES_Process *debugger);
+void nes_process_capture_snapshot(NES_Process *debugger);
+b32 nes_process_rewind(NES_Process *debugger);
+b32 nes_process_replay(NES_Process *debugger);
 
 const Program *debugger_program(const NES_Process *debugger);
 const ExecutionGraph *debugger_execution_graph(const NES_Process *debugger);

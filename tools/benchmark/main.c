@@ -45,7 +45,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	NES_Process *debugger = debugger_create(&arena, emulator);
+	NES_Process *debugger = nes_process_create(&arena, emulator);
 	debugger_reset(debugger);
 	u64 sample_capacity = nes_required_sample_capacity();
 	f32 *samples = arena_push(&arena, sizeof(*samples) * sample_capacity);

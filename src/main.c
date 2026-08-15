@@ -704,13 +704,13 @@ static void app_tick(App_WindowOutput input)
 			// TODO(RJ) this needs to be configurable, and also, we should just be able
 			// to skip backwards arbitrarily instead of doing one step at a time
 			for(u32 i=0;i<4;++i) {
-				if(!debugger_undo_snapshot(app.debugger)) break;
+				if(!nes_process_rewind(app.debugger)) break;
 			}
 		}
 		else if (app.transport.direction == +1)
 		{
 			for(u32 i=0;i<4;++i) {
-				if(!debugger_redo_snapshot(app.debugger)) break;
+				if(!nes_process_replay(app.debugger)) break;
 			}
 		}
 
@@ -826,7 +826,7 @@ static b32 app_init(void)
 		.label = "NES CHR map",
 	});
 
-	app.debugger = debugger_create(&app.arena, &app.emulator);
+	app.debugger = nes_process_create(&app.arena, &app.emulator);
 	return true;
 }
 

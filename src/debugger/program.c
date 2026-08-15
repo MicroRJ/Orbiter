@@ -1,4 +1,4 @@
-#include "debugger_internal.h"
+#include "debugger.h"
 #include "nes/isa.h"
 #include "program.h"
 
@@ -27,26 +27,21 @@ static b32 program_is_relative_branch(u16 type)
 	return false;
 }
 
-static b32 program_mapped_instruction(NES_Process *debugger, u32 cpu_offset, NES_MapAddr *mapped, u32 *storage_offset)
+static b32 program_mapped_instruction(Program *program, NES_Emulator *emulator, u32 cpu_offset, NES_MapAddr *mapped, u32 *storage_offset)
 {
 	if (cpu_offset >= NES_CPU_ADDRESS_SPACE) return false;
-	*mapped = nes_emulator_cpu_map(debugger->emulator, (u16)cpu_offset);
-	return program_storage_offset(&debugger->program, *mapped, storage_offset);
+	*mapped = nes_emulator_cpu_map(emulator, (u16)cpu_offset);
+	return program_storage_offset(program, *mapped, storage_offset);
 }
 
-static b32 program_crosses_known_start(NES_Process *debugger, u32 cpu_offset, u32 size)
+static b32 program_crosses_known_start(Program *program, NES_Emulator *emulator, const u8 *evidence, u32 cpu_offset, u32 size)
 {
-	Program *program = &debugger->program;
 	for (u32 byte_index = 1; byte_index < size; ++byte_index)
 	{
 		NES_MapAddr mapped;
 		u32 storage_offset = 0;
-		if (!program_mapped_instruction(debugger, cpu_offset + byte_index, &mapped, &storage_offset)) continue;
-		u8 *evidence = &program->evidence[storage_offset];
-		if (*evidence && mapped.device == NES_DEVICE_PRG_RAM && program->prg_ram_evidence_bytes[mapped.offset] != nes_emulator_cpu_peek(debugger->emulator, (u16)(cpu_offset + byte_index))) {
-			*evidence = 0;
-		}
-		if (*evidence) return true;
+		if (!program_mapped_instruction(program, emulator, cpu_offset + byte_index, &mapped, &storage_offset)) continue;
+		if (evidence[storage_offset]) return true;
 	}
 	return false;
 }
@@ -109,53 +104,36 @@ void program_invalidate(Program *program)
 	program->listing_dirty = true;
 }
 
-void program_update(NES_Process *debugger)
+void program_rebuild(Program *program, NES_Emulator *emulator, const u8 *evidence)
 {
-	Program *program = &debugger->program;
 	if (!program->listing_dirty) return;
 	PROF_BLOCK("program listing")
 	{
 		program->row_count = 0;
-		if (nes_emulator_ready_to_run(debugger->emulator))
+		if (nes_emulator_ready_to_run(emulator))
 		{
-			program->cpu_pc = debugger->emulator->cpu.PC;
-			program->cpu_pc_mapping = nes_emulator_cpu_map(debugger->emulator, program->cpu_pc);
-			u32 pc_offset = 0;
-			if (program_storage_offset(program, program->cpu_pc_mapping, &pc_offset))
-			{
-				u8 *evidence = &program->evidence[pc_offset];
-				if (program->cpu_pc_mapping.device == NES_DEVICE_PRG_RAM)
-				{
-					u8 opcode = nes_emulator_cpu_peek(debugger->emulator, program->cpu_pc);
-					if (*evidence && program->prg_ram_evidence_bytes[program->cpu_pc_mapping.offset] != opcode) *evidence = 0;
-					program->prg_ram_evidence_bytes[program->cpu_pc_mapping.offset] = opcode;
-				}
-				*evidence |= PROGRAM_INSTRUCTION_STATIC;
-			}
+			program->cpu_pc = emulator->cpu.PC;
+			program->cpu_pc_mapping = nes_emulator_cpu_map(emulator, program->cpu_pc);
 
 			for (u32 cpu_offset = 0; cpu_offset < NES_CPU_ADDRESS_SPACE;)
 			{
 				NES_MapAddr mapped;
 				u32 storage_offset = 0;
-				if (!program_mapped_instruction(debugger, cpu_offset, &mapped, &storage_offset))
+				if (!program_mapped_instruction(program, emulator, cpu_offset, &mapped, &storage_offset))
 				{
 					++cpu_offset;
 					continue;
 				}
 
 				u16 cpu_address = (u16)cpu_offset;
-				u16 type = nes_emulator_cpu_peek(debugger->emulator, cpu_address);
+				u16 type = nes_emulator_cpu_peek(emulator, cpu_address);
 				u32 size = nes_instruction_desc(type).size;
 				Assert(size >= 1 && size <= 3);
-				u16 data = size >= 2 ? nes_emulator_cpu_peek(debugger->emulator, (u16)(cpu_address + 1)) : 0;
-				if (size == 3) data |= (u16)nes_emulator_cpu_peek(debugger->emulator, (u16)(cpu_address + 2)) << 8;
+				u16 data = size >= 2 ? nes_emulator_cpu_peek(emulator, (u16)(cpu_address + 1)) : 0;
+				if (size == 3) data |= (u16)nes_emulator_cpu_peek(emulator, (u16)(cpu_address + 2)) << 8;
 
-				u8 *evidence = &program->evidence[storage_offset];
-				if (*evidence && mapped.device == NES_DEVICE_PRG_RAM && program->prg_ram_evidence_bytes[mapped.offset] != type) {
-					*evidence = 0;
-				}
-				u8 flags = *evidence;
-				b32 conflict = size > 1 && program_crosses_known_start(debugger, cpu_offset, size);
+				u8 flags = evidence[storage_offset];
+				b32 conflict = size > 1 && program_crosses_known_start(program, emulator, evidence, cpu_offset, size);
 				u32 advance = conflict ? 1 : size;
 				ProgramRowStatus status = conflict ? PROGRAM_ROW_ERROR : flags ? PROGRAM_ROW_INSTRUCTION : PROGRAM_ROW_GUESS;
 
@@ -184,53 +162,13 @@ b32 program_index_from_cpu_address(const Program *program, u16 cpu_address, u32 
 	return program_find_exact_cpu_address(program, cpu_address, instruction_index);
 }
 
-void program_observe_execution(NES_Process *debugger, NES_TraceEntry trace)
+void program_reset(Program *program, u32 prg_rom_byte_count, u32 prg_ram_byte_count)
 {
-	Program *program = &debugger->program;
-	u32 storage_offset = 0;
-	if (!program_storage_offset(program, trace.cpu_mapped, &storage_offset)) return;
-	u8 *evidence = &program->evidence[storage_offset];
-	if (trace.cpu_mapped.device == NES_DEVICE_PRG_RAM && *evidence && program->prg_ram_evidence_bytes[trace.cpu_mapped.offset] != trace.cpu_byte) {
-		*evidence = 0;
-	}
-	if (!(*evidence & PROGRAM_INSTRUCTION_EXECUTED))
-	{
-		*evidence |= PROGRAM_INSTRUCTION_EXECUTED;
-		if (trace.cpu_mapped.device == NES_DEVICE_PRG_RAM) {
-			program->prg_ram_evidence_bytes[trace.cpu_mapped.offset] = trace.cpu_byte;
-		}
-	}
-}
-
-static void program_seed_vector(NES_Process *debugger, u16 vector_address)
-{
-	Program *program = &debugger->program;
-	u16 cpu_address = nes_emulator_cpu_peek_word(debugger->emulator, vector_address);
-	NES_MapAddr mapped = nes_emulator_cpu_map(debugger->emulator, cpu_address);
-	u32 storage_offset = 0;
-	if (program_storage_offset(program, mapped, &storage_offset))
-	{
-		program->evidence[storage_offset] |= PROGRAM_INSTRUCTION_STATIC;
-		if (mapped.device == NES_DEVICE_PRG_RAM) {
-			program->prg_ram_evidence_bytes[mapped.offset] = nes_emulator_cpu_peek(debugger->emulator, cpu_address);
-		}
-	}
-}
-
-void program_reset(NES_Process *debugger)
-{
-	Program *program = &debugger->program;
 	memory_zero(program, sizeof(*program));
-	program->prg_rom_byte_count = debugger->emulator->prg_rom_size;
-	program->prg_ram_byte_count = NES_MAX_PRG_RAM_SIZE;
+	program->prg_rom_byte_count = prg_rom_byte_count;
+	program->prg_ram_byte_count = prg_ram_byte_count;
 	Assert(program->prg_rom_byte_count <= NES_MAX_PRG_ROM_SIZE);
 	Assert(program->prg_rom_byte_count + program->prg_ram_byte_count <= PROGRAM_MAX_SIZE);
-	if (nes_emulator_ready_to_run(debugger->emulator))
-	{
-		program_seed_vector(debugger, 0xFFFC);
-		program_seed_vector(debugger, 0xFFFA);
-		program_seed_vector(debugger, 0xFFFE);
-	}
 	program_invalidate(program);
 }
 

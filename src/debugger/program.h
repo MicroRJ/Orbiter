@@ -42,15 +42,12 @@ ProgramInstruction;
 
 typedef struct
 {
-	// Persistent physical-address evidence. The listing below is a disposable snapshot rebuilt while paused.
-	u32 prg_rom_byte_count;
-	u32 prg_ram_byte_count;
-	u32 row_count;
-	b32 listing_dirty;
-	u16 cpu_pc;
-	NES_MapAddr cpu_pc_mapping;
-	u8 evidence[PROGRAM_MAX_SIZE];
-	u8 prg_ram_evidence_bytes[NES_MAX_PRG_RAM_SIZE];
+	u32                prg_rom_byte_count;
+	u32                prg_ram_byte_count;
+	u32                row_count;
+	b32                listing_dirty;
+	u16                cpu_pc;
+	NES_MapAddr        cpu_pc_mapping;
 	ProgramInstruction rows[NES_CPU_ADDRESS_SPACE];
 }
 Program;
@@ -59,8 +56,8 @@ b32 program_index_from_cpu_address(const Program *program, u16 cpu_address, u32 
 
 b32 program_dump(NES_Process *debugger, const char *path);
 void program_invalidate(Program *program);
-void program_reset(NES_Process *debugger);
+void program_reset(Program *program, u32 prg_rom_byte_count, u32 prg_ram_byte_count);
+void program_rebuild(Program *program, NES_Emulator *emulator, const u8 *evidence);
 void program_update(NES_Process *debugger);
-void program_observe_execution(NES_Process *debugger, NES_TraceEntry trace);
 
 #endif
