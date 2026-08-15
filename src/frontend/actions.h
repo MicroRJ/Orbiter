@@ -22,9 +22,10 @@ typedef enum
 	APP_ACTION_TOGGLE_UI_DEBUG_BOUNDS,
 	APP_ACTION_ADJUST_UI_FONT_SIZE,
 	APP_ACTION_RESET_UI_FONT_SIZE,
+	APP_ACTION_CHOOSE_GAME_FILE,
 
 	// Application actions
-	APP_ACTION_OPEN_ROM,
+	APP_ACTION_IMPORT_GAME,
 	APP_ACTION_OPEN_LIBRARY_GAME,
 	APP_ACTION_RESET,
 	APP_ACTION_SAVE_STATE,
@@ -47,6 +48,7 @@ typedef struct
 	{
 		struct { AXIS axis; } split_panel;
 		struct { u32 index; } open_view;
+		struct { Str path; } import_game;
 		struct { u32 index; } open_library_game;
 		struct { i32 direction; } scrub;
 		struct { i32 pixels; } ui_font;

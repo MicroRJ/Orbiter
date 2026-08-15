@@ -21,5 +21,6 @@ typedef struct
 Input_State;
 
 void input_state_update(Input_State *input, const OS_Window *window);
+void input_state_release_all(Input_State *input);
 
 #endif

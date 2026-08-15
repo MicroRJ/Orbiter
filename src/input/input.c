@@ -1,5 +1,15 @@
 #include "input.h"
 
+void input_state_release_all(Input_State *input)
+{
+	Assert(input);
+	for (u32 key = 0; key < OS_Key_COUNT; ++key)
+	{
+		if (input->keys[key] & INPUT_KEY_DOWN) input->keys[key] |= INPUT_KEY_RELEASED;
+		input->keys[key] &= ~INPUT_KEY_DOWN;
+	}
+}
+
 void input_state_update(Input_State *input, const OS_Window *window)
 {
 	Assert(input);
@@ -12,11 +22,7 @@ void input_state_update(Input_State *input, const OS_Window *window)
 		const OS_Event *event = os_window_event(window, event_index);
 		if (event->type == OS_EVENT_WINDOW_FOCUS_LOST)
 		{
-			for (u32 key = 0; key < OS_Key_COUNT; ++key)
-			{
-				if (input->keys[key] & INPUT_KEY_DOWN) input->keys[key] |= INPUT_KEY_RELEASED;
-				input->keys[key] &= ~INPUT_KEY_DOWN;
-			}
+			input_state_release_all(input);
 		}
 		else if (event->key > OS_Key_Null && event->key < OS_Key_COUNT)
 		{

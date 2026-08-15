@@ -9,6 +9,7 @@
 #include "ui_widgets.h"
 #include "views.h"
 #include "elf.h"
+#include "os_dialog.h"
 
 enum { APP_WINDOW_ACTION_CAPACITY = 64 };
 
@@ -23,6 +24,7 @@ struct App_Window
 	Panels *panels;
 	GFX_Renderer *renderer;
 	Text_GFX *text_gfx;
+	Arena action_arena;
 	App_Action output_actions[APP_WINDOW_ACTION_CAPACITY];
 	App_Action pending_actions[APP_WINDOW_ACTION_CAPACITY];
 	u32 output_action_count;
@@ -121,6 +123,7 @@ App_Window *app_window_create(Arena *owner, App *app, App_WindowDesc desc)
 	window->draw = draw_create(owner, window->renderer);
 	window->ui = ui_create(owner, window->os, &window->input, app->text, window->draw, desc.theme);
 	window->panels = panels_create(owner);
+	window->action_arena = arena_create(0, "app window action arena");
 	window->library_overlay_on = true;
 	window->crt_enabled = true;
 	return window;
@@ -131,6 +134,7 @@ void app_window_destroy(App_Window *window)
 	Assert(window);
 	if (window->capture.recording) gif_recorder_end(&window->capture);
 	for (u32 index = 0; index < ArrayCount(window->app->thumbnail_cache.entries); index ++) gfx_destroy_texture(window->app->thumbnail_cache.entries[index].texture);
+	arena_destroy(&window->action_arena);
 	os_window_destroy(window->os);
 }
 
@@ -272,6 +276,12 @@ static b32 app_window_handle_local_action(App_Window *window, App_Action action)
 			window->ui->theme.code.size = UI_CODE_FONT_SIZE_DEFAULT;
 			LOG_INFO("UI font size %d px", UI_CODE_FONT_SIZE_DEFAULT);
 		} break;
+		case APP_ACTION_CHOOSE_GAME_FILE:
+		{
+			Str path = os_dialog_open_file(&window->action_arena);
+			input_state_release_all(&window->input);
+			if (path.size) app_window_route_action(window, (App_Action) { .kind = APP_ACTION_IMPORT_GAME, .import_game = { path } });
+		} break;
 		default: return false;
 	}
 	return true;
@@ -311,6 +321,7 @@ App_WindowOutput app_window_begin_frame(App_Window *window, App_KeyMap key_map)
 	Assert(!key_map.count || key_map.bindings);
 	Assert(!window->ui_frame_active);
 
+	arena_reset(&window->action_arena);
 	App_WindowOutput result = { .feedback = ui_feedback_take(window->ui) };
 	input_state_update(&window->input, window->os);
 	if (!(window->os->status & OS_WINDOW_MINIMIZED) && window->os->size.x > 1 && window->os->size.y > 1)
@@ -641,7 +652,7 @@ static void library_build_ui(App_Window *window)
 		ui_clean(ui);
 		ui_size(ui, AXIS_X, ui_wrap());
 		ui_size(ui, AXIS_Y, ui_wrap());
-		if (ui_button(ui, UI_KEY("empty library import"), LIT("IMPORT ROM  CTRL+O")).pressed) app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_OPEN_ROM });
+		if (ui_button(ui, UI_KEY("empty library import"), LIT("IMPORT ROM  CTRL+O")).pressed) app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_CHOOSE_GAME_FILE });
 		ui_box_end(ui);
 		return;
 	}

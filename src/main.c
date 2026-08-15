@@ -204,7 +204,7 @@ static const App_KeyBinding app_key_bindings[] =
 
 	APP_BIND_SCRUB(-1, OS_Key_Left),
 	APP_BIND_SCRUB(+1, OS_Key_Right),
-	APP_BIND(APP_ACTION_OPEN_ROM, APP_KEY_CHORD_ON_RELEASE, OS_Key_O, OS_MODIFIER_CONTROL),
+	APP_BIND(APP_ACTION_CHOOSE_GAME_FILE, APP_KEY_CHORD_ON_RELEASE, OS_Key_O, OS_MODIFIER_CONTROL),
 	APP_BIND(APP_ACTION_RESET, APP_KEY_CHORD_ON_RELEASE, OS_Key_R, OS_MODIFIER_CONTROL),
 	APP_BIND(APP_ACTION_SAVE_STATE, APP_KEY_CHORD_ON_RELEASE, OS_Key_S, OS_MODIFIER_CONTROL),
 	APP_BIND(APP_ACTION_RESTORE_STATE, APP_KEY_CHORD_ON_RELEASE, OS_Key_L, OS_MODIFIER_CONTROL),
@@ -421,15 +421,18 @@ static b32 app_handle_actions(App_WindowOutput input)
 	b32 emulator_state_changed = false;
 	i32 scrub_direction = 0;
 	b32 scrub_input_active = false;
-	b32 wants_open_file = 0;
 	for (u32 index = 0; index < input.action_count; index++)
 	{
 		App_Action action = input.actions[index];
 		switch (action.kind)
 		{
-			case APP_ACTION_OPEN_ROM:
+			case APP_ACTION_IMPORT_GAME:
 			{
-				wants_open_file ++;
+				if (app_import_game(action.import_game.path))
+				{
+					emulator_state_changed = true;
+					step_requested = false;
+				}
 			} break;
 			case APP_ACTION_OPEN_LIBRARY_GAME:
 			{
@@ -549,12 +552,6 @@ static b32 app_handle_actions(App_WindowOutput input)
 			app.transport.state = app.transport.return_state;
 			app.transport.direction = 0;
 		}
-	}
-
-	if (wants_open_file)
-	{
-		Str path = os_dialog_open_file(&app.frame_arena);
-		if (path.size && app_import_game(path)) step_requested = false;
 	}
 
 	return step_requested;

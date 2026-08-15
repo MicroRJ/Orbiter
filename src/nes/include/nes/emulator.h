@@ -158,17 +158,15 @@ NES_RunFrameResult;
 NES_RunFrameResult nes_emulator_run_frame(NES_Emulator *emulator, NES_RunParams params);
 void nes_emulator_set_input(NES_Emulator *core, u32 player, NES_Input input);
 
-
-
+// TODO(RJ): derive this sensibly!
 static inline u64 nes_sample_rate(const NES_Emulator *emulator) {
 	(void)emulator;
 	return 48 * 1000;
 }
 
+// TODO(RJ): derive this sensibly!
 static inline u64 nes_required_sample_capacity(void) {
 	// 48000 / 60.1 = ~ 799
-	// This is just an extra safe size, so we don't even have to check because
-	// it's impossible ...
 	return 1024 * 2;
 }
 
