@@ -153,13 +153,13 @@ static void cpu_test_explicit_bus_operations(CPU_TestFixture *fixture)
 	fixture->core->prg_rom_size = saved_prg_rom_size;
 	memory_copy(fixture->core->values, saved_mapper_values, sizeof(saved_mapper_values));
 
-	fixture->core->ppu.PPUSTATUS = 0xE0;
+	fixture->core->ppu.status = 0xE0;
 	NES_MapAddr status = nes_cpu_bus_map(fixture->core, 0x2002);
 	CPU_EXPECT_EQUAL(NES_DEVICE_PPU, status.device);
 	CPU_EXPECT_EQUAL(2, status.offset);
-	CPU_EXPECT_EQUAL(0xE0, fixture->core->ppu.PPUSTATUS);
+	CPU_EXPECT_EQUAL(0xE0, fixture->core->ppu.status);
 	CPU_EXPECT_EQUAL(0xE0, nes_cpu_bus_read(fixture->core, 0x2002));
-	CPU_EXPECT_EQUAL(0x60, fixture->core->ppu.PPUSTATUS);
+	CPU_EXPECT_EQUAL(0x60, fixture->core->ppu.status);
 }
 
 static void cpu_test_input_and_controllers(CPU_TestFixture *fixture)

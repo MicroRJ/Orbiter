@@ -62,7 +62,7 @@ int main(void)
 	NES_APUState captured_apu = core->apu;
 	Assert(captured_ppu.dot < 341);
 	Assert(captured_ppu.scanline < 262);
-	Assert(ArrayCount(captured_ppu.OAM) == 64);
+	Assert(ArrayCount(captured_ppu.primary_oam) == 64);
 	Assert(ArrayCount(captured_apu.pulse) == 2);
 
 	// Captured values are copies of the actual device structs. Advancing the

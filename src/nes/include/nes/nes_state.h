@@ -26,18 +26,15 @@ NES_CPUState;
 // NOTE(RJ) this actually has to match OAM layout
 typedef struct
 {
-	u8 ypos;
-	// TODO(RJ): rename to tile
-	u8 index;
-	// TODO(RJ): rename to attr
-	u8 attrs;
-	u8 xpos;
+	u8 y;
+	u8 tile;
+	u8 attributes;
+	u8 x;
 }
 NES_PPUSprite;
 
 typedef struct
 {
-	u8 index;
 	u8 pattern_lo;
 	u8 pattern_hi;
 	u8 attributes;
@@ -47,51 +44,57 @@ NES_PPUSpriteUnit;
 
 typedef struct
 {
+	u8  tile;
+	u8  pattern_lo_latch;
+	u8  attribute_latch;
+	u8  attribute_lo_latch;
+	u8  attribute_hi_latch;
+	u16 pattern_lo_shift;
+	u16 pattern_hi_shift;
+	u8  attribute_lo_shift;
+	u8  attribute_hi_shift;
+}
+NES_PPUBackgroundState;
+
+typedef struct
+{
 	u16           dot;
 	u16           scanline;
 	u16           t;
 	u16           v;
 	u8            x;
 	u8            w;
-	u8            tile_id;
-	u8            tile_hi;
-	u8            tile_lo;
-	u8            atr_b;
-	u8            atr_l0;
-	u8            atr_l1;
-	u16           chr_r0;
-	u16           chr_r1;
-	u8            atr_r0;
-	u8            atr_r1;
-	u8            spr0_2cycle_delay;
-	// TODO(RJ): give these better names!
-	u8            PPUCTRL;
-	u8            PPUMASK;
-	u8            PPUSTATUS;
-	u8            OAMADDR;
-	u8            data_read_buf;
+	NES_PPUBackgroundState background;
+	u8            sprite_zero_hit_pending;
+	u8            control;
+	u8            mask;
+	u8            status;
+	u8            oam_addr;
+	u8            data_read_buffer;
 	union
 	{
-		NES_PPUSprite OAM[ 64];
-		u8           _oam[256];
+		NES_PPUSprite primary_oam[64];
+		u8            primary_oam_bytes[256];
 	};
-	u16 oam_address;
-	u8 oam_latch;
-	u8 soam_address;
+	u16 sprite_eval_address;
+	u8 sprite_eval_latch;
+	u8 secondary_oam_address;
 	union
 	{
-		NES_PPUSprite SOAM[ 8];
-		u8            soam[32];
+		NES_PPUSprite secondary_oam[8];
+		u8            secondary_oam_bytes[32];
 	};
-	u8 soam_indices[8];
-	NES_PPUSpriteUnit spr_units[8];
+	NES_PPUSpriteUnit sprite_units[8];
+	u8 sprite_unit_count;
+	u8 sprite_zero_selected;
+	u8 sprite_zero_active;
 
-	u8 spr_ypos_latch;
-	u8 spr_tile_latch;
+	u8 sprite_y_latch;
+	u8 sprite_tile_latch;
 
-	u16 address;
+	u16 fetch_address;
 
-	u8 _pram[32];
+	u8 palette_ram[32];
 }
 NES_PPUState;
 

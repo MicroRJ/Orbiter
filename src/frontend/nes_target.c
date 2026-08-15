@@ -25,19 +25,19 @@ static const Color_RGBA8 nes_target_palette[64] = { NES_PALETTE_COLORS(NES_PALET
 
 static u32 nes_target_sprite_tile_index(const NES_PPUState *ppu, const NES_PPUSprite *sprite, u32 row)
 {
-	if (ppu->PPUCTRL & 0x20) {
-		return (sprite->index & 1) * NES_PATTERN_TABLE_TILE_COUNT + (sprite->index & 0xFE) + row / NES_PATTERN_TILE_SIZE;
+	if (ppu->control & 0x20) {
+		return (sprite->tile & 1) * NES_PATTERN_TABLE_TILE_COUNT + (sprite->tile & 0xFE) + row / NES_PATTERN_TILE_SIZE;
 	}
-	return !!(ppu->PPUCTRL & 0x08) * NES_PATTERN_TABLE_TILE_COUNT + sprite->index;
+	return !!(ppu->control & 0x08) * NES_PATTERN_TABLE_TILE_COUNT + sprite->tile;
 }
 
 static void nes_target_publish_sprites(NES_TargetPublication *publication)
 {
 	const NES_PPUState *ppu = &publication->ppu;
-	u32 sprite_height = ppu->PPUCTRL & 0x20 ? 16 : 8;
+	u32 sprite_height = ppu->control & 0x20 ? 16 : 8;
 	for (u32 index = 0; index < ArrayCount(publication->sprites); ++index)
 	{
-		const NES_PPUSprite *source = &ppu->OAM[index];
+		const NES_PPUSprite *source = &ppu->primary_oam[index];
 		u32 tile_index = nes_target_sprite_tile_index(ppu, source, 0);
 		i32 cell_x = (i32)(index % 16 * 16);
 		i32 cell_y = (i32)(NES_TARGET_CHR_PATTERN_HEIGHT + index / 16 * 16);
@@ -52,13 +52,13 @@ static void nes_target_publish_sprites(NES_TargetPublication *publication)
 			.pattern_mapping = publication->chr_map.mappings[tile_index],
 			.ppu_address = (u16)(tile_index * NES_PATTERN_TILE_SIZE * 2),
 			.oam_index = (u8)index,
-			.x = source->xpos,
-			.y = (u8)(source->ypos + 1),
-			.tile = source->index,
-			.palette = source->attrs & 3,
-			.behind_background = !!(source->attrs & 0x20),
-			.flip_horizontal = !!(source->attrs & 0x40),
-			.flip_vertical = !!(source->attrs & 0x80),
+			.x = source->x,
+			.y = (u8)(source->y + 1),
+			.tile = source->tile,
+			.palette = source->attributes & 3,
+			.behind_background = !!(source->attributes & 0x20),
+			.flip_horizontal = !!(source->attributes & 0x40),
+			.flip_vertical = !!(source->attributes & 0x80),
 		};
 	}
 }
@@ -108,22 +108,22 @@ static void nes_target_render_chr(NES_TargetPublication *publication)
 		}
 	}
 
-	u32 sprite_height = ppu->PPUCTRL & 0x20 ? 16 : 8;
-	for (u32 sprite_index = 0; sprite_index < ArrayCount(ppu->OAM); ++sprite_index)
+	u32 sprite_height = ppu->control & 0x20 ? 16 : 8;
+	for (u32 sprite_index = 0; sprite_index < ArrayCount(ppu->primary_oam); ++sprite_index)
 	{
-		const NES_PPUSprite *sprite = &ppu->OAM[sprite_index];
+		const NES_PPUSprite *sprite = &ppu->primary_oam[sprite_index];
 		rect_i32 texture_region = publication->sprites[sprite_index].texture_region;
 		for (u32 y = 0; y < sprite_height; ++y)
 		{
-			u32 source_y = sprite->attrs & 0x80 ? sprite_height - 1 - y : y;
+			u32 source_y = sprite->attributes & 0x80 ? sprite_height - 1 - y : y;
 			u32 tile_index = nes_target_sprite_tile_index(ppu, sprite, source_y);
 			for (u32 x = 0; x < NES_PATTERN_TILE_SIZE; ++x)
 			{
-				u32 source_x = sprite->attrs & 0x40 ? NES_PATTERN_TILE_SIZE - 1 - x : x;
+				u32 source_x = sprite->attributes & 0x40 ? NES_PATTERN_TILE_SIZE - 1 - x : x;
 				u8 palette_slot = map->tiles[tile_index].pixels[source_y % NES_PATTERN_TILE_SIZE][source_x];
 				if (palette_slot)
 				{
-					u8 color = map->palette[0x10 + (sprite->attrs & 3) * 4 + palette_slot];
+					u8 color = map->palette[0x10 + (sprite->attributes & 3) * 4 + palette_slot];
 					publication->chr_image[(texture_region.y + y) * NES_TARGET_CHR_WIDTH + texture_region.x + x] = publication->palette[color & 63];
 				}
 			}

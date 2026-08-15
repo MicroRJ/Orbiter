@@ -160,11 +160,11 @@ NES_BusResult nes_oam_mem_access(NES_Emulator *nes, NES_BusMode mode, u32 addres
 {
 	if (mode == NES_BUS_WRITE)
 	{
-		nes->ppu._oam[address] = value;
+		nes->ppu.primary_oam_bytes[address] = value;
 	}
 	else
 	{
-		value = nes->ppu._oam[address];
+		value = nes->ppu.primary_oam_bytes[address];
 	}
 	return nes_bus_result(NES_DEVICE_OAM, address, value);
 }
@@ -177,11 +177,11 @@ NES_BusResult nes_pram_access(NES_Emulator *nes, NES_BusMode mode, u32 address, 
 	address &= 0x0F | (!!(address & 3) << 4);
 	if (mode == NES_BUS_WRITE)
 	{
-		nes->ppu._pram[address] = value & 63;
+		nes->ppu.palette_ram[address] = value & 63;
 	}
 	else
 	{
-		value = nes->ppu._pram[address] & 63;
+		value = nes->ppu.palette_ram[address] & 63;
 	}
 	return nes_bus_result(NES_DEVICE_PRAM, address, value);
 }

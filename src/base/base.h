@@ -33,6 +33,7 @@ typedef struct
 }
 ByteSpan;
 
+
 static inline ByteSpan byte_span(void *data, u64 size)
 {
 	return (ByteSpan) { data, size };
@@ -41,6 +42,7 @@ static inline ByteSpan byte_span(void *data, u64 size)
 #define ArrayCount(array) (sizeof(array) / sizeof((array)[0]))
 #define Min(a, b) (((a) < (b)) ? (a) : (b))
 #define Max(a, b) (((a) > (b)) ? (a) : (b))
+#define always_inline __forceinline
 #define global static
 #define thread_decl __declspec(thread)
 #define APIFUNC
