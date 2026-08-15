@@ -172,10 +172,8 @@ void program_reset(Program *program, u32 prg_rom_byte_count, u32 prg_ram_byte_co
 	program_invalidate(program);
 }
 
-b32 program_dump(NES_Process *debugger, const char *path)
+b32 program_dump(const Program *program, const char *path)
 {
-	program_update(debugger);
-	const Program *program = &debugger->program;
 	FILE *file = fopen(path, "w");
 	if (!file) return false;
 	fprintf(file, "PROGRAM LISTING\nPRG ROM bytes: %u\nPRG RAM bytes: %u\nrows: %u\n\n", program->prg_rom_byte_count, program->prg_ram_byte_count, program->row_count);

@@ -21,16 +21,16 @@ static u32 execution_edge_hash(u64 key)
 	return (u32)key & (EXECUTION_GRAPH_HASH_CAPACITY - 1);
 }
 
-static b32 execution_storage_offset(const Program *program, NES_MapAddr mapped, u32 *offset)
+static b32 execution_storage_offset(u32 prg_rom_size, u32 prg_ram_size, NES_MapAddr mapped, u32 *offset)
 {
-	if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < program->prg_rom_byte_count)
+	if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < prg_rom_size)
 	{
 		*offset = mapped.offset;
 		return true;
 	}
-	if (mapped.device == NES_DEVICE_PRG_RAM && mapped.offset < program->prg_ram_byte_count)
+	if (mapped.device == NES_DEVICE_PRG_RAM && mapped.offset < prg_ram_size)
 	{
-		*offset = program->prg_rom_byte_count + mapped.offset;
+		*offset = prg_rom_size + mapped.offset;
 		return true;
 	}
 	return false;
@@ -79,18 +79,17 @@ ExecutionEdge *execution_graph_record(ExecutionGraph *graph, u32 source_offset, 
 	return 0;
 }
 
-void execution_graph_observe_execution(ExecutionGraph *graph, ExecutionPathState *path, const Program *program, NES_TraceEntry boundary)
+void execution_graph_observe_execution(ExecutionGraph *graph, ExecutionPathState *path, u32 prg_rom_size, u32 prg_ram_size, NES_TraceEntry boundary)
 {
 	Assert(graph);
 	Assert(path);
-	Assert(program);
 
 	if (path->valid && nes_instruction_links_to_next(path->cpu_address, path->cpu_byte, boundary.cpu_address))
 	{
 		u32 source_offset = 0;
 		u32 destination_offset = 0;
-		if (execution_storage_offset(program, path->mapped, &source_offset) &&
-			execution_storage_offset(program, boundary.cpu_mapped, &destination_offset)) {
+		if (execution_storage_offset(prg_rom_size, prg_ram_size, path->mapped, &source_offset) &&
+			execution_storage_offset(prg_rom_size, prg_ram_size, boundary.cpu_mapped, &destination_offset)) {
 			execution_graph_record(graph, source_offset, destination_offset);
 		}
 	}

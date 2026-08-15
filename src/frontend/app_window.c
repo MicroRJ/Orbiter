@@ -765,7 +765,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 
 	f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
 
-	if (!nes_emulator_ready_to_run(&app->emulator))
+	if (!nes_emulator_ready_to_run(&app->debugger->emulator))
 	{
 		style.color = ui->theme.palette.amber;
 		ui_clean(ui);
@@ -1049,8 +1049,9 @@ void app_window_render(App_Window *window)
 	else {
 		ViewFrameData view_frame = {
 			.window = window,
-			.emulator = &app->emulator,
+			.emulator = &app->debugger->emulator,
 			.debugger = app->debugger,
+			.program = &app->program,
 			.execution_graph = debugger_execution_graph(app->debugger),
 			.execution_activity = &app->execution_activity,
 			.publication = &app->published,

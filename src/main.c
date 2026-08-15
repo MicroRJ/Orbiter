@@ -279,7 +279,7 @@ static void app_update_emulator_input(const App_WindowOutput *window_output)
 	for (u32 player = 0; player < 2; player ++)
 	{
 		NES_Input input = app_translate_keyboard_input_for_emulator(window_output->keyboard_input[player]) | app_translate_controller_input_for_emulator(player);
-		nes_emulator_set_input(&app.emulator, player, input);
+		nes_emulator_set_input(&app.debugger->emulator, player, input);
 	}
 }
 
@@ -287,7 +287,13 @@ static void app_finish_emulator_state_change(void)
 {
 	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
 	audio_stream_discard(app.audio);
-	debugger_reset(app.debugger);
+	nes_process_reset(app.debugger);
+	program_reset(&app.program, app.debugger->program_rom_size, app.debugger->program_ram_size);
+}
+
+static void app_rebuild_program_listing(void)
+{
+	program_rebuild(&app.program, &app.debugger->emulator, app.debugger->program_evidence);
 }
 
 static b32 app_restore_state(void)
@@ -298,9 +304,9 @@ static b32 app_restore_state(void)
 		return false;
 	}
 
-	Assert(nes_emulator_ready_to_run(&app.emulator));
-	orb_restore_save_state(&app.emulator, &app.active_save_data.state);
-	Assert(nes_emulator_valid(&app.emulator));
+	Assert(nes_emulator_ready_to_run(&app.debugger->emulator));
+	orb_restore_save_state(&app.debugger->emulator, &app.active_save_data.state);
+	Assert(nes_emulator_valid(&app.debugger->emulator));
 	app_finish_emulator_state_change();
 	LOG_INFO("restored active save");
 	return true;
@@ -308,13 +314,13 @@ static b32 app_restore_state(void)
 
 static b32 app_reset_emulator(void)
 {
-	if (!nes_emulator_ready_to_run(&app.emulator))
+	if (!nes_emulator_ready_to_run(&app.debugger->emulator))
 	{
 		LOG_WARN("no active game to reset");
 		return false;
 	}
 
-	nes_reset_emulator(&app.emulator);
+	nes_reset_emulator(&app.debugger->emulator);
 	app_finish_emulator_state_change();
 	LOG_INFO("reset active game");
 	return true;
@@ -378,9 +384,9 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 	app.active_game = game;
 	app.active_save = save;
 	app.active_save_data = data->save;
-	memory_copy(&app.emulator, next_emulator, sizeof(app.emulator));
+	memory_copy(&app.debugger->emulator, next_emulator, sizeof(app.debugger->emulator));
 	app.play_time_seconds = 0;
-	debugger_clear_program_breakpoints(app.debugger);
+	nes_process_clear_breakpoints(app.debugger);
 	app_finish_emulator_state_change();
 	// TODO(RJ) we can't just do this, it has to be driven based off of intent!
 	app_window_set_library_visible(app.window, false);
@@ -480,16 +486,22 @@ static b32 app_handle_actions(App_WindowOutput input)
 			} break;
 			case APP_ACTION_DUMP_PROGRAM:
 			{
-				if (program_dump(app.debugger, debugger_program_path)) LOG_INFO("dumped program model to '%s'", debugger_program_path);
+				app_rebuild_program_listing();
+				if (program_dump(&app.program, debugger_program_path)) LOG_INFO("dumped program model to '%s'", debugger_program_path);
 				else LOG_ERROR("failed to dump program model to '%s'", debugger_program_path);
 			} break;
 			case APP_ACTION_TOGGLE_RUNNING:
 			{
-				if (nes_emulator_ready_to_run(&app.emulator))
+				if (nes_emulator_ready_to_run(&app.debugger->emulator))
 				{
 					App_TransportState *state = app.transport.state == APP_TRANSPORT_SCRUBBING ? &app.transport.return_state : &app.transport.state;
 					Assert(*state == APP_TRANSPORT_PAUSED || *state == APP_TRANSPORT_RUNNING);
-					*state = *state == APP_TRANSPORT_RUNNING ? APP_TRANSPORT_PAUSED : APP_TRANSPORT_RUNNING;
+					if (*state == APP_TRANSPORT_RUNNING) *state = APP_TRANSPORT_PAUSED;
+					else
+					{
+						nes_process_clear_ram_evidence(app.debugger);
+						*state = APP_TRANSPORT_RUNNING;
+					}
 					LOG_INFO(*state == APP_TRANSPORT_RUNNING ? "running realtime" : "paused");
 				}
 			} break;
@@ -538,7 +550,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 
 	scrub_direction = CLAMP(scrub_direction, -1, 1);
 	b32 scrub_modifier_down = !!(input.modifiers & OS_MODIFIER_CONTROL);
-	if (nes_emulator_ready_to_run(&app.emulator) && scrub_input_active)
+	if (nes_emulator_ready_to_run(&app.debugger->emulator) && scrub_input_active)
 	{
 		if (app.transport.state != APP_TRANSPORT_SCRUBBING)
 		{
@@ -575,9 +587,9 @@ static void app_run_frame(void)
 	u64 sample_capacity = nes_required_sample_capacity();
 	if (!app.audio_backend_available)
 	{
-		NES_RunFrameResult frame = debugger_run_frame(app.debugger, 0, 0);
+		NES_RunFrameResult frame = nes_process_run_frame(app.debugger, 0, 0);
 		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
-		if (debugger_breakpoint_hit(app.debugger))
+		if (nes_process_hit_breakpoint(app.debugger))
 		{
 			app.transport.state = APP_TRANSPORT_PAUSED;
 			return;
@@ -595,8 +607,8 @@ static void app_run_frame(void)
 
 	while (audio_stream_queued_frames(app.audio) < target)
 	{
-		NES_RunFrameResult frame = debugger_run_frame(app.debugger, samples, sample_capacity);
-		if (debugger_breakpoint_hit(app.debugger))
+		NES_RunFrameResult frame = nes_process_run_frame(app.debugger, samples, sample_capacity);
+		if (nes_process_hit_breakpoint(app.debugger))
 		{
 			app.transport.state = APP_TRANSPORT_PAUSED;
 			return;
@@ -685,7 +697,7 @@ static void app_tick(App_WindowOutput input)
 {
 	b32 step_requested = app_handle_actions(input);
 
-	if (nes_emulator_ready_to_run(&app.emulator))
+	if (nes_emulator_ready_to_run(&app.debugger->emulator))
 	{
 		if (app.transport.state != APP_TRANSPORT_SCRUBBING)
 		{
@@ -693,9 +705,11 @@ static void app_tick(App_WindowOutput input)
 
 			if (step_requested) {
 				app.transport.state = APP_TRANSPORT_PAUSED;
-				PROF_BLOCK("emulation step") debugger_step(app.debugger);
+				program_invalidate(&app.program);
+				PROF_BLOCK("emulation step") nes_process_step(app.debugger);
 			}
 			else if (app.transport.state == APP_TRANSPORT_RUNNING) {
+				program_invalidate(&app.program);
 				PROF_BLOCK("emulation") app_run_frame();
 			}
 		}
@@ -705,19 +719,20 @@ static void app_tick(App_WindowOutput input)
 			// to skip backwards arbitrarily instead of doing one step at a time
 			for(u32 i=0;i<4;++i) {
 				if(!nes_process_rewind(app.debugger)) break;
+				program_invalidate(&app.program);
 			}
 		}
 		else if (app.transport.direction == +1)
 		{
 			for(u32 i=0;i<4;++i) {
 				if(!nes_process_replay(app.debugger)) break;
+				program_invalidate(&app.program);
 			}
 		}
 
-		PROF_BLOCK("update cpu mapping")   debugger_update_cpu_mapping(app.debugger);
-		if (app.transport.state != APP_TRANSPORT_RUNNING) program_update(app.debugger);
+		if (app.transport.state != APP_TRANSPORT_RUNNING) app_rebuild_program_listing();
 		PROF_BLOCK("execution activity")   execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
-		PROF_BLOCK("publish NES target")   nes_target_publish(&app.published, &app.emulator);
+		PROF_BLOCK("publish NES target")   nes_target_publish(&app.published, &app.debugger->emulator);
 		PROF_BLOCK("upload video texture") app_upload_video_texture();
 		PROF_BLOCK("upload CHR texture")   app_upload_chr_texture();
 
@@ -803,6 +818,7 @@ static b32 app_init(void)
 	app.renderer = gfx_create_renderer(&app.arena);
 	app.text = text_create(&app.arena);
 	app.text_gfx = text_gfx_create(&app.arena, app.renderer, app.text);
+	app.debugger = nes_process_create(&app.arena);
 	app.window = app_window_create(&app.arena, &app, (App_WindowDesc) {
 		.title = "Orbiter v0.1.0",
 		.theme = theme,
@@ -826,7 +842,6 @@ static b32 app_init(void)
 		.label = "NES CHR map",
 	});
 
-	app.debugger = nes_process_create(&app.arena, &app.emulator);
 	return true;
 }
 
@@ -842,7 +857,7 @@ static b32 app_save_state(void)
 {
 	if (!app.active_save) return true;
 	Assert(app.active_game);
-	Assert(nes_emulator_ready_to_run(&app.emulator));
+	Assert(nes_emulator_ready_to_run(&app.debugger->emulator));
 
 	u64 now = Max(app_unix_time_ms(), Max(app.active_game->last_played_unix_ms, app.active_save->updated_unix_ms));
 	u64 elapsed = app_play_time_ms();
@@ -855,7 +870,7 @@ static b32 app_save_state(void)
 	app.active_game->play_time_ms += elapsed;
 	App_SaveData *next_save_data = arena_push(&app.frame_arena, sizeof(*next_save_data));
 	*next_save_data = app.active_save_data;
-	orb_capture_save_state(&next_save_data->state, &app.emulator);
+	orb_capture_save_state(&next_save_data->state, &app.debugger->emulator);
 	if (!app_library_store_write_save(app.library_store, &app.frame_arena, app.active_save, next_save_data))
 	{
 		*app.active_save = previous_save;

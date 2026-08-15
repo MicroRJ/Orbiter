@@ -82,6 +82,7 @@ struct ViewFrameData
 	App_Window    *window;
 	NES_Emulator  *emulator;
 	NES_Process      *debugger;
+	const Program    *program;
 	UI_Context    *ui;
 	Arena         *scratch;
 	rect_f32       rect;

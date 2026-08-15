@@ -54,10 +54,9 @@ Program;
 
 b32 program_index_from_cpu_address(const Program *program, u16 cpu_address, u32 *instruction_index);
 
-b32 program_dump(NES_Process *debugger, const char *path);
+b32 program_dump(const Program *program, const char *path);
 void program_invalidate(Program *program);
 void program_reset(Program *program, u32 prg_rom_byte_count, u32 prg_ram_byte_count);
 void program_rebuild(Program *program, NES_Emulator *emulator, const u8 *evidence);
-void program_update(NES_Process *debugger);
 
 #endif

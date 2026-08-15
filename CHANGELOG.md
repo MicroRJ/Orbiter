@@ -1,4 +1,22 @@
+
 [TODO]
+	- Processes:
+		After analyzing how other debuggers are structured, I've decided to apply a
+		slight but fundamental restructure to our debugger.
+
+		The RAD debugger for instance, exposes numerous target / process oriented services,
+		from that, the application updates its target models, then the frontend consumes
+		that model.
+
+		I think we may want something similar in concept.
+
+		Have one process, the process owns the emulator, execution orchestration and maintains
+		its own set of observable models, it runs on a separate thread, and we treat that as
+		our target.
+
+		The application can still derive / update additional time based models.
+
+
 	- Better UI ergonomics, dedicated UI library for proper authoring.
 	- Better view ecosystem and inter-communication
 	- Fix program view to actually track the CPU on F10

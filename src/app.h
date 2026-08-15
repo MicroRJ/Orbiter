@@ -52,8 +52,8 @@ struct App
 	Arena arena;
 	Arena frame_arena;
 	Arena game_arena;
-	NES_Emulator emulator;
 	NES_Process *debugger;
+	Program program;
 	ExecutionActivity execution_activity;
 	NES_TargetPublication published;
 	GFX_Texture *video_texture;

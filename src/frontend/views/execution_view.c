@@ -135,7 +135,7 @@ static b32 prg_activity_storage_offset(const Program *program, NES_MapAddr mappe
 static b32 prg_activity_has_mapped_ram(const NES_Process *debugger)
 {
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk) {
-		if (debugger_cpu_mapping_chunk(debugger, chunk).device == NES_DEVICE_PRG_RAM) {
+		if (nes_process_cpu_mapped_chunk(debugger, chunk).device == NES_DEVICE_PRG_RAM) {
 			return true;
 		}
 	}
@@ -240,7 +240,7 @@ static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *
 {
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk)
 	{
-		NES_MapAddr mapped = debugger_cpu_mapping_chunk(debugger, chunk);
+		NES_MapAddr mapped = nes_process_cpu_mapped_chunk(debugger, chunk);
 		u32 page = MAX_VALUE_U32;
 		if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < program->prg_rom_byte_count) {
 			page = mapped.offset / CPU_MAPPING_CHUNK_SIZE;
@@ -265,7 +265,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	UI_TextStyle text_style = ui->theme.code;
 	text_style.color = ui->theme.text_subtle;
 	rect_f32 layout = rect_f32_inset(frame->rect, 12.f);
-	const Program *program = debugger_program(debugger);
+	const Program *program = frame->program;
 	b32 include_prg_ram = prg_activity_has_mapped_ram(debugger);
 	u32 program_size = program->prg_rom_byte_count + (include_prg_ram ? program->prg_ram_byte_count : 0);
 	u16 pc = frame->publication->cpu.PC;

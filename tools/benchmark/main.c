@@ -36,7 +36,8 @@ int main(int argc, char **argv)
 
 	Arena arena = arena_create(0, "NES benchmark");
 	Orb_Game *game = orb_game_from_ines_file(&arena, str_from_cstr(argv[1]), 0);
-	NES_Emulator *emulator = arena_push_zero(&arena, sizeof(*emulator));
+	NES_Process *debugger = nes_process_create(&arena);
+	NES_Emulator *emulator = &debugger->emulator;
 	if (!game || !benchmark_setup_emulator(emulator, game))
 	{
 		fprintf(stderr, "failed to load game '%s'\n", argv[1]);
@@ -45,13 +46,12 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	NES_Process *debugger = nes_process_create(&arena, emulator);
-	debugger_reset(debugger);
+	nes_process_reset(debugger);
 	u64 sample_capacity = nes_required_sample_capacity();
 	f32 *samples = arena_push(&arena, sizeof(*samples) * sample_capacity);
 	Seconds begin = seconds_now();
 	for (u32 frame = 0; frame < frame_count; ++frame) {
-		debugger_run_frame(debugger, samples, sample_capacity);
+		nes_process_run_frame(debugger, samples, sample_capacity);
 	}
 	f64 elapsed_seconds = seconds_now().seconds - begin.seconds;
 
