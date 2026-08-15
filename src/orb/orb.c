@@ -8,12 +8,11 @@ enum
 	INES_CHR_BANK_SIZE = KiB(8),
 };
 
-static b32 orb_game_memory_is_valid(Orb_Game game)
+static b32 orb_game_memory_is_valid(NES_Game game)
 {
-	if (game.metadata.prg_rom_size && !game.prg_rom_data) return false;
-	if (game.metadata.chr_rom_size && !game.chr_rom_data) return false;
-	if (game.metadata.has_trainer && !game.trainer_data) return false;
-	return true;
+	return game.metadata.trainer_size == game.trainer.size && game.metadata.prg_rom_size == game.prg_rom.size &&
+		game.metadata.chr_rom_size == game.chr_rom.size && (!game.trainer.size || game.trainer.data) &&
+		(!game.prg_rom.size || game.prg_rom.data) && (!game.chr_rom.size || game.chr_rom.data);
 }
 
 static void orb_hash_u32(SHA256_Context *context, u32 value)
@@ -23,7 +22,7 @@ static void orb_hash_u32(SHA256_Context *context, u32 value)
 	sha256_update(context, byte_span(bytes, sizeof(bytes)));
 }
 
-Hash256 orb_game_hash(Orb_Game game)
+Hash256 orb_game_hash(NES_Game game)
 {
 	Assert(orb_game_memory_is_valid(game));
 	static const u8 domain[] = "ORB_GAME_1";
@@ -31,14 +30,14 @@ Hash256 orb_game_hash(Orb_Game game)
 	sha256_init(&context);
 	sha256_update(&context, byte_span((void *)domain, sizeof(domain) - 1));
 	orb_hash_u32(&context, game.metadata.mapper);
-	orb_hash_u32(&context, !!game.metadata.vmirror);
-	orb_hash_u32(&context, !!game.metadata.has_trainer);
-	orb_hash_u32(&context, !!game.metadata.four_screen);
+	orb_hash_u32(&context, game.metadata.mirroring == NES_MIRROR_VERTICAL);
+	orb_hash_u32(&context, !!game.metadata.trainer_size);
+	orb_hash_u32(&context, game.metadata.mirroring == NES_MIRROR_FOUR_SCREEN);
 	orb_hash_u32(&context, game.metadata.prg_rom_size);
 	orb_hash_u32(&context, game.metadata.chr_rom_size);
-	if (game.metadata.has_trainer) sha256_update(&context, byte_span(game.trainer_data, INES_TRAINER_SIZE));
-	sha256_update(&context, byte_span(game.prg_rom_data, game.metadata.prg_rom_size));
-	sha256_update(&context, byte_span(game.chr_rom_data, game.metadata.chr_rom_size));
+	sha256_update(&context, game.trainer);
+	sha256_update(&context, game.prg_rom);
+	sha256_update(&context, game.chr_rom);
 	return sha256_final(&context);
 }
 
@@ -54,10 +53,10 @@ static b32 nes2_header_is_ines_compatible(const u8 *header)
 		!(header[12] & ~0x03) && (timing == 0 || timing == 2) && !header[13] && !header[14] && header[15] <= 1;
 }
 
-static b32 orb_game_from_ines(ByteSpan source, Orb_Game *game)
+static b32 orb_game_from_ines(ByteSpan source, NES_Game *game)
 {
 	Assert(game);
-	*game = (Orb_Game) {};
+	*game = (NES_Game) {};
 	ByteStream stream = byte_stream_reader(source);
 	const u8 magic[] = { 'N', 'E', 'S', 0x1A };
 	ByteSpan header_bytes = byte_stream_take(&stream, INES_HEADER_SIZE);
@@ -65,19 +64,19 @@ static b32 orb_game_from_ines(ByteSpan source, Orb_Game *game)
 	const u8 *header = header_bytes.data;
 	if ((header[7] & 0x0C) == 0x08 && !nes2_header_is_ines_compatible(header)) return false;
 
-	Orb_Game result = {
+	NES_Game result = {
 		.metadata = {
 			.mapper = (header[6] >> 4) | (header[7] & 0xF0),
-			.vmirror = !!(header[6] & 0x01),
-			.has_trainer = !!(header[6] & 0x04),
-			.four_screen = !!(header[6] & 0x08),
+			.mirroring = (header[6] & 0x08) ? NES_MIRROR_FOUR_SCREEN :
+				((header[6] & 0x01) ? NES_MIRROR_VERTICAL : NES_MIRROR_HORIZONTAL),
+			.trainer_size = (header[6] & 0x04) ? INES_TRAINER_SIZE : 0,
 			.prg_rom_size = (u32)header[4] * INES_PRG_BANK_SIZE,
 			.chr_rom_size = (u32)header[5] * INES_CHR_BANK_SIZE,
 		},
 	};
-	if (result.metadata.has_trainer) result.trainer_data = byte_stream_take(&stream, INES_TRAINER_SIZE).data;
-	result.prg_rom_data = byte_stream_take(&stream, result.metadata.prg_rom_size).data;
-	result.chr_rom_data = byte_stream_take(&stream, result.metadata.chr_rom_size).data;
+	result.trainer = byte_stream_take(&stream, result.metadata.trainer_size);
+	result.prg_rom = byte_stream_take(&stream, result.metadata.prg_rom_size);
+	result.chr_rom = byte_stream_take(&stream, result.metadata.chr_rom_size);
 	if (stream.failed) return false;
 	*game = result;
 	return true;
@@ -123,13 +122,13 @@ static Str orb_title_from_path(Str path)
 	return str_slice(path, begin, end - begin);
 }
 
-Orb_Game *orb_game_from_ines_file(Arena *arena, Str path, Str *title)
+NES_Game *orb_game_from_ines_file(Arena *arena, Str path, Str *title)
 {
 	if (title) *title = (Str) {};
 	if (!arena || !arena->memory || !path.data || !path.size) return 0;
 	u64 arena_start = arena->position;
 	Str stored_path = str_push_copy(arena, path);
-	Orb_Game *game = arena_push_zero(arena, sizeof(*game));
+	NES_Game *game = arena_push_zero(arena, sizeof(*game));
 	ByteSpan source = orb_read_entire_file(arena, stored_path.data);
 	if (!source.size || !orb_game_from_ines(source, game))
 	{

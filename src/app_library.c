@@ -45,11 +45,13 @@ static b32 app_library_save_valid(const App_LibrarySave *save)
 
 static b32 app_library_cartridge_valid(const App_LibraryCartridge *cartridge)
 {
-	if (cartridge->mirroring < APP_LIBRARY_MIRROR_HORIZONTAL || cartridge->mirroring > APP_LIBRARY_MIRROR_FOUR_SCREEN) return false;
+	const NES_GameMetadata *metadata = &cartridge->metadata;
+	if (metadata->mirroring < NES_MIRROR_HORIZONTAL || metadata->mirroring > NES_MIRROR_FOUR_SCREEN) return false;
 	if (!app_library_string_valid(cartridge->trainer_path, APP_LIBRARY_MAX_PATH_SIZE, false)) return false;
-	if (!app_library_string_valid(cartridge->prg_path, APP_LIBRARY_MAX_PATH_SIZE, true) || !cartridge->prg_size) return false;
-	if (!app_library_string_valid(cartridge->chr_path, APP_LIBRARY_MAX_PATH_SIZE, cartridge->chr_size != 0)) return false;
-	return cartridge->chr_size || !cartridge->chr_path.size;
+	if (!app_library_string_valid(cartridge->prg_path, APP_LIBRARY_MAX_PATH_SIZE, true) || !metadata->prg_rom_size) return false;
+	if (!app_library_string_valid(cartridge->chr_path, APP_LIBRARY_MAX_PATH_SIZE, metadata->chr_rom_size != 0)) return false;
+	if (metadata->trainer_size != (cartridge->trainer_path.size ? 512 : 0)) return false;
+	return metadata->chr_rom_size || !cartridge->chr_path.size;
 }
 
 static b32 app_library_game_valid(const App_LibraryGame *game, u32 *total_save_count)
@@ -113,13 +115,13 @@ static const char *app_library_save_kind_name(App_LibrarySaveKind kind)
 	}
 }
 
-static const char *app_library_mirroring_name(App_LibraryMirroring mirroring)
+static const char *app_library_mirroring_name(NES_Mirroring mirroring)
 {
 	switch (mirroring)
 	{
-		case APP_LIBRARY_MIRROR_HORIZONTAL: return "horizontal";
-		case APP_LIBRARY_MIRROR_VERTICAL: return "vertical";
-		case APP_LIBRARY_MIRROR_FOUR_SCREEN: return "four_screen";
+		case NES_MIRROR_HORIZONTAL: return "horizontal";
+		case NES_MIRROR_VERTICAL: return "vertical";
+		case NES_MIRROR_FOUR_SCREEN: return "four_screen";
 		default: Assert(!"invalid library mirroring"); return "";
 	}
 }
@@ -151,15 +153,16 @@ static void app_library_game_push_elf(elf_State *state, const App_LibraryGame *g
 	app_library_set_integer(state, table, "play_time_ms", game->play_time_ms);
 
 	const App_LibraryCartridge *cartridge = &game->cartridge;
+	const NES_GameMetadata *metadata = &cartridge->metadata;
 	elf_new_table(state);
 	i32 cartridge_table = elf_abs_index(state, -1);
-	app_library_set_integer(state, cartridge_table, "mapper", cartridge->mapper);
-	app_library_set_string(state, cartridge_table, "mirroring", str_from_cstr(app_library_mirroring_name(cartridge->mirroring)));
+	app_library_set_integer(state, cartridge_table, "mapper", metadata->mapper);
+	app_library_set_string(state, cartridge_table, "mirroring", str_from_cstr(app_library_mirroring_name(metadata->mirroring)));
 	if (cartridge->trainer_path.size) app_library_set_string(state, cartridge_table, "trainer_path", cartridge->trainer_path);
 	app_library_set_string(state, cartridge_table, "prg_path", cartridge->prg_path);
-	app_library_set_integer(state, cartridge_table, "prg_size", cartridge->prg_size);
+	app_library_set_integer(state, cartridge_table, "prg_size", metadata->prg_rom_size);
 	if (cartridge->chr_path.size) app_library_set_string(state, cartridge_table, "chr_path", cartridge->chr_path);
-	app_library_set_integer(state, cartridge_table, "chr_size", cartridge->chr_size);
+	app_library_set_integer(state, cartridge_table, "chr_size", metadata->chr_rom_size);
 	Assert(elf_set_field(state, table, "cartridge"));
 
 	elf_new_table(state);
@@ -249,16 +252,16 @@ static b32 app_library_read_save_kind(elf_State *state, i32 table, App_LibrarySa
 	return true;
 }
 
-static b32 app_library_read_mirroring(elf_State *state, i32 table, App_LibraryMirroring *mirroring)
+static b32 app_library_read_mirroring(elf_State *state, i32 table, NES_Mirroring *mirroring)
 {
 	Assert(elf_get_field(state, table, "mirroring"));
 	elf_StrSlice string;
 	b32 valid = elf_to_str(state, -1, &string) && string.size <= MAX_VALUE_U32;
 	Str value = valid ? str_from_data(string.data, (u32)string.size) : (Str) {};
 	Assert(elf_pop(state, 1));
-	if (str_match(value, LIT("horizontal"))) *mirroring = APP_LIBRARY_MIRROR_HORIZONTAL;
-	else if (str_match(value, LIT("vertical"))) *mirroring = APP_LIBRARY_MIRROR_VERTICAL;
-	else if (str_match(value, LIT("four_screen"))) *mirroring = APP_LIBRARY_MIRROR_FOUR_SCREEN;
+	if (str_match(value, LIT("horizontal"))) *mirroring = NES_MIRROR_HORIZONTAL;
+	else if (str_match(value, LIT("vertical"))) *mirroring = NES_MIRROR_VERTICAL;
+	else if (str_match(value, LIT("four_screen"))) *mirroring = NES_MIRROR_FOUR_SCREEN;
 	else return false;
 	return true;
 }
@@ -269,17 +272,18 @@ static b32 app_library_read_cartridge(elf_State *state, i32 index, Arena *arena,
 	i32 table = elf_abs_index(state, index);
 	u64 mapper;
 	if (!app_library_read_integer(state, table, "mapper", false, &mapper) || mapper > MAX_VALUE_U32) return false;
-	cartridge->mapper = (u32)mapper;
-	if (!app_library_read_mirroring(state, table, &cartridge->mirroring)) return false;
+	cartridge->metadata.mapper = (u32)mapper;
+	if (!app_library_read_mirroring(state, table, &cartridge->metadata.mirroring)) return false;
 	if (!app_library_read_string(state, table, "trainer_path", arena, APP_LIBRARY_MAX_PATH_SIZE, true, &cartridge->trainer_path)) return false;
+	cartridge->metadata.trainer_size = cartridge->trainer_path.size ? 512 : 0;
 	if (!app_library_read_string(state, table, "prg_path", arena, APP_LIBRARY_MAX_PATH_SIZE, false, &cartridge->prg_path)) return false;
 	u64 prg_size;
 	if (!app_library_read_integer(state, table, "prg_size", false, &prg_size) || prg_size > MAX_VALUE_U32) return false;
-	cartridge->prg_size = (u32)prg_size;
+	cartridge->metadata.prg_rom_size = (u32)prg_size;
 	if (!app_library_read_string(state, table, "chr_path", arena, APP_LIBRARY_MAX_PATH_SIZE, true, &cartridge->chr_path)) return false;
 	u64 chr_size;
 	if (!app_library_read_integer(state, table, "chr_size", false, &chr_size) || chr_size > MAX_VALUE_U32) return false;
-	cartridge->chr_size = (u32)chr_size;
+	cartridge->metadata.chr_rom_size = (u32)chr_size;
 	return true;
 }
 

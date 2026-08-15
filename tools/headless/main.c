@@ -158,11 +158,15 @@ int main(int argc, char **argv)
 		LOG_ERROR("could not parse ROM '%s'", argv[1]);
 		goto done;
 	}
-	NES_SetupParams setup = {
-		.mapper = cartridge.mapper,
-		.vmirror = cartridge.vmirror,
-		.four_screen = cartridge.four_screen,
-		.has_trainer = cartridge.has_trainer,
+	NES_Game setup = {
+		.metadata = {
+			.mapper = cartridge.mapper,
+			.mirroring = cartridge.four_screen ? NES_MIRROR_FOUR_SCREEN :
+				(cartridge.vmirror ? NES_MIRROR_VERTICAL : NES_MIRROR_HORIZONTAL),
+			.trainer_size = cartridge.has_trainer ? 512 : 0,
+			.prg_rom_size = (u32)cartridge.prg_rom.size,
+			.chr_rom_size = (u32)cartridge.chr_rom.size,
+		},
 		.prg_rom = cartridge.prg_rom,
 		.chr_rom = cartridge.chr_rom,
 	};

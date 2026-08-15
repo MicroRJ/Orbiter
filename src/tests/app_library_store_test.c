@@ -55,13 +55,12 @@ static void app_library_store_test_cleanup(void)
 static void app_library_store_test_compare_game(const App_LibraryGameData *data, ByteSpan prg, ByteSpan chr, const App_Save *save)
 {
 	Assert(data->game.metadata.mapper == 0);
-	Assert(data->game.metadata.vmirror);
-	Assert(!data->game.metadata.has_trainer);
-	Assert(!data->game.metadata.four_screen);
+	Assert(data->game.metadata.mirroring == NES_MIRROR_VERTICAL);
+	Assert(!data->game.metadata.trainer_size);
 	Assert(data->game.metadata.prg_rom_size == prg.size);
 	Assert(data->game.metadata.chr_rom_size == chr.size);
-	Assert(memory_match(data->game.prg_rom_data, prg.data, prg.size));
-	Assert(memory_match(data->game.chr_rom_data, chr.data, chr.size));
+	Assert(memory_match(data->game.prg_rom.data, prg.data, prg.size));
+	Assert(memory_match(data->game.chr_rom.data, chr.data, chr.size));
 	Assert(memory_match(&data->save.state, &save->state, sizeof(save->state)));
 	Assert(data->save.thumbnail.width == save->thumbnail.width);
 	Assert(data->save.thumbnail.height == save->thumbnail.height);
@@ -90,14 +89,7 @@ static b32 app_library_store_test_verify_manifest(const char *path)
 		NES_Emulator *emulator = arena_push_zero(&arena, sizeof(*emulator));
 		if (valid)
 		{
-			valid = nes_setup_emulator(emulator, (NES_SetupParams) {
-				.mapper = data->game.metadata.mapper,
-				.vmirror = data->game.metadata.vmirror,
-				.four_screen = data->game.metadata.four_screen,
-				.has_trainer = data->game.metadata.has_trainer,
-				.prg_rom = byte_span(data->game.prg_rom_data, data->game.metadata.prg_rom_size),
-				.chr_rom = byte_span(data->game.chr_rom_data, data->game.metadata.chr_rom_size),
-			});
+			valid = nes_setup_emulator(emulator, data->game);
 		}
 		if (valid)
 		{
@@ -154,27 +146,18 @@ static void app_library_store_test_fresh_import_resume(void)
 	Assert(app_library_store_test_write_file(test_ines_path, ines_bytes));
 
 	Str title = {};
-	Orb_Game *source_game = orb_game_from_ines_file(&game_arena, str_from_cstr(test_ines_path), &title);
+	NES_Game *source_game = orb_game_from_ines_file(&game_arena, str_from_cstr(test_ines_path), &title);
 	Assert(source_game && str_match(title, LIT("lifecycle_game")));
 	Assert(source_game->metadata.mapper == 0);
-	Assert(source_game->metadata.vmirror);
-	Assert(!source_game->metadata.has_trainer);
-	Assert(!source_game->metadata.four_screen);
+	Assert(source_game->metadata.mirroring == NES_MIRROR_VERTICAL);
+	Assert(!source_game->metadata.trainer_size);
 	Assert(source_game->metadata.prg_rom_size == prg_size);
 	Assert(source_game->metadata.chr_rom_size == chr_size);
-	Assert(memory_match(source_game->prg_rom_data, source_prg, prg_size));
-	Assert(memory_match(source_game->chr_rom_data, source_chr, chr_size));
+	Assert(memory_match(source_game->prg_rom.data, source_prg, prg_size));
+	Assert(memory_match(source_game->chr_rom.data, source_chr, chr_size));
 
-	NES_SetupParams setup = {
-		.mapper = source_game->metadata.mapper,
-		.vmirror = source_game->metadata.vmirror,
-		.four_screen = source_game->metadata.four_screen,
-		.has_trainer = source_game->metadata.has_trainer,
-		.prg_rom = byte_span(source_game->prg_rom_data, source_game->metadata.prg_rom_size),
-		.chr_rom = byte_span(source_game->chr_rom_data, source_game->metadata.chr_rom_size),
-	};
 	NES_Emulator *emulator = arena_push_zero(&emulator_arena, sizeof(*emulator));
-	Assert(nes_setup_emulator(emulator, setup));
+	Assert(nes_setup_emulator(emulator, *source_game));
 
 	u8 thumbnail_pixels[] = {
 		255, 0, 0, 255, 0, 255, 0, 255,
@@ -231,11 +214,11 @@ static void app_library_store_test_fresh_import_resume(void)
 	Assert(game->first_played_unix_ms == 1000);
 	Assert(game->last_played_unix_ms == 9000);
 	Assert(game->play_time_ms == 8000);
-	Assert(game->cartridge.mapper == 0);
-	Assert(game->cartridge.mirroring == APP_LIBRARY_MIRROR_VERTICAL);
+	Assert(game->cartridge.metadata.mapper == 0);
+	Assert(game->cartridge.metadata.mirroring == NES_MIRROR_VERTICAL);
 	Assert(!game->cartridge.trainer_path.size);
-	Assert(game->cartridge.prg_size == prg_size);
-	Assert(game->cartridge.chr_size == chr_size);
+	Assert(game->cartridge.metadata.prg_rom_size == prg_size);
+	Assert(game->cartridge.metadata.chr_rom_size == chr_size);
 	Assert(game->save_count == 1);
 	save = &game->saves[0];
 	Assert(save->kind == APP_LIBRARY_SAVE_RESUME);
@@ -246,17 +229,10 @@ static void app_library_store_test_fresh_import_resume(void)
 	App_LibraryGameData *loaded = arena_push_zero(&game_arena, sizeof(*loaded));
 	Assert(app_library_store_read_game(store, &game_arena, game, save, loaded));
 	app_library_store_test_compare_game(loaded, byte_span(source_prg, prg_size), byte_span(source_chr, chr_size), expected_save);
-	Assert(!loaded->game.trainer_data);
+	Assert(!loaded->game.trainer.data);
 
 	NES_Emulator *restored = arena_push_zero(&emulator_arena, sizeof(*restored));
-	Assert(nes_setup_emulator(restored, (NES_SetupParams) {
-		.mapper = loaded->game.metadata.mapper,
-		.vmirror = loaded->game.metadata.vmirror,
-		.four_screen = loaded->game.metadata.four_screen,
-		.has_trainer = loaded->game.metadata.has_trainer,
-		.prg_rom = byte_span(loaded->game.prg_rom_data, loaded->game.metadata.prg_rom_size),
-		.chr_rom = byte_span(loaded->game.chr_rom_data, loaded->game.metadata.chr_rom_size),
-	}));
+	Assert(nes_setup_emulator(restored, loaded->game));
 	restored->state = loaded->save.state;
 	Assert(nes_emulator_valid(restored));
 	NES_State *recaptured = arena_push_zero(&source_arena, sizeof(*recaptured));
@@ -334,12 +310,9 @@ int main(int argc, char **argv)
 			.last_played_unix_ms = 2000,
 			.play_time_ms = 3000,
 			.cartridge = {
-				.mapper = 0,
-				.mirroring = APP_LIBRARY_MIRROR_VERTICAL,
+				.metadata = { .mapper = 0, .mirroring = NES_MIRROR_VERTICAL, .prg_rom_size = KiB(16), .chr_rom_size = KiB(8) },
 				.prg_path = LIT("games/28730633cffbfe02bd32cbf89002cb562603ffc46177f5cc2219fba3fd6834bb/prg.bin"),
-				.prg_size = KiB(16),
 				.chr_path = LIT("games/28730633cffbfe02bd32cbf89002cb562603ffc46177f5cc2219fba3fd6834bb/chr.bin"),
-				.chr_size = KiB(8),
 			},
 			.saves = saves,
 			.save_count = ArrayCount(saves),
@@ -390,8 +363,8 @@ int main(int argc, char **argv)
 	u8 *imported_prg = arena_push_aligned(&source_arena, prg_bytes.size, 1);
 	memory_copy(imported_prg, prg_bytes.data, prg_bytes.size);
 	imported_prg[0] ^= 0xFF;
-	Orb_Game imported_source = loaded->game;
-	imported_source.prg_rom_data = imported_prg;
+	NES_Game imported_source = loaded->game;
+	imported_source.prg_rom.data = imported_prg;
 	App_LibraryGame *imported_game = 0;
 	App_LibrarySave *imported_save = 0;
 	Assert(app_library_store_import_game(store, &scratch, imported_source, LIT("Imported NROM"), &loaded->save, &imported_game, &imported_save));

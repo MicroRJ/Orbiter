@@ -52,7 +52,8 @@ static CPU_TestFixture cpu_test_fixture_create(void)
 
 	fixture.core = arena_push_zero(&fixture.arena, sizeof(NES_Emulator));
 	Assert(fixture.core);
-	Assert(nes_setup_emulator(fixture.core, (NES_SetupParams) {
+	Assert(nes_setup_emulator(fixture.core, (NES_Game) {
+		.metadata = { .mirroring = NES_MIRROR_HORIZONTAL, .prg_rom_size = KiB(16), .chr_rom_size = KiB(8) },
 		.prg_rom = byte_span(prg_rom, KiB(16)),
 		.chr_rom = byte_span(chr_rom, KiB(8)),
 	}));

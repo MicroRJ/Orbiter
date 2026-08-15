@@ -356,24 +356,15 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 		arena_destroy(&next_game_arena);
 		return false;
 	}
-	Orb_GameMetadata metadata = data->game.metadata;
 	App_GameSession next_session = {
 		.epoch = app.session.epoch + 1,
 		.game = game,
 		.save = save,
 		.data = data,
-		.program = {
-			.mapper = metadata.mapper,
-			.vmirror = metadata.vmirror,
-			.four_screen = metadata.four_screen,
-			.has_trainer = metadata.has_trainer,
-			.prg_rom = byte_span(data->game.prg_rom_data, metadata.prg_rom_size),
-			.chr_rom = byte_span(data->game.chr_rom_data, metadata.chr_rom_size),
-		},
 	};
 	Assert(next_session.epoch);
 	NES_Emulator *next_emulator = arena_push(&app.frame_arena, sizeof(*next_emulator));
-	if (!nes_setup_emulator(next_emulator, next_session.program))
+	if (!nes_setup_emulator(next_emulator, data->game))
 	{
 		LOG_ERROR("unsupported cartridge in '%.*s'", game->title.size, game->title.data);
 		arena_destroy(&next_game_arena);
@@ -410,22 +401,14 @@ static b32 app_import_game(Str path)
 	}
 
 	Str title = {};
-	Orb_Game *source = orb_game_from_ines_file(&app.frame_arena, path, &title);
+	NES_Game *source = orb_game_from_ines_file(&app.frame_arena, path, &title);
 	if (!source)
 	{
 		LOG_ERROR("could not read iNES game '%.*s'", path.size, path.data);
 		return false;
 	}
 	NES_Emulator *emulator = arena_push(&app.frame_arena, sizeof(*emulator));
-	NES_SetupParams setup = {
-		.mapper = source->metadata.mapper,
-		.vmirror = source->metadata.vmirror,
-		.four_screen = source->metadata.four_screen,
-		.has_trainer = source->metadata.has_trainer,
-		.prg_rom = byte_span(source->prg_rom_data, source->metadata.prg_rom_size),
-		.chr_rom = byte_span(source->chr_rom_data, source->metadata.chr_rom_size),
-	};
-	if (!nes_setup_emulator(emulator, setup))
+	if (!nes_setup_emulator(emulator, *source))
 	{
 		LOG_ERROR("unsupported cartridge in '%.*s'", path.size, path.data);
 		return false;

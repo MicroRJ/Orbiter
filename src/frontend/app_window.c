@@ -590,9 +590,9 @@ static void app_build_library_item(UI_Context *ui, u32 index, void *user)
 	const App_LibraryGame *game = &library->games[index];
 	LibraryCardModel model = {
 		.title = game->title,
-		.mapper = game->cartridge.mapper,
-		.prg_size = game->cartridge.prg_size,
-		.chr_size = game->cartridge.chr_size,
+		.mapper = game->cartridge.metadata.mapper,
+		.prg_size = game->cartridge.metadata.prg_rom_size,
+		.chr_size = game->cartridge.metadata.chr_rom_size,
 		.play_time_ms = game->play_time_ms,
 		.save_count = game->save_count,
 	};

@@ -62,36 +62,41 @@ b32 nes_emulator_valid(const NES_Emulator *emulator)
 }
 
 // TODO(RJ) return a proper error code here!
-b32 nes_supports_setup_params(NES_SetupParams params)
+b32 nes_supports_game(NES_Game game)
 {
-	if (params.has_trainer || params.four_screen)            return false;
+	NES_GameMetadata metadata = game.metadata;
+	if (metadata.trainer_size != game.trainer.size)          return false;
+	if (metadata.prg_rom_size != game.prg_rom.size)          return false;
+	if (metadata.chr_rom_size != game.chr_rom.size)          return false;
+	if (metadata.mirroring < NES_MIRROR_HORIZONTAL || metadata.mirroring > NES_MIRROR_FOUR_SCREEN) return false;
+	if (metadata.trainer_size || metadata.mirroring == NES_MIRROR_FOUR_SCREEN) return false;
 
-	if (params.prg_rom.size == 0)                            return false;
-	if (params.prg_rom.size > NES_MAX_PRG_ROM_SIZE)          return false;
-	if (params.prg_rom.size % KiB(16))                       return false;
+	if (game.prg_rom.size == 0)                              return false;
+	if (game.prg_rom.size > NES_MAX_PRG_ROM_SIZE)            return false;
+	if (game.prg_rom.size % KiB(16))                         return false;
 
-	if (params.chr_rom.size > NES_MAX_CHR_ROM_SIZE)          return false;
-	if (params.chr_rom.size % KiB(8))                        return false;
+	if (game.chr_rom.size > NES_MAX_CHR_ROM_SIZE)            return false;
+	if (game.chr_rom.size % KiB(8))                          return false;
 
-	if (!nes_mapper_supported(params.mapper))                return false;
-	if (params.mapper == 0 && params.prg_rom.size > KiB(32)) return false;
-	if (params.mapper == 2 && params.chr_rom.size)           return false;
-	if (params.mapper == 9 && (params.prg_rom.size < KiB(32) || !params.chr_rom.size)) return false;
+	if (!nes_mapper_supported(metadata.mapper))              return false;
+	if (metadata.mapper == 0 && game.prg_rom.size > KiB(32)) return false;
+	if (metadata.mapper == 2 && game.chr_rom.size)           return false;
+	if (metadata.mapper == 9 && (game.prg_rom.size < KiB(32) || !game.chr_rom.size)) return false;
 	return true;
 }
 
-b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
+b32 nes_setup_emulator(NES_Emulator *emulator, NES_Game game)
 {
-	if (!nes_supports_setup_params(params)) return false;
+	if (!nes_supports_game(game)) return false;
 	// TODO(RJ) only zero the live state
 	memory_zero(emulator, sizeof(* emulator));
-	memory_copy(emulator->prg_rom, params.prg_rom.data, params.prg_rom.size);
-	memory_copy(emulator->chr_rom, params.chr_rom.data, params.chr_rom.size);
-	emulator->mapper_number = params.mapper;
-	emulator->prg_rom_size = params.prg_rom.size;
-	emulator->chr_rom_size = params.chr_rom.size;
-	emulator->vmirror = params.vmirror;
-	emulator->mapper = nes_mapper_classes[params.mapper];
+	memory_copy(emulator->prg_rom, game.prg_rom.data, game.prg_rom.size);
+	memory_copy(emulator->chr_rom, game.chr_rom.data, game.chr_rom.size);
+	emulator->mapper_number = game.metadata.mapper;
+	emulator->prg_rom_size = game.prg_rom.size;
+	emulator->chr_rom_size = game.chr_rom.size;
+	emulator->vmirror = game.metadata.mirroring == NES_MIRROR_VERTICAL;
+	emulator->mapper = nes_mapper_classes[game.metadata.mapper];
 	Assert(emulator->mapper.reset(emulator));
 	nes_ppu_power_on(&emulator->ppu);
 	nes_apu_power_on(&emulator->apu);

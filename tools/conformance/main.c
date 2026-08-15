@@ -47,16 +47,9 @@ typedef struct
 }
 Conformance_Summary;
 
-static b32 conformance_setup_emulator(NES_Emulator *emulator, const Orb_Game *game)
+static b32 conformance_setup_emulator(NES_Emulator *emulator, const NES_Game *game)
 {
-	return nes_setup_emulator(emulator, (NES_SetupParams) {
-		.mapper = game->metadata.mapper,
-		.vmirror = game->metadata.vmirror,
-		.four_screen = game->metadata.four_screen,
-		.has_trainer = game->metadata.has_trainer,
-		.prg_rom = byte_span(game->prg_rom_data, game->metadata.prg_rom_size),
-		.chr_rom = byte_span(game->chr_rom_data, game->metadata.chr_rom_size),
-	});
+	return nes_setup_emulator(emulator, *game);
 }
 
 static b32 conformance_has_blargg_signature(NES_Emulator *emulator)
@@ -155,7 +148,7 @@ static const char *conformance_result_name(Conformance_ResultKind kind)
 static Conformance_Result conformance_run_path(Arena *game_arena, NES_Emulator *emulator, const char *path, u64 timeout_cycles)
 {
 	arena_reset(game_arena);
-	Orb_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), 0);
+	NES_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), 0);
 	if (!game || !conformance_setup_emulator(emulator, game)) return (Conformance_Result) { .kind = CONFORMANCE_RESULT_LOAD_ERROR };
 	return conformance_run_blargg(emulator, timeout_cycles);
 }

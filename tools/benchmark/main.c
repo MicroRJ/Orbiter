@@ -4,17 +4,9 @@
 #include "orb.h"
 #include "os.h"
 
-static b32 benchmark_setup_emulator(NES_Emulator *emulator, const Orb_Game *game)
+static b32 benchmark_setup_emulator(NES_Emulator *emulator, const NES_Game *game)
 {
-	NES_SetupParams params = {
-		.mapper = game->metadata.mapper,
-		.vmirror = game->metadata.vmirror,
-		.four_screen = game->metadata.four_screen,
-		.has_trainer = game->metadata.has_trainer,
-		.prg_rom = byte_span(game->prg_rom_data, game->metadata.prg_rom_size),
-		.chr_rom = byte_span(game->chr_rom_data, game->metadata.chr_rom_size),
-	};
-	return nes_setup_emulator(emulator, params);
+	return nes_setup_emulator(emulator, *game);
 }
 
 int main(int argc, char **argv)
@@ -35,7 +27,7 @@ int main(int argc, char **argv)
 	if (!os_init()) return 1;
 
 	Arena arena = arena_create(0, "NES benchmark");
-	Orb_Game *game = orb_game_from_ines_file(&arena, str_from_cstr(argv[1]), 0);
+	NES_Game *game = orb_game_from_ines_file(&arena, str_from_cstr(argv[1]), 0);
 	NES_Process *debugger = nes_process_create(&arena);
 	NES_Emulator *emulator = &debugger->emulator;
 	if (!game || !benchmark_setup_emulator(emulator, game))

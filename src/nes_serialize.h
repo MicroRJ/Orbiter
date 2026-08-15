@@ -1,5 +1,5 @@
-#ifndef ORB_NES_SERIALIZE_H
-#define ORB_NES_SERIALIZE_H
+#ifndef NES_SERIALIZE_H
+#define NES_SERIALIZE_H
 
 #include "nes/emulator.h"
 

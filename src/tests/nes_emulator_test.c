@@ -26,8 +26,8 @@ int main(void)
 	prg_rom[0x3FFD] = 0x80;
 	chr_rom[0] = 0x80; // Leftmost pixel of CHR tile zero uses palette slot one.
 
-	NES_SetupParams setup = {
-		.mapper = 0,
+	NES_Game setup = {
+		.metadata = { .mapper = 0, .mirroring = NES_MIRROR_HORIZONTAL, .prg_rom_size = KiB(16), .chr_rom_size = KiB(8) },
 		.prg_rom = byte_span(prg_rom, KiB(16)),
 		.chr_rom = byte_span(chr_rom, KiB(8)),
 	};
@@ -35,8 +35,9 @@ int main(void)
 	Assert(core);
 	Assert(!nes_emulator_ready_to_run(core));
 
-	NES_SetupParams invalid = setup;
+	NES_Game invalid = setup;
 	invalid.prg_rom = byte_span(arena_push_zero(&arena, KiB(48)), KiB(48));
+	invalid.metadata.prg_rom_size = KiB(48);
 	Assert(!nes_setup_emulator(core, invalid));
 	Assert(!nes_emulator_ready_to_run(core));
 

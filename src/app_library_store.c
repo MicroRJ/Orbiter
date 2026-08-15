@@ -170,36 +170,30 @@ b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App
 	Assert(store && arena && game && save && data);
 	u64 arena_position = arena->position;
 	App_LibraryGameData result = {};
+	const NES_GameMetadata *metadata = &game->cartridge.metadata;
 	Str prg_path = app_library_store_resolve(arena, store, game->cartridge.prg_path);
 	ByteSpan prg = prg_path.data ? app_library_store_read_file(arena, prg_path.data) : (ByteSpan) {};
-	if (!prg.data || prg.size != game->cartridge.prg_size) goto failed;
+	if (!prg.data || prg.size != metadata->prg_rom_size) goto failed;
 	ByteSpan chr = {};
-	if (game->cartridge.chr_size)
+	if (metadata->chr_rom_size)
 	{
 		Str chr_path = app_library_store_resolve(arena, store, game->cartridge.chr_path);
 		chr = chr_path.data ? app_library_store_read_file(arena, chr_path.data) : (ByteSpan) {};
-		if (!chr.data || chr.size != game->cartridge.chr_size) goto failed;
+		if (!chr.data || chr.size != metadata->chr_rom_size) goto failed;
 	}
 	ByteSpan trainer = {};
 	if (game->cartridge.trainer_path.size)
 	{
 		Str trainer_path = app_library_store_resolve(arena, store, game->cartridge.trainer_path);
 		trainer = trainer_path.data ? app_library_store_read_file(arena, trainer_path.data) : (ByteSpan) {};
-		if (!trainer.data || trainer.size != 512) goto failed;
+		if (!trainer.data || trainer.size != metadata->trainer_size) goto failed;
 	}
 	if (!app_library_store_read_save(store, arena, save, &result.save)) goto failed;
-	result.game = (Orb_Game) {
-		.metadata = {
-			.mapper = game->cartridge.mapper,
-			.vmirror = game->cartridge.mirroring == APP_LIBRARY_MIRROR_VERTICAL,
-			.has_trainer = trainer.size != 0,
-			.four_screen = game->cartridge.mirroring == APP_LIBRARY_MIRROR_FOUR_SCREEN,
-			.prg_rom_size = (u32)prg.size,
-			.chr_rom_size = (u32)chr.size,
-		},
-		.prg_rom_data = prg.data,
-		.chr_rom_data = chr.data,
-		.trainer_data = trainer.data,
+	result.game = (NES_Game) {
+		.metadata = *metadata,
+		.trainer = trainer,
+		.prg_rom = prg,
+		.chr_rom = chr,
 	};
 	Hash256 hash = orb_game_hash(result.game);
 	static const char hex[] = "0123456789abcdef";
@@ -257,7 +251,7 @@ static Str app_library_store_hash_string(Arena *arena, Hash256 hash)
 	return str_from_data(text, sizeof(hash.bytes) * 2);
 }
 
-b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, Orb_Game source_game, Str title, const App_Save *save_data,
+b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, NES_Game source_game, Str title, const App_Save *save_data,
 	App_LibraryGame **game, App_LibrarySave **save)
 {
 	Assert(store && scratch && save_data && game && save);
@@ -285,15 +279,11 @@ b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, Orb_G
 	added->id = str_push_copy(&store->arena, game_id);
 	added->title = str_push_copy(&store->arena, title);
 	added->cartridge = (App_LibraryCartridge) {
-		.mapper = source_game.metadata.mapper,
-		.mirroring = source_game.metadata.four_screen ? APP_LIBRARY_MIRROR_FOUR_SCREEN :
-			(source_game.metadata.vmirror ? APP_LIBRARY_MIRROR_VERTICAL : APP_LIBRARY_MIRROR_HORIZONTAL),
+		.metadata = source_game.metadata,
 		.prg_path = str_push_copy_f(&store->arena, "games/%.*s/prg.bin", added->id.size, added->id.data),
-		.prg_size = source_game.metadata.prg_rom_size,
-		.chr_size = source_game.metadata.chr_rom_size,
 	};
 	if (source_game.metadata.chr_rom_size) added->cartridge.chr_path = str_push_copy_f(&store->arena, "games/%.*s/chr.bin", added->id.size, added->id.data);
-	if (source_game.metadata.has_trainer) added->cartridge.trainer_path = str_push_copy_f(&store->arena, "games/%.*s/trainer.bin", added->id.size, added->id.data);
+	if (source_game.metadata.trainer_size) added->cartridge.trainer_path = str_push_copy_f(&store->arena, "games/%.*s/trainer.bin", added->id.size, added->id.data);
 	added->saves = arena_push_zero(&store->arena, sizeof(*added->saves));
 	added->save_count = 1;
 	u64 now = (u64)Max(platform_unix_time_ms(), 0);
@@ -313,16 +303,16 @@ b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, Orb_G
 	Str save_path = app_library_store_resolve(scratch, store, added->saves[0].path);
 	Str save_directory = app_library_store_parent(scratch, save_path);
 	b32 success = platform_create_directories(game_directory.data) && platform_create_directories(save_directory.data);
-	if (success) success = app_library_store_write_file_atomic(scratch, prg_path.data, byte_span(source_game.prg_rom_data, source_game.metadata.prg_rom_size));
+	if (success) success = app_library_store_write_file_atomic(scratch, prg_path.data, source_game.prg_rom);
 	if (success && source_game.metadata.chr_rom_size)
 	{
 		Str chr_path = app_library_store_resolve(scratch, store, added->cartridge.chr_path);
-		success = app_library_store_write_file_atomic(scratch, chr_path.data, byte_span(source_game.chr_rom_data, source_game.metadata.chr_rom_size));
+		success = app_library_store_write_file_atomic(scratch, chr_path.data, source_game.chr_rom);
 	}
-	if (success && source_game.metadata.has_trainer)
+	if (success && source_game.metadata.trainer_size)
 	{
 		Str trainer_path = app_library_store_resolve(scratch, store, added->cartridge.trainer_path);
-		success = app_library_store_write_file_atomic(scratch, trainer_path.data, byte_span(source_game.trainer_data, 512));
+		success = app_library_store_write_file_atomic(scratch, trainer_path.data, source_game.trainer);
 	}
 	if (success) success = app_library_store_write_save(store, scratch, &added->saves[0], save_data);
 	store->library.game_count = old_count + 1;

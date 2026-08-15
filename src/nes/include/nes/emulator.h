@@ -76,8 +76,7 @@ typedef enum
 }
 NES_BusAccessKind;
 
-// TODO(RJ) why are we passing in so much stuff in here, we only need
-// mode addr and data
+// TODO(RJ) why are we passing in so much stuff in here, we only need mode addr and data
 // TODO(RJ) the result is the thing that contains the final addr the device and the data read.
 typedef struct
 {
@@ -109,40 +108,32 @@ NES_MapperClass;
 
 #include "nes_trace.h"
 
+typedef enum
+{
+	NES_MIRROR_HORIZONTAL = 1,
+	NES_MIRROR_VERTICAL,
+	NES_MIRROR_FOUR_SCREEN,
+}
+NES_Mirroring;
+
 typedef struct
 {
-	u32       mapper;
-	// TODO(RJ) pretty sure these two are just nametable arrangement, which should
-	// be, vertical, horizontal, four_screen, or mapper_based
-	b32      vmirror;
-	b32  four_screen;
-	b32  has_trainer;
-	ByteSpan prg_rom;
-	ByteSpan chr_rom;
+	u32                 mapper;
+	NES_Mirroring    mirroring;
+	u32           trainer_size;
+	u32           prg_rom_size;
+	u32           chr_rom_size;
 }
-NES_SetupParams;
+NES_GameMetadata;
 
-#define NES_STATE_FIELDS                                                       \
-	u64                   scheduler_clock;                                      \
-	u64                   sample_phase;                                         \
-	u32                   cpu_stall_cycles;                                     \
-	NES_CPUState          cpu;                                                  \
-	NES_PPUState          ppu;                                                  \
-	NES_APUState          apu;                                                  \
-	NES_InputState        input_state;                                          \
-	u8                    controllers[2];                                       \
-	u8                    values[32];                                           \
-	u8                    _wram[NES_WRAM_SIZE];                                 \
-	u8                    _vram[NES_VRAM_SIZE];                                 \
-	u8                    chr_ram[NES_MAX_CHR_RAM_SIZE];                        \
-	u8                    prg_ram[NES_MAX_PRG_RAM_SIZE];                        \
-	u8                    video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH]
-
-typedef struct NES_State NES_State;
-struct NES_State
+typedef struct
 {
-	NES_STATE_FIELDS;
-};
+	NES_GameMetadata metadata;
+	ByteSpan          trainer;
+	ByteSpan          prg_rom;
+	ByteSpan          chr_rom;
+}
+NES_Game;
 
 // TODO(RJ): the idea behind having everything in one contiguous memory block was to
 // have a single absolute address to handle the entire state for read/write/execs, but
@@ -169,8 +160,8 @@ struct NES_Emulator
 
 
 b32 nes_emulator_valid(const NES_Emulator *emulator);
-b32 nes_supports_setup_params(NES_SetupParams params);
-b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams data);
+b32 nes_supports_game(NES_Game game);
+b32 nes_setup_emulator(NES_Emulator *emulator, NES_Game game);
 // Reset live devices while preserving cartridge and RAM storage.
 void nes_reset_emulator(NES_Emulator *emulator);
 
@@ -180,10 +171,10 @@ u32 nes_emulator_step(NES_Emulator *core, NES_TraceEntry *trace);
 
 typedef struct
 {
-	f32 *samples;
-	u64 sample_capacity;
-	NES_TraceEntry *trace;
-	u64 trace_capacity;
+	f32             *samples;
+	u64              sample_capacity;
+	NES_TraceEntry  *trace;
+	u64              trace_capacity;
 }
 NES_RunParams;
 

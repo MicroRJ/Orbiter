@@ -11,7 +11,7 @@ static b32 orb_test_write_file(const char *path, ByteSpan data)
 	return success;
 }
 
-static Orb_Game orb_test_game(Arena *arena)
+static NES_Game orb_test_game(Arena *arena)
 {
 	u8 *prg_rom = arena_push_zero(arena, KiB(16));
 	u8 *chr_rom = arena_push_zero(arena, KiB(8));
@@ -19,15 +19,15 @@ static Orb_Game orb_test_game(Arena *arena)
 	prg_rom[0x3FFC] = 0x00;
 	prg_rom[0x3FFD] = 0x80;
 	chr_rom[0] = 0x80;
-	return (Orb_Game) {
+	return (NES_Game) {
 		.metadata = {
 			.mapper = 0,
-			.vmirror = true,
+			.mirroring = NES_MIRROR_VERTICAL,
 			.prg_rom_size = KiB(16),
 			.chr_rom_size = KiB(8),
 		},
-		.prg_rom_data = prg_rom,
-		.chr_rom_data = chr_rom,
+		.prg_rom = byte_span(prg_rom, KiB(16)),
+		.chr_rom = byte_span(chr_rom, KiB(8)),
 	};
 }
 
@@ -39,33 +39,27 @@ static void orb_test_game_hash(Arena *arena)
 		0x86, 0x55, 0x15, 0x16, 0x02, 0x01, 0xCE, 0xBD,
 		0xB3, 0x55, 0xB0, 0x6C, 0x3A, 0x5C, 0x5A, 0x00,
 	};
-	Orb_Game game = orb_test_game(arena);
+	NES_Game game = orb_test_game(arena);
 	Hash256 hash = orb_game_hash(game);
 	Assert(memory_match(hash.bytes, expected, sizeof(expected)));
 
-	Orb_Game changed = game;
+	NES_Game changed = game;
 	changed.metadata.mapper ++;
 	Assert(!hash256_match(hash, orb_game_hash(changed)));
 	changed = game;
-	changed.metadata.vmirror = false;
+	changed.metadata.mirroring = NES_MIRROR_HORIZONTAL;
 	Assert(!hash256_match(hash, orb_game_hash(changed)));
-	game.prg_rom_data[0] ^= 0xFF;
+	game.prg_rom.data[0] ^= 0xFF;
 	Assert(!hash256_match(hash, orb_game_hash(game)));
 }
 
 static void orb_test_save_state_transfer(Arena *arena)
 {
-	Orb_Game game = orb_test_game(arena);
-	NES_SetupParams setup = {
-		.mapper = game.metadata.mapper,
-		.vmirror = game.metadata.vmirror,
-		.prg_rom = byte_span(game.prg_rom_data, game.metadata.prg_rom_size),
-		.chr_rom = byte_span(game.chr_rom_data, game.metadata.chr_rom_size),
-	};
+	NES_Game game = orb_test_game(arena);
 	NES_Emulator *source = arena_push_zero(arena, sizeof(*source));
 	NES_Emulator *restored = arena_push_zero(arena, sizeof(*restored));
-	Assert(nes_setup_emulator(source, setup));
-	Assert(nes_setup_emulator(restored, setup));
+	Assert(nes_setup_emulator(source, game));
+	Assert(nes_setup_emulator(restored, game));
 	memory_fill(&source->state, 0x5A, sizeof(source->state));
 
 	NES_State *expected = arena_push_zero(arena, sizeof(*expected));
@@ -74,11 +68,11 @@ static void orb_test_save_state_transfer(Arena *arena)
 	restored->state = *expected;
 	*actual = restored->state;
 	Assert(memory_match(actual, expected, sizeof(*actual)));
-	Assert(restored->mapper_number == setup.mapper);
-	Assert(restored->prg_rom_size == setup.prg_rom.size);
-	Assert(restored->chr_rom_size == setup.chr_rom.size);
-	Assert(memory_match(restored->prg_rom, setup.prg_rom.data, setup.prg_rom.size));
-	Assert(memory_match(restored->chr_rom, setup.chr_rom.data, setup.chr_rom.size));
+	Assert(restored->mapper_number == game.metadata.mapper);
+	Assert(restored->prg_rom_size == game.prg_rom.size);
+	Assert(restored->chr_rom_size == game.chr_rom.size);
+	Assert(memory_match(restored->prg_rom, game.prg_rom.data, game.prg_rom.size));
+	Assert(memory_match(restored->chr_rom, game.chr_rom.data, game.chr_rom.size));
 }
 
 static void orb_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
@@ -135,18 +129,17 @@ static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
 	Assert(orb_test_write_file(path, byte_span(source, source_size)));
 
 	Str title = {};
-	Orb_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), &title);
+	NES_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), &title);
 	Assert(game);
 	Assert(str_match(title, LIT("orb_game_test")));
 	Assert(game->metadata.mapper == 0);
-	Assert(game->metadata.vmirror);
-	Assert(game->metadata.has_trainer);
-	Assert(!game->metadata.four_screen);
+	Assert(game->metadata.mirroring == NES_MIRROR_VERTICAL);
+	Assert(game->metadata.trainer_size == 512);
 	Assert(game->metadata.prg_rom_size == KiB(16));
 	Assert(game->metadata.chr_rom_size == KiB(8));
-	Assert(game->trainer_data[0] == 0xA5);
-	Assert(game->prg_rom_data[0] == 0xEA);
-	Assert(game->chr_rom_data[0] == 0x80);
+	Assert(game->trainer.data[0] == 0xA5);
+	Assert(game->prg_rom.data[0] == 0xEA);
+	Assert(game->chr_rom.data[0] == 0x80);
 
 	u64 arena_position = game_arena->position;
 	source[0] = 0;

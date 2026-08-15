@@ -1,0 +1,318 @@
+#include "nes_serialize.h"
+#include "serialize.h"
+
+typedef enum
+{
+	// These values are persisted. Append new IDs; changing an existing ID
+	// requires a new ORB file version.
+	NES_RECORD_NONE = 0,
+	NES_RECORD_STATE,
+	NES_RECORD_CPU,
+	NES_RECORD_PPU,
+	NES_RECORD_PPU_SPRITE,
+	NES_RECORD_APU,
+	NES_RECORD_APU_DIVIDER,
+	NES_RECORD_APU_SWEEP,
+	NES_RECORD_APU_ENVELOPE,
+	NES_RECORD_APU_PULSE,
+	NES_RECORD_APU_TRIANGLE,
+	NES_RECORD_COUNT,
+}
+NES_RecordId;
+
+typedef enum
+{
+	// Field IDs are also persisted in STAT. Keep existing values stable.
+	NES_FIELD_NONE = 0,
+
+	NES_FIELD_STATE_SCHEDULER_CLOCK,
+	NES_FIELD_STATE_SAMPLE_PHASE,
+	NES_FIELD_STATE_VALUES,
+	NES_FIELD_STATE_INPUT,
+	NES_FIELD_STATE_CPU_STALL_CYCLES,
+	NES_FIELD_STATE_CPU,
+	NES_FIELD_STATE_PPU,
+	NES_FIELD_STATE_APU,
+	NES_FIELD_STATE_CONTROLLERS,
+	NES_FIELD_STATE_WRAM,
+	NES_FIELD_STATE_VRAM,
+	NES_FIELD_STATE_CHR_RAM,
+	NES_FIELD_STATE_PRG_RAM,
+	NES_FIELD_STATE_VIDEO,
+
+	NES_FIELD_CPU_A,
+	NES_FIELD_CPU_X,
+	NES_FIELD_CPU_Y,
+	NES_FIELD_CPU_S,
+	NES_FIELD_CPU_P,
+	NES_FIELD_CPU_PC,
+
+	NES_FIELD_PPU_SPRITE_YPOS,
+	NES_FIELD_PPU_SPRITE_XPOS,
+	NES_FIELD_PPU_SPRITE_INDEX,
+	NES_FIELD_PPU_SPRITE_ATTRS,
+
+	NES_FIELD_PPU_XTICK,
+	NES_FIELD_PPU_YTICK,
+	NES_FIELD_PPU_T,
+	NES_FIELD_PPU_V,
+	NES_FIELD_PPU_X,
+	NES_FIELD_PPU_W,
+	NES_FIELD_PPU_TILE_ID,
+	NES_FIELD_PPU_TILE_HI,
+	NES_FIELD_PPU_TILE_LO,
+	NES_FIELD_PPU_ATR_B,
+	NES_FIELD_PPU_ATR_L0,
+	NES_FIELD_PPU_ATR_L1,
+	NES_FIELD_PPU_CHR_R0,
+	NES_FIELD_PPU_CHR_R1,
+	NES_FIELD_PPU_ATR_R0,
+	NES_FIELD_PPU_ATR_R1,
+	NES_FIELD_PPU_SPR0_ENABLE,
+	NES_FIELD_PPU_SPR0_2CYCLE_DELAY,
+	NES_FIELD_PPU_PPUCTRL,
+	NES_FIELD_PPU_PPUMASK,
+	NES_FIELD_PPU_PPUSTATUS,
+	NES_FIELD_PPU_OAMADDR,
+	NES_FIELD_PPU_DATA_READ_BUF,
+	NES_FIELD_PPU_NSPRS,
+	NES_FIELD_PPU_SPRS,
+	NES_FIELD_PPU_OAM,
+	NES_FIELD_PPU_PRAM,
+
+	NES_FIELD_APU_DIVIDER_COUNTER,
+	NES_FIELD_APU_DIVIDER_PERIOD,
+
+	NES_FIELD_APU_SWEEP_DIVIDER,
+	NES_FIELD_APU_SWEEP_RELOAD_DIVIDER,
+	NES_FIELD_APU_SWEEP_SHIFT,
+	NES_FIELD_APU_SWEEP_ENABLE,
+	NES_FIELD_APU_SWEEP_NEGATE,
+
+	NES_FIELD_APU_ENVELOPE_DIVIDER,
+	NES_FIELD_APU_ENVELOPE_COUNTER,
+	NES_FIELD_APU_ENVELOPE_RELOAD_DIVIDER,
+
+	NES_FIELD_APU_PULSE_ENABLE,
+	NES_FIELD_APU_PULSE_INFINITE_PLAY,
+	NES_FIELD_APU_PULSE_LENGTH_COUNTER,
+	NES_FIELD_APU_PULSE_VOLUME,
+	NES_FIELD_APU_PULSE_USE_CONSTANT_VOLUME,
+	NES_FIELD_APU_PULSE_SWEEP,
+	NES_FIELD_APU_PULSE_ENVELOPE,
+	NES_FIELD_APU_PULSE_DUTY_MASK,
+	NES_FIELD_APU_PULSE_PHASE,
+	NES_FIELD_APU_PULSE_TIMER,
+	NES_FIELD_APU_PULSE_TIMER_PERIOD,
+
+	NES_FIELD_APU_TRIANGLE_ENABLE,
+	NES_FIELD_APU_TRIANGLE_LENGTH_COUNTER,
+	NES_FIELD_APU_TRIANGLE_LENGTH_COUNTER_HALT,
+	NES_FIELD_APU_TRIANGLE_LINEAR_COUNTER,
+	NES_FIELD_APU_TRIANGLE_LINEAR_COUNTER_RELOAD,
+	NES_FIELD_APU_TRIANGLE_LINEAR_COUNTER_RELOAD_VALUE,
+	NES_FIELD_APU_TRIANGLE_WAVE_PHASE,
+	NES_FIELD_APU_TRIANGLE_WAVE_PERIOD,
+	NES_FIELD_APU_TRIANGLE_WAVE_TIMER,
+
+	NES_FIELD_APU_IRQ_PENDING,
+	NES_FIELD_APU_IRQ_INHIBIT,
+	NES_FIELD_APU_RESET_DELAY,
+	NES_FIELD_APU_RESET_MODE,
+	NES_FIELD_APU_MODE,
+	NES_FIELD_APU_STEP_INDEX,
+	NES_FIELD_APU_CPU_CYCLE_COUNTER,
+	NES_FIELD_APU_PULSE,
+	NES_FIELD_APU_TRIANGLE,
+
+	NES_FIELD_COUNT,
+}
+NES_FieldId;
+
+#define NES_FIELD(id_, type_, field_, wire_type_, record_id_, count_) \
+	{                                                                  \
+		.name       = #field_,                                          \
+		.id         = (id_),                                            \
+		.wire_type  = (wire_type_),                                     \
+		.record_id  = (record_id_),                                     \
+		.offset     = offsetof(type_, field_),                          \
+		.size       = sizeof(((type_ *)0)->field_),                     \
+		.count      = (count_),                                         \
+		.flags      = SERIALIZE_FIELD_ENABLED,                          \
+	}
+
+#define NES_SCALAR(id_, type_, field_, wire_type_, record_id_) \
+	NES_FIELD(id_, type_, field_, wire_type_, record_id_, 1)
+
+#define NES_ARRAY(id_, type_, field_, wire_type_, record_id_) \
+	NES_FIELD(id_, type_, field_, wire_type_, record_id_, ArrayCount(((type_ *)0)->field_))
+
+static const SerializeField nes_cpu_fields[] =
+{
+	NES_SCALAR(NES_FIELD_CPU_A , NES_CPUState, A , SERIALIZE_WIRE_U8 , 0),
+	NES_SCALAR(NES_FIELD_CPU_X , NES_CPUState, X , SERIALIZE_WIRE_U8 , 0),
+	NES_SCALAR(NES_FIELD_CPU_Y , NES_CPUState, Y , SERIALIZE_WIRE_U8 , 0),
+	NES_SCALAR(NES_FIELD_CPU_S , NES_CPUState, S , SERIALIZE_WIRE_U8 , 0),
+	NES_SCALAR(NES_FIELD_CPU_P , NES_CPUState, P , SERIALIZE_WIRE_U8 , 0),
+	NES_SCALAR(NES_FIELD_CPU_PC, NES_CPUState, PC, SERIALIZE_WIRE_U16, 0),
+};
+
+static const SerializeField nes_ppu_sprite_fields[] =
+{
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_YPOS , NES_PPUSprite, ypos , SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_XPOS , NES_PPUSprite, xpos , SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_INDEX, NES_PPUSprite, index, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_ATTRS, NES_PPUSprite, attrs, SERIALIZE_WIRE_U8, 0),
+};
+
+static const SerializeField nes_ppu_fields[] =
+{
+	NES_SCALAR(NES_FIELD_PPU_XTICK,             NES_PPUState, xtick,               SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_YTICK,             NES_PPUState, ytick,               SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_T,                 NES_PPUState, t,                   SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_V,                 NES_PPUState, v,                   SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_X,                 NES_PPUState, x,                   SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_W,                 NES_PPUState, w,                   SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_TILE_ID,           NES_PPUState, tile_id,             SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_TILE_HI,           NES_PPUState, tile_hi,             SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_TILE_LO,           NES_PPUState, tile_lo,             SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_ATR_B,             NES_PPUState, atr_b,               SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_ATR_L0,            NES_PPUState, atr_l0,              SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_ATR_L1,            NES_PPUState, atr_l1,              SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_CHR_R0,            NES_PPUState, chr_r0,              SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_CHR_R1,            NES_PPUState, chr_r1,              SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_ATR_R0,            NES_PPUState, atr_r0,              SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_ATR_R1,            NES_PPUState, atr_r1,              SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_SPR0_ENABLE,       NES_PPUState, spr0_enable,         SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_SPR0_2CYCLE_DELAY, NES_PPUState, spr0_2cycle_delay,   SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_PPUCTRL,           NES_PPUState, PPUCTRL,             SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_PPUMASK,           NES_PPUState, PPUMASK,             SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_PPUSTATUS,         NES_PPUState, PPUSTATUS,           SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_OAMADDR,           NES_PPUState, OAMADDR,             SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_DATA_READ_BUF,     NES_PPUState, data_read_buf,       SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_NSPRS,             NES_PPUState, nsprs,               SERIALIZE_WIRE_U8,     0),
+	NES_ARRAY(NES_FIELD_PPU_SPRS,               NES_PPUState, sprs,                SERIALIZE_WIRE_RECORD, NES_RECORD_PPU_SPRITE),
+	NES_ARRAY(NES_FIELD_PPU_OAM,                NES_PPUState, OAM,                 SERIALIZE_WIRE_RECORD, NES_RECORD_PPU_SPRITE),
+	NES_ARRAY(NES_FIELD_PPU_PRAM,               NES_PPUState, _pram,               SERIALIZE_WIRE_U8,     0),
+};
+
+static const SerializeField nes_apu_divider_fields[] =
+{
+	NES_SCALAR(NES_FIELD_APU_DIVIDER_COUNTER, NES_APUDivider, counter, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_DIVIDER_PERIOD, NES_APUDivider, period, SERIALIZE_WIRE_U8, 0),
+};
+
+static const SerializeField nes_apu_sweep_fields[] =
+{
+	NES_SCALAR(NES_FIELD_APU_SWEEP_DIVIDER, NES_APUSweep, divider, SERIALIZE_WIRE_RECORD, NES_RECORD_APU_DIVIDER),
+	NES_SCALAR(NES_FIELD_APU_SWEEP_RELOAD_DIVIDER, NES_APUSweep, reload_divider, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_SWEEP_SHIFT, NES_APUSweep, shift, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_SWEEP_ENABLE, NES_APUSweep, enable, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_SWEEP_NEGATE, NES_APUSweep, negate, SERIALIZE_WIRE_U8, 0),
+};
+
+static const SerializeField nes_apu_envelope_fields[] =
+{
+	NES_SCALAR(NES_FIELD_APU_ENVELOPE_DIVIDER, NES_APUEnvelope, divider, SERIALIZE_WIRE_RECORD, NES_RECORD_APU_DIVIDER),
+	NES_SCALAR(NES_FIELD_APU_ENVELOPE_COUNTER, NES_APUEnvelope, counter, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_ENVELOPE_RELOAD_DIVIDER, NES_APUEnvelope, reload_divider, SERIALIZE_WIRE_U8, 0),
+};
+
+static const SerializeField nes_apu_pulse_fields[] =
+{
+	NES_SCALAR(NES_FIELD_APU_PULSE_ENABLE, NES_APU_Pulse, enable, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_INFINITE_PLAY, NES_APU_Pulse, infinite_play, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_LENGTH_COUNTER, NES_APU_Pulse, length_counter, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_VOLUME, NES_APU_Pulse, volume, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_USE_CONSTANT_VOLUME, NES_APU_Pulse, use_constant_volume, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_SWEEP, NES_APU_Pulse, sweep, SERIALIZE_WIRE_RECORD, NES_RECORD_APU_SWEEP),
+	NES_SCALAR(NES_FIELD_APU_PULSE_ENVELOPE, NES_APU_Pulse, env, SERIALIZE_WIRE_RECORD, NES_RECORD_APU_ENVELOPE),
+	NES_SCALAR(NES_FIELD_APU_PULSE_DUTY_MASK, NES_APU_Pulse, duty_mask, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_PHASE, NES_APU_Pulse, phase, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_TIMER, NES_APU_Pulse, timer, SERIALIZE_WIRE_U16, 0),
+	NES_SCALAR(NES_FIELD_APU_PULSE_TIMER_PERIOD, NES_APU_Pulse, timer_period, SERIALIZE_WIRE_U16, 0),
+};
+
+static const SerializeField nes_apu_triangle_fields[] =
+{
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_ENABLE, NES_APU_Triangle, enable, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_LENGTH_COUNTER, NES_APU_Triangle, length_counter, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_LENGTH_COUNTER_HALT, NES_APU_Triangle, length_counter_halt, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_LINEAR_COUNTER, NES_APU_Triangle, linear_counter, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_LINEAR_COUNTER_RELOAD, NES_APU_Triangle, linear_counter_reload, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_LINEAR_COUNTER_RELOAD_VALUE, NES_APU_Triangle, linear_counter_reload_value, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_WAVE_PHASE, NES_APU_Triangle, wave_phase, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_WAVE_PERIOD, NES_APU_Triangle, wave_period, SERIALIZE_WIRE_U16, 0),
+	NES_SCALAR(NES_FIELD_APU_TRIANGLE_WAVE_TIMER, NES_APU_Triangle, wave_timer, SERIALIZE_WIRE_U16, 0),
+};
+
+static const SerializeField nes_apu_fields[] =
+{
+	NES_SCALAR (NES_FIELD_APU_IRQ_PENDING,       NES_APUState, irq_pending,       SERIALIZE_WIRE_U8    , 0),
+	NES_SCALAR (NES_FIELD_APU_IRQ_INHIBIT,       NES_APUState, irq_inhibit,       SERIALIZE_WIRE_U8    , 0),
+	NES_SCALAR (NES_FIELD_APU_RESET_DELAY,       NES_APUState, reset_delay,       SERIALIZE_WIRE_U8    , 0),
+	NES_SCALAR (NES_FIELD_APU_RESET_MODE,        NES_APUState, reset_mode,        SERIALIZE_WIRE_U8    , 0),
+	NES_SCALAR (NES_FIELD_APU_MODE,              NES_APUState, mode,              SERIALIZE_WIRE_U8    , 0),
+	NES_SCALAR (NES_FIELD_APU_STEP_INDEX,        NES_APUState, step_index,        SERIALIZE_WIRE_U8    , 0),
+	NES_SCALAR (NES_FIELD_APU_CPU_CYCLE_COUNTER, NES_APUState, cpu_cycle_counter, SERIALIZE_WIRE_U16   , 0),
+	NES_ARRAY  (NES_FIELD_APU_PULSE,             NES_APUState, pulse,             SERIALIZE_WIRE_RECORD, NES_RECORD_APU_PULSE   ),
+	NES_SCALAR (NES_FIELD_APU_TRIANGLE,          NES_APUState, triangle,          SERIALIZE_WIRE_RECORD, NES_RECORD_APU_TRIANGLE),
+};
+
+static const SerializeField nes_state_fields[] =
+{
+	NES_SCALAR ( NES_FIELD_STATE_SCHEDULER_CLOCK, NES_State, scheduler_clock, SERIALIZE_WIRE_U64, 0),
+	NES_SCALAR ( NES_FIELD_STATE_SAMPLE_PHASE, NES_State, sample_phase, SERIALIZE_WIRE_U64, 0),
+	NES_ARRAY  ( NES_FIELD_STATE_VALUES, NES_State, values, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR ( NES_FIELD_STATE_INPUT, NES_State, input_state, SERIALIZE_WIRE_BYTES, 0),
+	NES_SCALAR ( NES_FIELD_STATE_CPU_STALL_CYCLES, NES_State, cpu_stall_cycles, SERIALIZE_WIRE_U32, 0),
+	NES_SCALAR ( NES_FIELD_STATE_CPU, NES_State, cpu, SERIALIZE_WIRE_RECORD, NES_RECORD_CPU),
+	NES_SCALAR ( NES_FIELD_STATE_PPU, NES_State, ppu, SERIALIZE_WIRE_RECORD, NES_RECORD_PPU),
+	NES_SCALAR ( NES_FIELD_STATE_APU, NES_State, apu, SERIALIZE_WIRE_RECORD, NES_RECORD_APU),
+	NES_ARRAY  ( NES_FIELD_STATE_CONTROLLERS, NES_State, controllers, SERIALIZE_WIRE_U8, 0),
+	NES_ARRAY  ( NES_FIELD_STATE_WRAM, NES_State, _wram, SERIALIZE_WIRE_U8, 0),
+	NES_ARRAY  ( NES_FIELD_STATE_VRAM, NES_State, _vram, SERIALIZE_WIRE_U8, 0),
+	NES_ARRAY  ( NES_FIELD_STATE_CHR_RAM, NES_State, chr_ram, SERIALIZE_WIRE_U8, 0),
+	NES_ARRAY  ( NES_FIELD_STATE_PRG_RAM, NES_State, prg_ram, SERIALIZE_WIRE_U8, 0),
+	NES_ARRAY  ( NES_FIELD_STATE_VIDEO, NES_State, video, SERIALIZE_WIRE_U8, 0),
+};
+
+#define NES_RECORD(id_, type_, fields_) \
+	[id_] = { \
+		.name = #type_, \
+		.id = (id_), \
+		.size = sizeof(type_), \
+		.fields = (fields_), \
+		.field_count = ArrayCount(fields_), \
+	}
+
+static const SerializeRecord nes_records[NES_RECORD_COUNT] =
+{
+	NES_RECORD(NES_RECORD_STATE,            NES_State,        nes_state_fields        ),
+	NES_RECORD(NES_RECORD_CPU,              NES_CPUState,     nes_cpu_fields          ),
+	NES_RECORD(NES_RECORD_PPU,              NES_PPUState,     nes_ppu_fields          ),
+	NES_RECORD(NES_RECORD_PPU_SPRITE,       NES_PPUSprite,    nes_ppu_sprite_fields   ),
+	NES_RECORD(NES_RECORD_APU,              NES_APUState,     nes_apu_fields          ),
+	NES_RECORD(NES_RECORD_APU_DIVIDER,      NES_APUDivider,   nes_apu_divider_fields  ),
+	NES_RECORD(NES_RECORD_APU_SWEEP,        NES_APUSweep,     nes_apu_sweep_fields    ),
+	NES_RECORD(NES_RECORD_APU_ENVELOPE,     NES_APUEnvelope,  nes_apu_envelope_fields ),
+	NES_RECORD(NES_RECORD_APU_PULSE,        NES_APU_Pulse,    nes_apu_pulse_fields    ),
+	NES_RECORD(NES_RECORD_APU_TRIANGLE,     NES_APU_Triangle, nes_apu_triangle_fields ),
+};
+
+static const SerializeRecordMap nes_record_map =
+{
+	.records = nes_records,
+	.record_count = ArrayCount(nes_records),
+};
+
+b32 orb_transfer_save_state(ByteStream *stream, NES_State *state)
+{
+	Assert(stream && !stream->failed && !stream->ended);
+	Assert(state);
+	if (stream->mode == BYTE_STREAM_READ) {
+		return serialize_read_record(stream, &nes_record_map, NES_RECORD_STATE, state);
+	}
+	serialize_write_record(stream, &nes_record_map, NES_RECORD_STATE, state);
+	return !stream->failed;
+}

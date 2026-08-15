@@ -1,7 +1,7 @@
 #ifndef ORBITER_APP_LIBRARY_H
 #define ORBITER_APP_LIBRARY_H
 
-#include "base.h"
+#include "nes/emulator.h"
 
 typedef struct elf_State elf_State;
 
@@ -12,23 +12,12 @@ typedef enum
 }
 App_LibrarySaveKind;
 
-typedef enum
-{
-	APP_LIBRARY_MIRROR_HORIZONTAL = 1,
-	APP_LIBRARY_MIRROR_VERTICAL,
-	APP_LIBRARY_MIRROR_FOUR_SCREEN,
-}
-App_LibraryMirroring;
-
 typedef struct
 {
-	u32 mapper;
-	App_LibraryMirroring mirroring;
+	NES_GameMetadata metadata;
 	Str trainer_path;
 	Str prg_path;
-	u32 prg_size;
 	Str chr_path;
-	u32 chr_size;
 }
 App_LibraryCartridge;
 

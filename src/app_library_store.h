@@ -8,7 +8,7 @@
 typedef struct App_LibraryGameData App_LibraryGameData;
 struct App_LibraryGameData
 {
-	Orb_Game game;
+	NES_Game game;
 	App_Save save;
 };
 
@@ -28,7 +28,7 @@ b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App
 b32 app_library_store_read_save(App_LibraryStore *store, Arena *arena, const App_LibrarySave *save, App_Save *data);
 b32 app_library_store_write_save(App_LibraryStore *store, Arena *scratch, const App_LibrarySave *save, const App_Save *data);
 b32 app_library_store_write_manifest(App_LibraryStore *store, Arena *scratch);
-b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, Orb_Game source_game, Str title, const App_Save *save_data,
+b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, NES_Game source_game, Str title, const App_Save *save_data,
 	App_LibraryGame **game, App_LibrarySave **save);
 
 #endif

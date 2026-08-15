@@ -23,7 +23,6 @@ optimize_emulator ::= true
 
 optimized_object_names := {
 	"nes"               = optimize_emulator,
-	"orb_nes_serialize" = optimize_emulator,
 	"nes_bus"           = optimize_emulator,
 	"nes_cpu"           = optimize_emulator,
 	"nes_ppu"           = optimize_emulator,
@@ -32,7 +31,6 @@ optimized_object_names := {
 	"nes_mmc1"          = optimize_emulator,
 	"nes_mmc2"          = optimize_emulator,
 	"nes_uxrom"         = optimize_emulator,
-	"serialize"         = optimize_emulator,
 }
 
 include_directories := {
@@ -96,7 +94,8 @@ objects := {
 	{ name = "os_controller",     input = "src/os/os_controller_win32.c" },
 	{ name = "os_dialog",         input = "src/os/os_dialog_win32.c" },
 	{ name = "nes",              input = "src/nes/src/emulator.c" },
-	{ name = "orb_nes_serialize", input = "src/orb/nes_serialize.c" },
+	{ name = "serialize",        input = "src/serialize/serialize.c" },
+	{ name = "nes_serialize",    input = "src/nes_serialize.c" },
 	{ name = "nes_bus",          input = "src/nes/src/bus/bus.c" },
 	{ name = "nes_cpu",          input = "src/nes/src/cpu/cpu.c" },
 	{ name = "nes_ppu",          input = "src/nes/src/ppu/ppu.c" },
@@ -105,7 +104,6 @@ objects := {
 	{ name = "nes_mmc1",         input = "src/nes/src/mappers/mapper_mmc1.c" },
 	{ name = "nes_mmc2",         input = "src/nes/src/mappers/mapper_mmc2.c" },
 	{ name = "nes_uxrom",        input = "src/nes/src/mappers/mapper_uxrom.c" },
-	{ name = "serialize",         input = "src/serialize/serialize.c" },
 	{ name = "orb",               input = "src/orb/orb.c" },
 	{ name = "app_save",          input = "src/app_save.c" },
 	{ name = "app_library",       input = "src/app_library.c" },

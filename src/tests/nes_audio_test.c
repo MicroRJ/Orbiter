@@ -63,7 +63,7 @@ static void test_audio_stream(void)
 	arena_destroy(&arena);
 }
 
-static NES_SetupParams make_looping_cartridge(Arena *arena)
+static NES_Game make_looping_cartridge(Arena *arena)
 {
 	u8 *prg = arena_push_zero(arena, KiB(16));
 	u8 *chr = arena_push_zero(arena, KiB(8));
@@ -73,7 +73,8 @@ static NES_SetupParams make_looping_cartridge(Arena *arena)
 	prg[2] = 0x80;
 	prg[0x3FFC] = 0x00;
 	prg[0x3FFD] = 0x80;
-	return (NES_SetupParams) {
+	return (NES_Game) {
+		.metadata = { .mirroring = NES_MIRROR_HORIZONTAL, .prg_rom_size = KiB(16), .chr_rom_size = KiB(8) },
 		.prg_rom = byte_span(prg, KiB(16)),
 		.chr_rom = byte_span(chr, KiB(8)),
 	};
@@ -138,7 +139,7 @@ static void test_run_frame_audio_contract(void)
 static void test_dma_cycles_cross_the_same_boundary(void)
 {
 	Arena arena = arena_create(0, "Orbiter DMA scheduler test");
-	NES_SetupParams cartridge = make_looping_cartridge(&arena);
+	NES_Game cartridge = make_looping_cartridge(&arena);
 	u8 *prg = cartridge.prg_rom.data;
 	prg[0] = 0xA9; // LDA #$02
 	prg[1] = 0x02;

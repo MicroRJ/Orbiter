@@ -22,13 +22,14 @@ static void app_library_assert_game_equal(const App_LibraryGame *left, const App
 	Assert(left->first_played_unix_ms == right->first_played_unix_ms);
 	Assert(left->last_played_unix_ms == right->last_played_unix_ms);
 	Assert(left->play_time_ms == right->play_time_ms);
-	Assert(left->cartridge.mapper == right->cartridge.mapper);
-	Assert(left->cartridge.mirroring == right->cartridge.mirroring);
+	Assert(left->cartridge.metadata.mapper == right->cartridge.metadata.mapper);
+	Assert(left->cartridge.metadata.mirroring == right->cartridge.metadata.mirroring);
+	Assert(left->cartridge.metadata.trainer_size == right->cartridge.metadata.trainer_size);
 	Assert(str_match(left->cartridge.trainer_path, right->cartridge.trainer_path));
 	Assert(str_match(left->cartridge.prg_path, right->cartridge.prg_path));
-	Assert(left->cartridge.prg_size == right->cartridge.prg_size);
+	Assert(left->cartridge.metadata.prg_rom_size == right->cartridge.metadata.prg_rom_size);
 	Assert(str_match(left->cartridge.chr_path, right->cartridge.chr_path));
-	Assert(left->cartridge.chr_size == right->cartridge.chr_size);
+	Assert(left->cartridge.metadata.chr_rom_size == right->cartridge.metadata.chr_rom_size);
 	Assert(left->save_count == right->save_count);
 	for (u32 index = 0; index < left->save_count; index ++) app_library_assert_save_equal(&left->saves[index], &right->saves[index]);
 }
@@ -66,12 +67,9 @@ int main(void)
 			.last_played_unix_ms = 1786200000000,
 			.play_time_ms = 7342000,
 			.cartridge = {
-				.mapper = 9,
-				.mirroring = APP_LIBRARY_MIRROR_VERTICAL,
+				.metadata = { .mapper = 9, .mirroring = NES_MIRROR_VERTICAL, .prg_rom_size = KiB(128), .chr_rom_size = KiB(128) },
 				.prg_path = LIT("games/neon-racer/prg.bin"),
-				.prg_size = KiB(128),
 				.chr_path = LIT("games/neon-racer/chr.bin"),
-				.chr_size = KiB(128),
 			},
 			.saves = neon_saves,
 			.save_count = ArrayCount(neon_saves),
@@ -80,10 +78,8 @@ int main(void)
 			.id = LIT("moon-temple"),
 			.title = LIT("Moon Temple"),
 			.cartridge = {
-				.mapper = 0,
-				.mirroring = APP_LIBRARY_MIRROR_HORIZONTAL,
+				.metadata = { .mapper = 0, .mirroring = NES_MIRROR_HORIZONTAL, .prg_rom_size = KiB(16) },
 				.prg_path = LIT("games/moon-temple/prg.bin"),
-				.prg_size = KiB(16),
 			},
 		},
 	};

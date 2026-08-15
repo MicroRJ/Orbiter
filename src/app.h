@@ -25,7 +25,6 @@ typedef struct
 	App_LibraryGame *game;
 	App_LibrarySave *save;
 	App_LibraryGameData *data;
-	NES_SetupParams program;
 }
 App_GameSession;
 
