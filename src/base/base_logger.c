@@ -115,5 +115,8 @@ void logger_write(LogLevel level, const char *tag, SourceLoc source, const char 
 void assertion_failed(const char *file, int line, const char *expression)
 {
 	logger_write(LOG_LEVEL_FATAL, "assertion", (SourceLoc) { file, line }, temp_format_("assertion failed: %s", expression));
+#if defined(_DEBUG)
+	__debugbreak();
+#endif
 	exit(1);
 }

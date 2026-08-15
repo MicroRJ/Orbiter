@@ -127,6 +127,7 @@ objects := {
 
 tests := {
 	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
+	{ name = "serialize_test",      input = "src/tests/serialize_test.c" },
 	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
 	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
 	{ name = "ines_importer_test",  input = "src/tests/ines_importer_test.c" },

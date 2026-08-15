@@ -179,20 +179,18 @@ static void ppu_shift_background(NES_Emulator *core)
 	}
 }
 
-static void ppu_fetch_nametable_byte(NES_Emulator *core)
+static inline u8 ppu_fetch_nametable_byte(NES_Emulator *nes, u16 v)
 {
-	NES_PPUState *ppu = &core->ppu;
-	core->ppu.tile_id = (u8)(ppu_bus_read(core, 0x2000 | (ppu->v & 0x0FFF)));
+	return ppu_bus_read(nes, 0x2000 | v & 0x0FFF);
 }
 
-static void ppu_fetch_attribute_byte(NES_Emulator *core)
+static inline u8 ppu_fetch_attribute_byte(NES_Emulator *nes, u16 v)
 {
-	NES_PPUState *ppu = &core->ppu;
-	u16 coarse_x = ppu->v & 31;
-	u16 coarse_y = (ppu->v >> 5) & 31;
-	u16 nametable = ppu->v & 0x0C00;
+	u16 coarse_x = v >> 0 & 31;
+	u16 coarse_y = v >> 5 & 31;
+	u16 nametable = v & 0x0C00;
 	u16 address = 0x23C0 | nametable | ((coarse_y >> 2) << 3) | (coarse_x >> 2);
-	core->ppu.atr_b = (u8)(ppu_bus_read(core, address));
+	return ppu_bus_read(nes, address);
 }
 
 static u16 ppu_background_pattern_address(const NES_PPUState *ppu, u16 plane)
@@ -245,65 +243,77 @@ static inline u16 ppu_increment_vertical(u16 v)
 	else              return (v & ~0x7000) + 0x0020;
 }
 
-static u8 ppu_background_pixel(const NES_PPUState *ppu)
+static u16 ppu_sprite_pattern_address(const NES_PPUState *ppu, u8 attr, u16 tile, i32 row, u16 plane)
 {
-	if (!(ppu->PPUMASK & PPUMASK_BACKGROUND)) return 0;
-	u32 pattern_bit = 15 - ppu->x;
-	return ((ppu->chr_r0 >> pattern_bit) & 1) |
-	(((ppu->chr_r1 >> pattern_bit) & 1) << 1);
-}
-
-static u16 ppu_sprite_pattern_address(const NES_PPUState *ppu, NES_PPUSprite sprite, i32 row, u16 plane)
-{
-	b32 vertical_flip = !!(sprite.attrs & 0x80);
+	b32 vertical_flip = !!(attr & 0x80);
 	if (ppu->PPUCTRL & PPUCTRL_SPRITE_SIZE_8X16)
 	{
-		u16 pattern_table = (sprite.index & 1) << 12;
-		u16 tile = (sprite.index & 0xFE) | (((row >> 3) & 1) ^ vertical_flip);
+		u16 pattern_table = (tile & 1) << 12;
+		tile = (tile & 0xFE) | (((row >> 3) & 1) ^ vertical_flip);
 		u16 tile_row = (row & 7) ^ (vertical_flip ? 7 : 0);
 		return pattern_table | (tile << 4) | plane | tile_row;
 	}
 
 	u16 pattern_table = (ppu->PPUCTRL & 0x08) << 9;
 	u16 tile_row = (row & 7) ^ (vertical_flip ? 7 : 0);
-	return pattern_table | ((u16)sprite.index << 4) | plane | tile_row;
+	return pattern_table | ((u16)tile << 4) | plane | tile_row;
 }
 
-static inline u8 ppu_sprite_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y, u8 background_pixel)
+static inline u8 ppu_reverse_bits(u8 value)
 {
-	NES_PPUState *ppu = &core->ppu;
-	if (!(ppu->PPUMASK & PPUMASK_SPRITES)) return 0;
+	value = (value >> 4) | (value << 4);
+	value = ((value & 0xCC) >> 2) | ((value & 0x33) << 2);
+	return ((value & 0xAA) >> 1) | ((value & 0x55) << 1);
+}
 
-	for (i32 i = 0; i < ppu->nsprs; ++i)
+static inline u8 ppu_sprite_pixel(NES_PPUState *ppu, i32 screen_x, u8 background_pixel)
+{
+	u8 selected_pixel = 0;
+	u8 selected_attributes = 0;
+	u32 selected_unit = ArrayCount(ppu->spr_units);
+	for (u32 index = 0; index < ArrayCount(ppu->spr_units); ++index)
 	{
-		NES_PPUSprite sprite = ppu->sprs[i];
-		i32 sprite_x = screen_x - sprite.xpos;
-		i32 sprite_y = screen_y - sprite.ypos - 1;
-		if (sprite_x < 0 || sprite_x >= 8) continue;
-
-		u8 pattern_low = ppu_bus_read(core, ppu_sprite_pattern_address(ppu, sprite, sprite_y, 0));
-		u8 pattern_high = ppu_bus_read(core, ppu_sprite_pattern_address(ppu, sprite, sprite_y, 8));
-		u32 pattern_bit = (sprite.attrs & 0x40) ? sprite_x : 7 - sprite_x;
-		u8 sprite_pixel = ((pattern_low >> pattern_bit) & 1) | ((pattern_high >> pattern_bit) & 1) << 1;
-		if (!sprite_pixel) continue;
-
-		if (background_pixel && i == 0)
+		NES_PPUSpriteUnit *unit = &ppu->spr_units[index];
+		u8 pixel = 0;
+		if (unit->x)
 		{
-			core->ppu.spr0_2cycle_delay = (u8)(ppu->spr0_enable);
+			unit->x--;
+		}
+		else
+		{
+			pixel = ((unit->pattern_lo >> 7) & 1) | (((unit->pattern_hi >> 7) & 1) << 1);
+			unit->pattern_lo <<= 1;
+			unit->pattern_hi <<= 1;
 		}
 
-		if ((sprite.attrs & 0x20) && background_pixel) return 0;
-		return 0x10 | ((sprite.attrs & 3) << 2) | sprite_pixel;
+		if (selected_unit == ArrayCount(ppu->spr_units) && pixel)
+		{
+			selected_pixel = pixel;
+			selected_attributes = unit->attributes;
+			selected_unit = index;
+		}
 	}
 
-	return 0;
+	if (!(ppu->PPUMASK & PPUMASK_SPRITES) || !selected_pixel) return 0;
+	if (background_pixel && screen_x < 255 && selected_unit == 0 && ppu->spr_units[0].index == 0) ppu->spr0_2cycle_delay = true;
+	if (background_pixel && (selected_attributes & 0x20)) return 0;
+	return 0x10 | ((selected_attributes & 3) << 2) | selected_pixel;
 }
 
 static inline void ppu_render_pixel(NES_Emulator *core, i32 screen_x, i32 screen_y)
 {
 	NES_PPUState *ppu = &core->ppu;
-	u8 background_pixel = ppu_background_pixel(ppu);
-	u8 palette_index = ppu_sprite_pixel(core, screen_x, screen_y, background_pixel);
+
+	u8 background_pixel = 0;
+
+	if (ppu->PPUMASK & PPUMASK_BACKGROUND) {
+		u32 pattern_bit = 15 - ppu->x;
+		background_pixel =
+		((ppu->chr_r0 >> pattern_bit) & 1) << 0|
+		((ppu->chr_r1 >> pattern_bit) & 1) << 1;
+	}
+
+	u8 palette_index = ppu_sprite_pixel(ppu, screen_x, background_pixel);
 
 	if (!palette_index && background_pixel)
 	{
@@ -332,9 +342,10 @@ static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
 	{
 		if (dot == 1)
 		{
-			ppu->oam_address = 0;
-			ppu->oam_latch   = 0xFF;
-			ppu->soam_index  = 0;
+			ppu->oam_address  = 0;
+			ppu->oam_latch    = 0xFF;
+			ppu->soam_address = 0;
+			memory_fill(ppu->soam_indices, 0xFF, sizeof(ppu->soam_indices));
 		}
 		else if (!(dot & 1))
 		{
@@ -356,15 +367,16 @@ static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
 
 	u32 sprite_height = (ppu->PPUCTRL & PPUCTRL_SPRITE_SIZE_8X16) ? 16 : 8;
 	u32 oam_offset = ppu->oam_address & 3;
-	if (ppu->soam_index < 8)
+	if (ppu->soam_address < 32)
 	{
-		ppu->soam[ppu->soam_index] = ppu->oam_latch;
+		ppu->soam[ppu->soam_address] = ppu->oam_latch;
 
 		if (oam_offset == 0)
 		{
 			if (ppu_sprite_y_in_range(ppu->oam_latch, scanline, sprite_height))
 			{
-				ppu->soam_index++;
+				ppu->soam_indices[ppu->soam_address >> 2] = (u8)(ppu->oam_address >> 2);
+				ppu->soam_address++;
 				ppu->oam_address++;
 			}
 			else
@@ -374,7 +386,7 @@ static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
 		}
 		else
 		{
-			ppu->soam_index++;
+			ppu->soam_address++;
 			ppu->oam_address++;
 		}
 		return;
@@ -396,30 +408,36 @@ static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
 	}
 }
 
-static void ppu_evaluate_sprites(NES_Emulator *core, i32 scanline)
+static void ppu_step_sprite_units(NES_Emulator *nes, NES_PPUState *ppu, u32 dot, u32 scanline)
 {
-	NES_PPUState *ppu = &core->ppu;
-	i32 sprite_height = (ppu->PPUCTRL & PPUCTRL_SPRITE_SIZE_8X16) ? 16 : 8;
-	core->ppu.spr0_enable = (u8)(false);
-	core->ppu.nsprs = (u8)(0);
+	Assert(dot >= 257 && dot <= 320);
+	u32 unit_index = (dot - 257) >> 3;
+	u32 fetch_phase = (dot - 257) & 7;
+	NES_PPUSpriteUnit *unit = &ppu->spr_units[unit_index];
 
-	for (i32 i = 0; i < 64; ++i)
+	switch (fetch_phase)
 	{
-		NES_PPUSprite sprite = ppu->OAM[i];
-		i32 row = scanline - sprite.ypos;
-		if (row < 0 || row >= sprite_height) continue;
+		case 0: unit->index = ppu->soam_indices[unit_index]; ppu->spr_ypos_latch = ppu->SOAM[unit_index].ypos; break;
+		case 1: ppu->spr_tile_latch = ppu->SOAM[unit_index].index; break;
+		case 2: unit->attributes = ppu->SOAM[unit_index].attrs; break;
+		default: unit->x = ppu->SOAM[unit_index].xpos; break;
+	}
 
-		if (ppu->nsprs < ppu_max_nsprs_per_scanline)
+	i32 row = (i32)scanline - ppu->spr_ypos_latch;
+	switch (fetch_phase)
+	{
+		case 4: ppu->address = ppu_sprite_pattern_address(ppu, unit->attributes, ppu->spr_tile_latch, row, 0); break;
+		case 5:
 		{
-			if (i == 0) core->ppu.spr0_enable = (u8)(true);
-			u32 sprite_index = ppu->nsprs;
-			ppu->sprs[sprite_index] = sprite;
-			core->ppu.nsprs = (u8)(sprite_index + 1);
-		}
-		else
+			u8 pattern = ppu_bus_read(nes, ppu->address);
+			unit->pattern_lo = scanline >= 240 || unit->index == 0xFF ? 0 : (unit->attributes & 0x40) ? ppu_reverse_bits(pattern) : pattern;
+		} break;
+		case 6: ppu->address = ppu_sprite_pattern_address(ppu, unit->attributes, ppu->spr_tile_latch, row, 8); break;
+		case 7:
 		{
-			core->ppu.PPUSTATUS = (u8)(ppu->PPUSTATUS | 0x20);
-		}
+			u8 pattern = ppu_bus_read(nes, ppu->address);
+			unit->pattern_hi = scanline >= 240 || unit->index == 0xFF ? 0 : (unit->attributes & 0x40) ? ppu_reverse_bits(pattern) : pattern;
+		} break;
 	}
 }
 
@@ -459,6 +477,7 @@ u32 nes_ppu_step(NES_Emulator *core)
 	if (dot > 0 && rendering_scanline && ppu_rendering_enabled(ppu))
 	{
 		if (visible_scanline && dot <= 256) ppu_step_sprite_evaluation(ppu, dot, scanline);
+		if (rendering_scanline && dot >= 257 && dot <= 320) ppu_step_sprite_units(core, ppu, dot, scanline);
 
 		if (dot < 337) ppu_shift_background(core);
 
@@ -466,8 +485,8 @@ u32 nes_ppu_step(NES_Emulator *core)
 		u32 fetch_phase = (dot - 1) & 7;
 		if (fetch_cycle) switch (fetch_phase)
 		{
-			case 1: ppu_fetch_nametable_byte(core); break;
-			case 3: ppu_fetch_attribute_byte(core); break;
+			case 1: ppu->tile_id = ppu_fetch_nametable_byte(core, ppu->v); break;
+			case 3: ppu->atr_b = ppu_fetch_attribute_byte(core, ppu->v); break;
 			case 5: ppu_fetch_pattern_low(core); break;
 			case 7: ppu_fetch_pattern_high_and_reload(core); break;
 		}
@@ -484,10 +503,6 @@ u32 nes_ppu_step(NES_Emulator *core)
 		if (dot == 257)                       ppu->v = ppu->v & ~0x041F | ppu->t & 0x041F;
 		if (dot == 304 && prerender_scanline) ppu->v = ppu->v & ~0x7BE0 | ppu->t & 0x7BE0;
 
-		if (visible_scanline && dot == 256 && (ppu->PPUMASK & PPUMASK_SPRITES))
-		{
-			ppu_evaluate_sprites(core, (i32)scanline);
-		}
 	}
 
 	ppu_advance_clock(core);

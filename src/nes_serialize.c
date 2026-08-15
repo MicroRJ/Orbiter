@@ -16,6 +16,7 @@ typedef enum
 	NES_RECORD_APU_ENVELOPE,
 	NES_RECORD_APU_PULSE,
 	NES_RECORD_APU_TRIANGLE,
+	NES_RECORD_PPU_SPRITE_UNIT,
 	NES_RECORD_COUNT,
 }
 NES_RecordId;
@@ -125,6 +126,22 @@ typedef enum
 	NES_FIELD_APU_PULSE,
 	NES_FIELD_APU_TRIANGLE,
 
+	NES_FIELD_PPU_SPRITE_UNIT_INDEX,
+	NES_FIELD_PPU_SPRITE_UNIT_PATTERN_LO,
+	NES_FIELD_PPU_SPRITE_UNIT_PATTERN_HI,
+	NES_FIELD_PPU_SPRITE_UNIT_ATTRIBUTES,
+	NES_FIELD_PPU_SPRITE_UNIT_X,
+
+	NES_FIELD_PPU_OAM_ADDRESS,
+	NES_FIELD_PPU_OAM_LATCH,
+	NES_FIELD_PPU_SOAM_ADDRESS,
+	NES_FIELD_PPU_SOAM,
+	NES_FIELD_PPU_SOAM_INDICES,
+	NES_FIELD_PPU_SPR_UNITS,
+	NES_FIELD_PPU_SPR_YPOS_LATCH,
+	NES_FIELD_PPU_SPR_TILE_LATCH,
+	NES_FIELD_PPU_ADDRESS,
+
 	NES_FIELD_COUNT,
 }
 NES_FieldId;
@@ -165,6 +182,15 @@ static const SerializeField nes_ppu_sprite_fields[] =
 	NES_SCALAR(NES_FIELD_PPU_SPRITE_ATTRS, NES_PPUSprite, attrs, SERIALIZE_WIRE_U8, 0),
 };
 
+static const SerializeField nes_ppu_sprite_unit_fields[] =
+{
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_UNIT_INDEX,      NES_PPUSpriteUnit, index,      SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_UNIT_PATTERN_LO, NES_PPUSpriteUnit, pattern_lo, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_UNIT_PATTERN_HI, NES_PPUSpriteUnit, pattern_hi, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_UNIT_ATTRIBUTES, NES_PPUSpriteUnit, attributes, SERIALIZE_WIRE_U8, 0),
+	NES_SCALAR(NES_FIELD_PPU_SPRITE_UNIT_X,          NES_PPUSpriteUnit, x,          SERIALIZE_WIRE_U8, 0),
+};
+
 static const SerializeField nes_ppu_fields[] =
 {
 	NES_SCALAR(NES_FIELD_PPU_XTICK,             NES_PPUState, dot,               SERIALIZE_WIRE_U16,    0),
@@ -183,16 +209,22 @@ static const SerializeField nes_ppu_fields[] =
 	NES_SCALAR(NES_FIELD_PPU_CHR_R1,            NES_PPUState, chr_r1,              SERIALIZE_WIRE_U16,    0),
 	NES_SCALAR(NES_FIELD_PPU_ATR_R0,            NES_PPUState, atr_r0,              SERIALIZE_WIRE_U8,     0),
 	NES_SCALAR(NES_FIELD_PPU_ATR_R1,            NES_PPUState, atr_r1,              SERIALIZE_WIRE_U8,     0),
-	NES_SCALAR(NES_FIELD_PPU_SPR0_ENABLE,       NES_PPUState, spr0_enable,         SERIALIZE_WIRE_U8,     0),
 	NES_SCALAR(NES_FIELD_PPU_SPR0_2CYCLE_DELAY, NES_PPUState, spr0_2cycle_delay,   SERIALIZE_WIRE_U8,     0),
 	NES_SCALAR(NES_FIELD_PPU_PPUCTRL,           NES_PPUState, PPUCTRL,             SERIALIZE_WIRE_U8,     0),
 	NES_SCALAR(NES_FIELD_PPU_PPUMASK,           NES_PPUState, PPUMASK,             SERIALIZE_WIRE_U8,     0),
 	NES_SCALAR(NES_FIELD_PPU_PPUSTATUS,         NES_PPUState, PPUSTATUS,           SERIALIZE_WIRE_U8,     0),
 	NES_SCALAR(NES_FIELD_PPU_OAMADDR,           NES_PPUState, OAMADDR,             SERIALIZE_WIRE_U8,     0),
 	NES_SCALAR(NES_FIELD_PPU_DATA_READ_BUF,     NES_PPUState, data_read_buf,       SERIALIZE_WIRE_U8,     0),
-	NES_SCALAR(NES_FIELD_PPU_NSPRS,             NES_PPUState, nsprs,               SERIALIZE_WIRE_U8,     0),
-	NES_ARRAY(NES_FIELD_PPU_SPRS,               NES_PPUState, sprs,                SERIALIZE_WIRE_RECORD, NES_RECORD_PPU_SPRITE),
 	NES_ARRAY(NES_FIELD_PPU_OAM,                NES_PPUState, OAM,                 SERIALIZE_WIRE_RECORD, NES_RECORD_PPU_SPRITE),
+	NES_SCALAR(NES_FIELD_PPU_OAM_ADDRESS,       NES_PPUState, oam_address,         SERIALIZE_WIRE_U16,    0),
+	NES_SCALAR(NES_FIELD_PPU_OAM_LATCH,         NES_PPUState, oam_latch,           SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_SOAM_ADDRESS,      NES_PPUState, soam_address,        SERIALIZE_WIRE_U8,     0),
+	NES_ARRAY(NES_FIELD_PPU_SOAM,               NES_PPUState, SOAM,                SERIALIZE_WIRE_RECORD, NES_RECORD_PPU_SPRITE),
+	NES_ARRAY(NES_FIELD_PPU_SOAM_INDICES,       NES_PPUState, soam_indices,        SERIALIZE_WIRE_U8,     0),
+	NES_ARRAY(NES_FIELD_PPU_SPR_UNITS,          NES_PPUState, spr_units,           SERIALIZE_WIRE_RECORD, NES_RECORD_PPU_SPRITE_UNIT),
+	NES_SCALAR(NES_FIELD_PPU_SPR_YPOS_LATCH,    NES_PPUState, spr_ypos_latch,      SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_SPR_TILE_LATCH,    NES_PPUState, spr_tile_latch,      SERIALIZE_WIRE_U8,     0),
+	NES_SCALAR(NES_FIELD_PPU_ADDRESS,           NES_PPUState, address,             SERIALIZE_WIRE_U16,    0),
 	NES_ARRAY(NES_FIELD_PPU_PRAM,               NES_PPUState, _pram,               SERIALIZE_WIRE_U8,     0),
 };
 
@@ -298,6 +330,7 @@ static const SerializeRecord nes_records[NES_RECORD_COUNT] =
 	NES_RECORD(NES_RECORD_APU_ENVELOPE,     NES_APUEnvelope,  nes_apu_envelope_fields ),
 	NES_RECORD(NES_RECORD_APU_PULSE,        NES_APU_Pulse,    nes_apu_pulse_fields    ),
 	NES_RECORD(NES_RECORD_APU_TRIANGLE,     NES_APU_Triangle, nes_apu_triangle_fields ),
+	NES_RECORD(NES_RECORD_PPU_SPRITE_UNIT,  NES_PPUSpriteUnit, nes_ppu_sprite_unit_fields),
 };
 
 static const SerializeRecordMap nes_record_map =

@@ -40,6 +40,47 @@ static const SerializeField *serialize_record_field_from_id(
 	return 0;
 }
 
+static b32 serialize_skip_record_body(ByteStream *reader, u32 depth);
+
+static b32 serialize_skip_field_value(ByteStream *reader, SerializeWireType wire_type, u32 depth)
+{
+	if (wire_type >= SERIALIZE_WIRE_COUNT) return false;
+	if (wire_type == SERIALIZE_WIRE_RECORD)
+	{
+		u32 count = 0;
+		byte_transfer_u32(reader, &count);
+		if (reader->failed || count > byte_stream_remaining(reader) / 4) return false;
+		for (u32 index = 0; index < count; ++index) {
+			if (!serialize_skip_record_body(reader, depth + 1)) return false;
+		}
+	}
+	else
+	{
+		u32 size = 0;
+		byte_transfer_u32(reader, &size);
+		byte_stream_skip(reader, size);
+	}
+	return !reader->failed;
+}
+
+static b32 serialize_skip_record_body(ByteStream *reader, u32 depth)
+{
+	if (depth >= 64) return false;
+	u16 record_id = 0;
+	u16 field_count = 0;
+	byte_transfer_u16(reader, &record_id);
+	byte_transfer_u16(reader, &field_count);
+	if (reader->failed || !record_id || field_count > byte_stream_remaining(reader) / 6) return false;
+	for (u32 index = 0; index < field_count; ++index)
+	{
+		u16 field_header = 0;
+		byte_transfer_u16(reader, &field_header);
+		if (reader->failed || !(field_header >> 4)) return false;
+		if (!serialize_skip_field_value(reader, (SerializeWireType)(field_header & 15), depth)) return false;
+	}
+	return true;
+}
+
 static void serialize_write_record_body(ByteStream *writer, const SerializeRecordMap *map, const SerializeRecord *record, const u8 *value)
 {
 	Assert(record->field_count <= 64);
@@ -82,8 +123,7 @@ static b32 serialize_read_record_body(ByteStream *reader,
 	byte_transfer_u16(reader, &record_id);
 	byte_transfer_u16(reader, &serialized_field_count);
 	u32 field_count = serialized_field_count;
-	if (reader->failed || expected->field_count > 64 ||
-		field_count > expected->field_count) return false;
+	if (reader->failed || expected->field_count > 64) return false;
 	const SerializeRecord *record = serialize_record_from_id(map, record_id);
 	if (!record || record != expected) return false;
 	u64 seen_fields = 0;
@@ -96,11 +136,15 @@ static b32 serialize_read_record_body(ByteStream *reader,
 		u32 field_key = field_header >> 4;
 		u32 field_index = 0;
 		const SerializeField *field = serialize_record_field_from_id(record, field_key, &field_index);
-		if (!field) return false;
+		if (!field || !(field->flags & SERIALIZE_FIELD_ENABLED))
+		{
+			if (!serialize_skip_field_value(reader, wire_type, 0)) return false;
+			continue;
+		}
 		u64 field_bit = (u64)1 << field_index;
 		if (seen_fields & field_bit) return false;
 		seen_fields |= field_bit;
-		if (!(field->flags & SERIALIZE_FIELD_ENABLED) || wire_type != field->wire_type) return false;
+		if (wire_type != field->wire_type) return false;
 		if (wire_type == SERIALIZE_WIRE_RECORD)
 		{
 			const SerializeRecord *nested = serialize_record_from_id(map, field->record_id);
@@ -122,14 +166,7 @@ static b32 serialize_read_record_body(ByteStream *reader,
 			if (reader->failed) return false;
 		}
 	}
-	u64 required_fields = 0;
-	for (u32 index = 0; index < record->field_count; ++index)
-	{
-		if (record->fields[index].flags & SERIALIZE_FIELD_ENABLED) {
-			required_fields |= (u64)1 << index;
-		}
-	}
-	return seen_fields == required_fields;
+	return true;
 }
 
 void serialize_write_record(ByteStream *writer, const SerializeRecordMap *map, u16 record_id, const void *value)

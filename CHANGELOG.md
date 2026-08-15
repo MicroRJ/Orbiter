@@ -1,5 +1,7 @@
 
 [TODO]
+	- Bug when opening roms ctrl remains sticky!
+
 	- Processes:
 		After analyzing how other debuggers are structured, I've decided to apply a
 		slight but fundamental restructure to our debugger.

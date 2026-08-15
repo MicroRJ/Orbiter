@@ -27,11 +27,23 @@ NES_CPUState;
 typedef struct
 {
 	u8 ypos;
+	// TODO(RJ): rename to tile
 	u8 index;
+	// TODO(RJ): rename to attr
 	u8 attrs;
 	u8 xpos;
 }
 NES_PPUSprite;
+
+typedef struct
+{
+	u8 index;
+	u8 pattern_lo;
+	u8 pattern_hi;
+	u8 attributes;
+	u8 x;
+}
+NES_PPUSpriteUnit;
 
 typedef struct
 {
@@ -51,7 +63,6 @@ typedef struct
 	u16           chr_r1;
 	u8            atr_r0;
 	u8            atr_r1;
-	u8            spr0_enable;
 	u8            spr0_2cycle_delay;
 	// TODO(RJ): give these better names!
 	u8            PPUCTRL;
@@ -59,8 +70,6 @@ typedef struct
 	u8            PPUSTATUS;
 	u8            OAMADDR;
 	u8            data_read_buf;
-	u8            nsprs;
-	NES_PPUSprite sprs[NES_PPU_MAX_SPRITES_PER_SCANLINE];
 	union
 	{
 		NES_PPUSprite OAM[ 64];
@@ -68,12 +77,20 @@ typedef struct
 	};
 	u16 oam_address;
 	u8 oam_latch;
-	u8 soam_index;
+	u8 soam_address;
 	union
 	{
 		NES_PPUSprite SOAM[ 8];
 		u8            soam[32];
 	};
+	u8 soam_indices[8];
+	NES_PPUSpriteUnit spr_units[8];
+
+	u8 spr_ypos_latch;
+	u8 spr_tile_latch;
+
+	u16 address;
+
 	u8 _pram[32];
 }
 NES_PPUState;

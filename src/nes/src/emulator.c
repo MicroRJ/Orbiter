@@ -50,7 +50,6 @@ b32 nes_emulator_valid(const NES_Emulator *emulator)
 	if (emulator->ppu.v > 0x7FFF)                                         return false;
 	if (emulator->ppu.x >= 8)                                             return false;
 	if (emulator->ppu.w > 1)                                              return false;
-	if (emulator->ppu.nsprs > NES_PPU_MAX_SPRITES_PER_SCANLINE)           return false;
 	if (emulator->apu.mode > 1)                                           return false;
 	if (emulator->apu.reset_mode > 1)                                     return false;
 	if (emulator->apu.reset_delay > 4)                                    return false;
