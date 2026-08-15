@@ -8,7 +8,7 @@
 #include "execution_activity.h"
 #include "gif_recorder.h"
 #include "nes_target.h"
-#include "orb.h"
+#include "ines_importer.h"
 #include "os.h"
 #include "actions.h"
 #include "app.h"
@@ -401,7 +401,7 @@ static b32 app_import_game(Str path)
 	}
 
 	Str title = {};
-	NES_Game *source = orb_game_from_ines_file(&app.frame_arena, path, &title);
+	NES_Game *source = ines_import_file(&app.frame_arena, path, &title);
 	if (!source)
 	{
 		LOG_ERROR("could not read iNES game '%.*s'", path.size, path.data);

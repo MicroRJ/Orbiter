@@ -167,8 +167,8 @@ int main(int argc, char **argv)
 			.prg_rom_size = (u32)cartridge.prg_rom.size,
 			.chr_rom_size = (u32)cartridge.chr_rom.size,
 		},
-		.prg_rom = cartridge.prg_rom,
-		.chr_rom = cartridge.chr_rom,
+		.prg_rom = cartridge.prg_rom.data,
+		.chr_rom = cartridge.chr_rom.data,
 	};
 	if (!nes_setup_emulator(emulator, setup))
 	{

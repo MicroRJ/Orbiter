@@ -129,9 +129,9 @@ NES_GameMetadata;
 typedef struct
 {
 	NES_GameMetadata metadata;
-	ByteSpan          trainer;
-	ByteSpan          prg_rom;
-	ByteSpan          chr_rom;
+	const u8          *trainer;
+	const u8          *prg_rom;
+	const u8          *chr_rom;
 }
 NES_Game;
 

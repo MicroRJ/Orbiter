@@ -1,4 +1,5 @@
-#include "orb.h"
+#include "ines_importer.h"
+#include "app_library_store.h"
 #include "app_save.h"
 
 static b32 orb_test_write_file(const char *path, ByteSpan data)
@@ -26,8 +27,8 @@ static NES_Game orb_test_game(Arena *arena)
 			.prg_rom_size = KiB(16),
 			.chr_rom_size = KiB(8),
 		},
-		.prg_rom = byte_span(prg_rom, KiB(16)),
-		.chr_rom = byte_span(chr_rom, KiB(8)),
+		.prg_rom = prg_rom,
+		.chr_rom = chr_rom,
 	};
 }
 
@@ -49,7 +50,7 @@ static void orb_test_game_hash(Arena *arena)
 	changed = game;
 	changed.metadata.mirroring = NES_MIRROR_HORIZONTAL;
 	Assert(!hash256_match(hash, orb_game_hash(changed)));
-	game.prg_rom.data[0] ^= 0xFF;
+	((u8 *)game.prg_rom)[0] ^= 0xFF;
 	Assert(!hash256_match(hash, orb_game_hash(game)));
 }
 
@@ -69,10 +70,10 @@ static void orb_test_save_state_transfer(Arena *arena)
 	*actual = restored->state;
 	Assert(memory_match(actual, expected, sizeof(*actual)));
 	Assert(restored->mapper_number == game.metadata.mapper);
-	Assert(restored->prg_rom_size == game.prg_rom.size);
-	Assert(restored->chr_rom_size == game.chr_rom.size);
-	Assert(memory_match(restored->prg_rom, game.prg_rom.data, game.prg_rom.size));
-	Assert(memory_match(restored->chr_rom, game.chr_rom.data, game.chr_rom.size));
+	Assert(restored->prg_rom_size == game.metadata.prg_rom_size);
+	Assert(restored->chr_rom_size == game.metadata.chr_rom_size);
+	Assert(memory_match(restored->prg_rom, game.prg_rom, game.metadata.prg_rom_size));
+	Assert(memory_match(restored->chr_rom, game.chr_rom, game.metadata.chr_rom_size));
 }
 
 static void orb_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
@@ -129,7 +130,7 @@ static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
 	Assert(orb_test_write_file(path, byte_span(source, source_size)));
 
 	Str title = {};
-	NES_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), &title);
+	NES_Game *game = ines_import_file(game_arena, str_from_cstr(path), &title);
 	Assert(game);
 	Assert(str_match(title, LIT("orb_game_test")));
 	Assert(game->metadata.mapper == 0);
@@ -137,19 +138,19 @@ static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
 	Assert(game->metadata.trainer_size == 512);
 	Assert(game->metadata.prg_rom_size == KiB(16));
 	Assert(game->metadata.chr_rom_size == KiB(8));
-	Assert(game->trainer.data[0] == 0xA5);
-	Assert(game->prg_rom.data[0] == 0xEA);
-	Assert(game->chr_rom.data[0] == 0x80);
+	Assert(game->trainer[0] == 0xA5);
+	Assert(game->prg_rom[0] == 0xEA);
+	Assert(game->chr_rom[0] == 0x80);
 
 	u64 arena_position = game_arena->position;
 	source[0] = 0;
 	Assert(orb_test_write_file(path, byte_span(source, source_size)));
 	title = LIT("unchanged");
-	Assert(!orb_game_from_ines_file(game_arena, str_from_cstr(path), &title));
+	Assert(!ines_import_file(game_arena, str_from_cstr(path), &title));
 	Assert(!title.data && !title.size);
 	Assert(game_arena->position == arena_position);
 	Assert(orb_test_write_file(path, byte_span(source + 1, 7)));
-	Assert(!orb_game_from_ines_file(game_arena, str_from_cstr(path), 0));
+	Assert(!ines_import_file(game_arena, str_from_cstr(path), 0));
 	Assert(game_arena->position == arena_position);
 	Assert(platform_remove_file(path));
 }

@@ -28,15 +28,15 @@ int main(void)
 
 	NES_Game setup = {
 		.metadata = { .mapper = 0, .mirroring = NES_MIRROR_HORIZONTAL, .prg_rom_size = KiB(16), .chr_rom_size = KiB(8) },
-		.prg_rom = byte_span(prg_rom, KiB(16)),
-		.chr_rom = byte_span(chr_rom, KiB(8)),
+		.prg_rom = prg_rom,
+		.chr_rom = chr_rom,
 	};
 	NES_Emulator *core = arena_push_zero(&arena, sizeof(NES_Emulator));
 	Assert(core);
 	Assert(!nes_emulator_ready_to_run(core));
 
 	NES_Game invalid = setup;
-	invalid.prg_rom = byte_span(arena_push_zero(&arena, KiB(48)), KiB(48));
+	invalid.prg_rom = arena_push_zero(&arena, KiB(48));
 	invalid.metadata.prg_rom_size = KiB(48);
 	Assert(!nes_setup_emulator(core, invalid));
 	Assert(!nes_emulator_ready_to_run(core));

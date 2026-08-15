@@ -165,6 +165,39 @@ b32 app_library_store_read_save(App_LibraryStore *store, Arena *arena, const App
 	return false;
 }
 
+
+static b32 orb_game_memory_is_valid(NES_Game game)
+{
+	return (!game.metadata.trainer_size || game.trainer) && (!game.metadata.prg_rom_size || game.prg_rom) &&
+		(!game.metadata.chr_rom_size || game.chr_rom);
+}
+
+static void orb_hash_u32(SHA256_Context *context, u32 value)
+{
+	u8 bytes[4];
+	for (u32 index = 0; index < sizeof(bytes); index ++) bytes[index] = (u8)(value >> (index * 8));
+	sha256_update(context, byte_span(bytes, sizeof(bytes)));
+}
+
+Hash256 orb_game_hash(NES_Game game)
+{
+	Assert(orb_game_memory_is_valid(game));
+	static const u8 domain[] = "ORB_GAME_1";
+	SHA256_Context context;
+	sha256_init(&context);
+	sha256_update(&context, byte_span((void *)domain, sizeof(domain) - 1));
+	orb_hash_u32(&context, game.metadata.mapper);
+	orb_hash_u32(&context, game.metadata.mirroring == NES_MIRROR_VERTICAL);
+	orb_hash_u32(&context, !!game.metadata.trainer_size);
+	orb_hash_u32(&context, game.metadata.mirroring == NES_MIRROR_FOUR_SCREEN);
+	orb_hash_u32(&context, game.metadata.prg_rom_size);
+	orb_hash_u32(&context, game.metadata.chr_rom_size);
+	sha256_update(&context, byte_span((void *)game.trainer, game.metadata.trainer_size));
+	sha256_update(&context, byte_span((void *)game.prg_rom, game.metadata.prg_rom_size));
+	sha256_update(&context, byte_span((void *)game.chr_rom, game.metadata.chr_rom_size));
+	return sha256_final(&context);
+}
+
 b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App_LibraryGame *game, const App_LibrarySave *save, App_LibraryGameData *data)
 {
 	Assert(store && arena && game && save && data);
@@ -191,9 +224,9 @@ b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App
 	if (!app_library_store_read_save(store, arena, save, &result.save)) goto failed;
 	result.game = (NES_Game) {
 		.metadata = *metadata,
-		.trainer = trainer,
-		.prg_rom = prg,
-		.chr_rom = chr,
+		.trainer = trainer.data,
+		.prg_rom = prg.data,
+		.chr_rom = chr.data,
 	};
 	Hash256 hash = orb_game_hash(result.game);
 	static const char hex[] = "0123456789abcdef";
@@ -303,16 +336,16 @@ b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, NES_G
 	Str save_path = app_library_store_resolve(scratch, store, added->saves[0].path);
 	Str save_directory = app_library_store_parent(scratch, save_path);
 	b32 success = platform_create_directories(game_directory.data) && platform_create_directories(save_directory.data);
-	if (success) success = app_library_store_write_file_atomic(scratch, prg_path.data, source_game.prg_rom);
+	if (success) success = app_library_store_write_file_atomic(scratch, prg_path.data, byte_span((void *)source_game.prg_rom, source_game.metadata.prg_rom_size));
 	if (success && source_game.metadata.chr_rom_size)
 	{
 		Str chr_path = app_library_store_resolve(scratch, store, added->cartridge.chr_path);
-		success = app_library_store_write_file_atomic(scratch, chr_path.data, source_game.chr_rom);
+		success = app_library_store_write_file_atomic(scratch, chr_path.data, byte_span((void *)source_game.chr_rom, source_game.metadata.chr_rom_size));
 	}
 	if (success && source_game.metadata.trainer_size)
 	{
 		Str trainer_path = app_library_store_resolve(scratch, store, added->cartridge.trainer_path);
-		success = app_library_store_write_file_atomic(scratch, trainer_path.data, source_game.trainer);
+		success = app_library_store_write_file_atomic(scratch, trainer_path.data, byte_span((void *)source_game.trainer, source_game.metadata.trainer_size));
 	}
 	if (success) success = app_library_store_write_save(store, scratch, &added->saves[0], save_data);
 	store->library.game_count = old_count + 1;

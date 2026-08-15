@@ -1,4 +1,4 @@
-#include "orb.h"
+#include "ines_importer.h"
 
 enum
 {
@@ -8,38 +8,7 @@ enum
 	INES_CHR_BANK_SIZE = KiB(8),
 };
 
-static b32 orb_game_memory_is_valid(NES_Game game)
-{
-	return game.metadata.trainer_size == game.trainer.size && game.metadata.prg_rom_size == game.prg_rom.size &&
-		game.metadata.chr_rom_size == game.chr_rom.size && (!game.trainer.size || game.trainer.data) &&
-		(!game.prg_rom.size || game.prg_rom.data) && (!game.chr_rom.size || game.chr_rom.data);
-}
 
-static void orb_hash_u32(SHA256_Context *context, u32 value)
-{
-	u8 bytes[4];
-	for (u32 index = 0; index < sizeof(bytes); index ++) bytes[index] = (u8)(value >> (index * 8));
-	sha256_update(context, byte_span(bytes, sizeof(bytes)));
-}
-
-Hash256 orb_game_hash(NES_Game game)
-{
-	Assert(orb_game_memory_is_valid(game));
-	static const u8 domain[] = "ORB_GAME_1";
-	SHA256_Context context;
-	sha256_init(&context);
-	sha256_update(&context, byte_span((void *)domain, sizeof(domain) - 1));
-	orb_hash_u32(&context, game.metadata.mapper);
-	orb_hash_u32(&context, game.metadata.mirroring == NES_MIRROR_VERTICAL);
-	orb_hash_u32(&context, !!game.metadata.trainer_size);
-	orb_hash_u32(&context, game.metadata.mirroring == NES_MIRROR_FOUR_SCREEN);
-	orb_hash_u32(&context, game.metadata.prg_rom_size);
-	orb_hash_u32(&context, game.metadata.chr_rom_size);
-	sha256_update(&context, game.trainer);
-	sha256_update(&context, game.prg_rom);
-	sha256_update(&context, game.chr_rom);
-	return sha256_final(&context);
-}
 
 static b32 nes2_ram_layout_is_ines_compatible(u8 layout)
 {
@@ -74,9 +43,9 @@ static b32 orb_game_from_ines(ByteSpan source, NES_Game *game)
 			.chr_rom_size = (u32)header[5] * INES_CHR_BANK_SIZE,
 		},
 	};
-	result.trainer = byte_stream_take(&stream, result.metadata.trainer_size);
-	result.prg_rom = byte_stream_take(&stream, result.metadata.prg_rom_size);
-	result.chr_rom = byte_stream_take(&stream, result.metadata.chr_rom_size);
+	result.trainer = byte_stream_take(&stream, result.metadata.trainer_size).data;
+	result.prg_rom = byte_stream_take(&stream, result.metadata.prg_rom_size).data;
+	result.chr_rom = byte_stream_take(&stream, result.metadata.chr_rom_size).data;
 	if (stream.failed) return false;
 	*game = result;
 	return true;
@@ -122,7 +91,7 @@ static Str orb_title_from_path(Str path)
 	return str_slice(path, begin, end - begin);
 }
 
-NES_Game *orb_game_from_ines_file(Arena *arena, Str path, Str *title)
+NES_Game *ines_import_file(Arena *arena, Str path, Str *title)
 {
 	if (title) *title = (Str) {};
 	if (!arena || !arena->memory || !path.data || !path.size) return 0;

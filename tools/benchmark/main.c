@@ -1,7 +1,7 @@
 #include "base.h"
 #include "debugger/nes_process.h"
 #include "nes/emulator.h"
-#include "orb.h"
+#include "ines_importer.h"
 #include "os.h"
 
 static b32 benchmark_setup_emulator(NES_Emulator *emulator, const NES_Game *game)
@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 	if (!os_init()) return 1;
 
 	Arena arena = arena_create(0, "NES benchmark");
-	NES_Game *game = orb_game_from_ines_file(&arena, str_from_cstr(argv[1]), 0);
+	NES_Game *game = ines_import_file(&arena, str_from_cstr(argv[1]), 0);
 	NES_Process *debugger = nes_process_create(&arena);
 	NES_Emulator *emulator = &debugger->emulator;
 	if (!game || !benchmark_setup_emulator(emulator, game))

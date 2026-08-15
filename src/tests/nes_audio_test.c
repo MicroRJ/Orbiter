@@ -75,8 +75,8 @@ static NES_Game make_looping_cartridge(Arena *arena)
 	prg[0x3FFD] = 0x80;
 	return (NES_Game) {
 		.metadata = { .mirroring = NES_MIRROR_HORIZONTAL, .prg_rom_size = KiB(16), .chr_rom_size = KiB(8) },
-		.prg_rom = byte_span(prg, KiB(16)),
-		.chr_rom = byte_span(chr, KiB(8)),
+		.prg_rom = prg,
+		.chr_rom = chr,
 	};
 }
 
@@ -140,7 +140,7 @@ static void test_dma_cycles_cross_the_same_boundary(void)
 {
 	Arena arena = arena_create(0, "Orbiter DMA scheduler test");
 	NES_Game cartridge = make_looping_cartridge(&arena);
-	u8 *prg = cartridge.prg_rom.data;
+	u8 *prg = (u8 *)cartridge.prg_rom;
 	prg[0] = 0xA9; // LDA #$02
 	prg[1] = 0x02;
 	prg[2] = 0x8D; // STA $4014: OAM DMA

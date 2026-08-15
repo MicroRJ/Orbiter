@@ -3,7 +3,7 @@
 
 #include "app_library.h"
 #include "app_save.h"
-#include "orb.h"
+#include "ines_importer.h"
 
 typedef struct App_LibraryGameData App_LibraryGameData;
 struct App_LibraryGameData
@@ -30,5 +30,6 @@ b32 app_library_store_write_save(App_LibraryStore *store, Arena *scratch, const 
 b32 app_library_store_write_manifest(App_LibraryStore *store, Arena *scratch);
 b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, NES_Game source_game, Str title, const App_Save *save_data,
 	App_LibraryGame **game, App_LibrarySave **save);
+Hash256 orb_game_hash(NES_Game game);
 
 #endif

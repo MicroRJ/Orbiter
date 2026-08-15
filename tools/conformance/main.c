@@ -1,6 +1,6 @@
 #include "base.h"
 #include "nes/emulator.h"
-#include "orb.h"
+#include "ines_importer.h"
 #include "os.h"
 
 #include <stdio.h>
@@ -148,7 +148,7 @@ static const char *conformance_result_name(Conformance_ResultKind kind)
 static Conformance_Result conformance_run_path(Arena *game_arena, NES_Emulator *emulator, const char *path, u64 timeout_cycles)
 {
 	arena_reset(game_arena);
-	NES_Game *game = orb_game_from_ines_file(game_arena, str_from_cstr(path), 0);
+	NES_Game *game = ines_import_file(game_arena, str_from_cstr(path), 0);
 	if (!game || !conformance_setup_emulator(emulator, game)) return (Conformance_Result) { .kind = CONFORMANCE_RESULT_LOAD_ERROR };
 	return conformance_run_blargg(emulator, timeout_cycles);
 }
