@@ -1,7 +1,7 @@
 #include "app_window.h"
 #include "app.h"
 #include "app_library_store.h"
-#include "debugger.h"
+#include "nes_process.h"
 #include "gif_recorder.h"
 #include "panels.h"
 #include "text_gfx.h"

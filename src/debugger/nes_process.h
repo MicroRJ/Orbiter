@@ -16,8 +16,6 @@ enum
 	DEBUGGER_TRACE_CAPACITY               = 16 * 1024,
 	DEBUGGER_SNAPSHOT_CAPACITY            = 1024,
 	DEBUGGER_SNAPSHOT_MASK                = DEBUGGER_SNAPSHOT_CAPACITY - 1,
-	DEBUGGER_RUNTIME_CHR_RAM_SIZE         = KiB(8),
-	DEBUGGER_RUNTIME_PRG_RAM_SIZE         = KiB(8),
 };
 
 typedef struct
@@ -31,22 +29,7 @@ CPU_MappingSnapshot;
 
 typedef struct
 {
-	// ---
-	u64              sample_phase;
-	// ---
-	u8                 values[32];
-	NES_InputState    input_state;
-	u32          cpu_stall_cycles;
-	u64           scheduler_clock;
-	NES_CPUState              cpu;
-	NES_PPUState              ppu;
-	NES_APUState              apu;
-	u8             controllers[2];
-	u8        wram[NES_WRAM_SIZE];
-	u8        vram[NES_VRAM_SIZE];
-	u8 chr_ram[DEBUGGER_RUNTIME_CHR_RAM_SIZE];
-	u8 prg_ram[DEBUGGER_RUNTIME_PRG_RAM_SIZE];
-	u8 video[NES_VIDEO_HEIGHT][NES_VIDEO_WIDTH];
+	NES_State state;
 }
 NES_ProcessSnapshot;
 

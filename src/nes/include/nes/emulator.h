@@ -130,10 +130,11 @@ typedef struct
 }
 NES_SetupParams;
 
+// TODO(RJ): metrics have the same state lifecycle but are not real machine state
 #define NES_STATE_FIELDS                                                       \
-	u64                   scheduler_clock;                                      \
 	NES_BusMetrics        cpu_bus_metrics;                                      \
 	NES_BusMetrics        ppu_bus_metrics;                                      \
+	u64                   scheduler_clock;                                      \
 	u64                   sample_phase;                                         \
 	u32                   cpu_stall_cycles;                                     \
 	NES_CPUState          cpu;                                                  \

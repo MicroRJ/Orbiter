@@ -1,4 +1,4 @@
-#include "debugger.h"
+#include "nes_process.h"
 #include "views.h"
 
 enum

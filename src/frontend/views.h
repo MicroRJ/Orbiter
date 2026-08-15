@@ -1,7 +1,7 @@
 #ifndef FRONTEND_VIEWS_H
 #define FRONTEND_VIEWS_H
 
-#include "debugger.h"
+#include "nes_process.h"
 #include "execution_activity.h"
 #include "graphics.h"
 #include "nes_target.h"

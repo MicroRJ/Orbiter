@@ -1,4 +1,4 @@
-#include "debugger.h"
+#include "nes_process.h"
 #include "nes_target.h"
 #include "nes_serialize.h"
 #include "os.h"

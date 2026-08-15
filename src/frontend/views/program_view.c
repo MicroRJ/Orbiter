@@ -1,4 +1,4 @@
-#include "debugger.h"
+#include "nes_process.h"
 #include "nes/isa.h"
 #include "program.h"
 #include "views.h"

@@ -1,4 +1,4 @@
-#include "debugger.h"
+#include "nes_process.h"
 
 // TODO(RJ): remove this!
 void debugger_get_rewind_markers(NES_Process *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker)
@@ -12,7 +12,7 @@ void nes_process_capture_snapshot(NES_Process *debugger)
 {
 	if (debugger->snapshots_cursor > 0) {
 		NES_ProcessSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
-		if (previous_snapshot->scheduler_clock == nes_emulator_scheduler_clock(&debugger->emulator)) {
+		if (previous_snapshot->state.scheduler_clock == nes_emulator_scheduler_clock(&debugger->emulator)) {
 			return;
 		}
 	}
@@ -22,42 +22,13 @@ void nes_process_capture_snapshot(NES_Process *debugger)
 	Assert(debugger->snapshots_replay_marker >= debugger->snapshots_rewind_marker);
 	Assert(debugger->snapshots_replay_marker - debugger->snapshots_rewind_marker <= DEBUGGER_SNAPSHOT_CAPACITY);
 
-	NES_Emulator *emulator = &debugger->emulator;
-
 	memory_zero(snapshot, sizeof(*snapshot));
-	snapshot->sample_phase = emulator->sample_phase;
-	memory_copy(snapshot->values, emulator->values, sizeof(snapshot->values));
-	snapshot->input_state = emulator->input_state;
-	snapshot->cpu_stall_cycles = emulator->cpu_stall_cycles;
-	snapshot->scheduler_clock = emulator->scheduler_clock;
-	snapshot->cpu = emulator->cpu;
-	snapshot->ppu = emulator->ppu;
-	snapshot->apu = emulator->apu;
-	memory_copy(snapshot->controllers, emulator->controllers, sizeof(snapshot->controllers));
-	memory_copy(snapshot->wram, emulator->_wram, sizeof(snapshot->wram));
-	memory_copy(snapshot->vram, emulator->_vram, sizeof(snapshot->vram));
-	memory_copy(snapshot->chr_ram, emulator->chr_ram, sizeof(snapshot->chr_ram));
-	memory_copy(snapshot->prg_ram, emulator->prg_ram, sizeof(snapshot->prg_ram));
-	memory_copy(snapshot->video, emulator->video, sizeof(snapshot->video));
+	snapshot->state = debugger->emulator.state;
 }
 
-static void debugger_restore(NES_Process *debugger, const NES_ProcessSnapshot *snapshot)
+static void restore_process(NES_Process *debugger, const NES_ProcessSnapshot *snapshot)
 {
-	NES_Emulator *emulator = &debugger->emulator;
-	memory_copy(emulator->values, snapshot->values, sizeof(snapshot->values));
-	emulator->sample_phase = snapshot->sample_phase;
-	emulator->input_state = snapshot->input_state;
-	emulator->cpu_stall_cycles = snapshot->cpu_stall_cycles;
-	emulator->scheduler_clock = snapshot->scheduler_clock;
-	emulator->cpu = snapshot->cpu;
-	emulator->ppu = snapshot->ppu;
-	emulator->apu = snapshot->apu;
-	memory_copy(emulator->controllers, snapshot->controllers, sizeof(snapshot->controllers));
-	memory_copy(emulator->_wram, snapshot->wram, sizeof(snapshot->wram));
-	memory_copy(emulator->_vram, snapshot->vram, sizeof(snapshot->vram));
-	memory_copy(emulator->chr_ram, snapshot->chr_ram, sizeof(snapshot->chr_ram));
-	memory_copy(emulator->prg_ram, snapshot->prg_ram, sizeof(snapshot->prg_ram));
-	memory_copy(emulator->video, snapshot->video, sizeof(snapshot->video));
+	debugger->emulator.state = snapshot->state;
 }
 
 static void update_cpu_mapping(NES_Process *debugger)
@@ -83,7 +54,7 @@ b32 nes_process_rewind(NES_Process *debugger)
 {
 	// Todo, we need to detect wrap around!
 	if (debugger->snapshots_cursor <= debugger->snapshots_rewind_marker) return 0;
-	debugger_restore(debugger, &debugger->snapshots[-- debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK]);
+	restore_process(debugger, &debugger->snapshots[-- debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK]);
 	execution_path_discard(&debugger->execution_path);
 	update_cpu_mapping(debugger);
 	return 1;
@@ -92,7 +63,7 @@ b32 nes_process_rewind(NES_Process *debugger)
 b32 nes_process_replay(NES_Process *debugger)
 {
 	if (debugger->snapshots_cursor >= debugger->snapshots_replay_marker) return 0;
-	debugger_restore(debugger, &debugger->snapshots[debugger->snapshots_cursor ++ & DEBUGGER_SNAPSHOT_MASK]);
+	restore_process(debugger, &debugger->snapshots[debugger->snapshots_cursor ++ & DEBUGGER_SNAPSHOT_MASK]);
 	execution_path_discard(&debugger->execution_path);
 	update_cpu_mapping(debugger);
 	return 1;

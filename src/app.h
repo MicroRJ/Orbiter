@@ -6,7 +6,7 @@
 #include "app_save.h"
 #include "audio_mixer.h"
 #include "audio_stream.h"
-#include "debugger.h"
+#include "nes_process.h"
 #include "execution_activity.h"
 #include "gif_recorder.h"
 #include "nes_target.h"

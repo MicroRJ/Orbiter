@@ -1,4 +1,4 @@
-#include "debugger.h"
+#include "nes_process.h"
 #include "audio_mixer.h"
 #include "audio_stream.h"
 #include "graphics.h"

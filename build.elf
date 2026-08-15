@@ -110,7 +110,7 @@ objects := {
 	{ name = "app_save",          input = "src/app_save.c" },
 	{ name = "app_library",       input = "src/app_library.c" },
 	{ name = "app_library_store", input = "src/app_library_store.c" },
-	{ name = "debugger",          input = "src/debugger/debugger.c" },
+	{ name = "debugger",          input = "src/debugger/nes_process.c" },
 	{ name = "program",           input = "src/debugger/program.c" },
 	{ name = "execution_graph",    input = "src/debugger/execution_graph.c" },
 	{ name = "nes_target",         input = "src/frontend/nes_target.c" },

@@ -1,5 +1,5 @@
 #include "base.h"
-#include "debugger/debugger.h"
+#include "debugger/nes_process.h"
 #include "nes/emulator.h"
 #include "orb.h"
 #include "os.h"
