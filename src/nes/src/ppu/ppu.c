@@ -332,10 +332,9 @@ static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
 	{
 		if (dot == 1)
 		{
-			ppu->oam_index  = 0;
-			ppu->oam_offset = 0;
-			ppu->oam_latch  = 0xFF;
-			ppu->soam_index = 0;
+			ppu->oam_address = 0;
+			ppu->oam_latch   = 0xFF;
+			ppu->soam_index  = 0;
 		}
 		else if (!(dot & 1))
 		{
@@ -346,42 +345,37 @@ static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
 
 	// Reaching the end of primary OAM leaves the evaluator idle for the
 	// remainder of dots 65-256.
-	if (ppu->oam_index >= ArrayCount(ppu->OAM)) return;
+	if (ppu->oam_address >= 256) return;
 
 	// Odd dots read one byte from primary OAM. Even dots consume that byte.
 	if (dot & 1)
 	{
-		ppu->oam_latch = ppu->_oam[ppu->oam_index * sizeof(NES_PPUSprite) + ppu->oam_offset];
+		ppu->oam_latch = ppu->_oam[ppu->oam_address];
 		return;
 	}
 
 	u32 sprite_height = (ppu->PPUCTRL & PPUCTRL_SPRITE_SIZE_8X16) ? 16 : 8;
-	if (ppu->soam_index < sizeof(ppu->soam))
+	u32 oam_offset = ppu->oam_address & 3;
+	if (ppu->soam_index < 8)
 	{
-		Assert(ppu->oam_offset < sizeof(NES_PPUSprite));
 		ppu->soam[ppu->soam_index] = ppu->oam_latch;
 
-		if (ppu->oam_offset == 0)
+		if (oam_offset == 0)
 		{
 			if (ppu_sprite_y_in_range(ppu->oam_latch, scanline, sprite_height))
 			{
 				ppu->soam_index++;
-				ppu->oam_offset = 1;
+				ppu->oam_address++;
 			}
 			else
 			{
-				ppu->oam_index++;
+				ppu->oam_address += 4;
 			}
 		}
 		else
 		{
 			ppu->soam_index++;
-			ppu->oam_offset++;
-			if (ppu->oam_offset == sizeof(NES_PPUSprite))
-			{
-				ppu->oam_offset = 0;
-				ppu->oam_index++;
-			}
+			ppu->oam_address++;
 		}
 		return;
 	}
@@ -393,12 +387,12 @@ static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
 	if (ppu_sprite_y_in_range(ppu->oam_latch, scanline, sprite_height))
 	{
 		ppu->PPUSTATUS |= 0x20;
-		ppu->oam_index = ArrayCount(ppu->OAM);
+		ppu->oam_address = 256;
 	}
 	else
 	{
-		ppu->oam_index++;
-		ppu->oam_offset = (ppu->oam_offset + 1) & 3;
+		u32 oam_index = ppu->oam_address >> 2;
+		ppu->oam_address = ((oam_index + 1) << 2) | ((oam_offset + 1) & 3);
 	}
 }
 

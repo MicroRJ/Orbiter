@@ -66,8 +66,7 @@ typedef struct
 		NES_PPUSprite OAM[ 64];
 		u8           _oam[256];
 	};
-	u8 oam_index;
-	u8 oam_offset;
+	u16 oam_address;
 	u8 oam_latch;
 	u8 soam_index;
 	union
