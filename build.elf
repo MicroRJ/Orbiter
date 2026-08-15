@@ -128,7 +128,7 @@ tests := {
 	{ name = "byte_stream_test",    input = "src/tests/byte_stream_test.c" },
 	{ name = "sha256_test",         input = "src/tests/sha256_test.c" },
 	{ name = "audio_mixer_test",    input = "src/tests/audio_mixer_test.c" },
-	{ name = "orb_test",            input = "src/tests/orb_test.c" },
+	{ name = "ines_importer_test",  input = "src/tests/ines_importer_test.c" },
 	{ name = "app_library_test",    input = "src/tests/app_library_test.c" },
 	{ name = "app_library_store_test", input = "src/tests/app_library_store_test.c" },
 	{ name = "nes_emulator_test",   input = "src/tests/nes_emulator_test.c" },

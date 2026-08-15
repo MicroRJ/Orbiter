@@ -10,7 +10,6 @@
 #include "execution_activity.h"
 #include "gif_recorder.h"
 #include "nes_target.h"
-#include "ines_importer.h"
 #include "text.h"
 #include "text_gfx.h"
 

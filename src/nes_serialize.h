@@ -3,6 +3,6 @@
 
 #include "nes/emulator.h"
 
-b32 orb_transfer_save_state(ByteStream *stream, NES_State *state);
+b32 nes_serialize_state(ByteStream *stream, NES_State *state);
 
 #endif

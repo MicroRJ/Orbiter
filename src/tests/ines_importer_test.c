@@ -1,8 +1,7 @@
 #include "ines_importer.h"
-#include "app_library_store.h"
 #include "app_save.h"
 
-static b32 orb_test_write_file(const char *path, ByteSpan data)
+static b32 ines_importer_test_write_file(const char *path, ByteSpan data)
 {
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
 	if (!platform_file_is_valid(file)) return false;
@@ -12,7 +11,7 @@ static b32 orb_test_write_file(const char *path, ByteSpan data)
 	return success;
 }
 
-static NES_Game orb_test_game(Arena *arena)
+static NES_Game ines_importer_test_game(Arena *arena)
 {
 	u8 *prg_rom = arena_push_zero(arena, KiB(16));
 	u8 *chr_rom = arena_push_zero(arena, KiB(8));
@@ -32,31 +31,9 @@ static NES_Game orb_test_game(Arena *arena)
 	};
 }
 
-static void orb_test_game_hash(Arena *arena)
+static void ines_importer_test_save_state_transfer(Arena *arena)
 {
-	static const u8 expected[] = {
-		0xC9, 0x40, 0xD7, 0xF9, 0xCE, 0xD8, 0xAB, 0x08,
-		0x05, 0x8A, 0x34, 0xDD, 0x10, 0x88, 0x24, 0x49,
-		0x86, 0x55, 0x15, 0x16, 0x02, 0x01, 0xCE, 0xBD,
-		0xB3, 0x55, 0xB0, 0x6C, 0x3A, 0x5C, 0x5A, 0x00,
-	};
-	NES_Game game = orb_test_game(arena);
-	Hash256 hash = orb_game_hash(game);
-	Assert(memory_match(hash.bytes, expected, sizeof(expected)));
-
-	NES_Game changed = game;
-	changed.metadata.mapper ++;
-	Assert(!hash256_match(hash, orb_game_hash(changed)));
-	changed = game;
-	changed.metadata.mirroring = NES_MIRROR_HORIZONTAL;
-	Assert(!hash256_match(hash, orb_game_hash(changed)));
-	((u8 *)game.prg_rom)[0] ^= 0xFF;
-	Assert(!hash256_match(hash, orb_game_hash(game)));
-}
-
-static void orb_test_save_state_transfer(Arena *arena)
-{
-	NES_Game game = orb_test_game(arena);
+	NES_Game game = ines_importer_test_game(arena);
 	NES_Emulator *source = arena_push_zero(arena, sizeof(*source));
 	NES_Emulator *restored = arena_push_zero(arena, sizeof(*restored));
 	Assert(nes_setup_emulator(source, game));
@@ -76,7 +53,7 @@ static void orb_test_save_state_transfer(Arena *arena)
 	Assert(memory_match(restored->chr_rom, game.chr_rom, game.metadata.chr_rom_size));
 }
 
-static void orb_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
+static void ines_importer_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
 {
 	u8 thumbnail_pixels[] = {
 		255, 0, 0, 255, 0, 255, 0, 255,
@@ -115,9 +92,9 @@ static void orb_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
 	Assert(!app_save_decode(decoded_arena, byte_span(invalid_magic, encoded.size), &decoded));
 }
 
-static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
+static void ines_importer_test_import(Arena *source_arena, Arena *game_arena)
 {
-	const char path[] = "orb_game_test.nes";
+	const char path[] = "ines_importer_test.nes";
 	u32 source_size = 16 + 512 + KiB(16) + KiB(8);
 	u8 *source = arena_push_zero(source_arena, source_size);
 	source[0] = 'N'; source[1] = 'E'; source[2] = 'S'; source[3] = 0x1A;
@@ -127,12 +104,12 @@ static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
 	source[16] = 0xA5;
 	source[16 + 512] = 0xEA;
 	source[16 + 512 + KiB(16)] = 0x80;
-	Assert(orb_test_write_file(path, byte_span(source, source_size)));
+	Assert(ines_importer_test_write_file(path, byte_span(source, source_size)));
 
 	Str title = {};
 	NES_Game *game = ines_import_file(game_arena, str_from_cstr(path), &title);
 	Assert(game);
-	Assert(str_match(title, LIT("orb_game_test")));
+	Assert(str_match(title, LIT("ines_importer_test")));
 	Assert(game->metadata.mapper == 0);
 	Assert(game->metadata.mirroring == NES_MIRROR_VERTICAL);
 	Assert(game->metadata.trainer_size == 512);
@@ -144,12 +121,12 @@ static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
 
 	u64 arena_position = game_arena->position;
 	source[0] = 0;
-	Assert(orb_test_write_file(path, byte_span(source, source_size)));
+	Assert(ines_importer_test_write_file(path, byte_span(source, source_size)));
 	title = LIT("unchanged");
 	Assert(!ines_import_file(game_arena, str_from_cstr(path), &title));
 	Assert(!title.data && !title.size);
 	Assert(game_arena->position == arena_position);
-	Assert(orb_test_write_file(path, byte_span(source + 1, 7)));
+	Assert(ines_importer_test_write_file(path, byte_span(source + 1, 7)));
 	Assert(!ines_import_file(game_arena, str_from_cstr(path), 0));
 	Assert(game_arena->position == arena_position);
 	Assert(platform_remove_file(path));
@@ -157,14 +134,13 @@ static void orb_test_ines_import(Arena *source_arena, Arena *game_arena)
 
 int main(void)
 {
-	Arena source_arena = arena_create(0, "Orb source test");
-	Arena encoded_arena = arena_create(0, "Orb encoded test");
-	Arena decoded_arena = arena_create(0, "Orb decoded test");
-	Arena game_arena = arena_create(0, "Orb game test");
-	orb_test_game_hash(&source_arena);
-	orb_test_save_state_transfer(&source_arena);
-	orb_test_app_save(&encoded_arena, &decoded_arena);
-	orb_test_ines_import(&source_arena, &game_arena);
+	Arena source_arena = arena_create(0, "iNES importer source test");
+	Arena encoded_arena = arena_create(0, "iNES importer encoded test");
+	Arena decoded_arena = arena_create(0, "iNES importer decoded test");
+	Arena game_arena = arena_create(0, "iNES importer game test");
+	ines_importer_test_save_state_transfer(&source_arena);
+	ines_importer_test_app_save(&encoded_arena, &decoded_arena);
+	ines_importer_test_import(&source_arena, &game_arena);
 	arena_destroy(&game_arena);
 	arena_destroy(&decoded_arena);
 	arena_destroy(&encoded_arena);

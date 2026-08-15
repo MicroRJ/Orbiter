@@ -28,7 +28,7 @@ ByteSpan app_save_encode(Arena *arena, const App_Save *save)
 	u32 version = APP_SAVE_VERSION;
 	byte_transfer_u32(&stream, &magic);
 	byte_transfer_u32(&stream, &version);
-	orb_transfer_save_state(&stream, (NES_State *)&save->state);
+	nes_serialize_state(&stream, (NES_State *)&save->state);
 	byte_transfer_u32(&stream, &thumbnail_present);
 	if (thumbnail_present)
 	{
@@ -62,7 +62,7 @@ b32 app_save_decode(Arena *arena, ByteSpan encoded, App_Save *save)
 	byte_transfer_u32(&stream, &magic);
 	byte_transfer_u32(&stream, &version);
 	if (stream.failed || magic != APP_SAVE_MAGIC || version != APP_SAVE_VERSION) goto failed;
-	if (!orb_transfer_save_state(&stream, &decoded.state)) goto failed;
+	if (!nes_serialize_state(&stream, &decoded.state)) goto failed;
 	byte_transfer_u32(&stream, &thumbnail_present);
 	if (stream.failed || thumbnail_present > 1) goto failed;
 	if (thumbnail_present)

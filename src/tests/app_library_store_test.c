@@ -1,4 +1,5 @@
 #include "app_library_store.h"
+#include "ines_importer.h"
 #include "elf.h"
 
 global const char test_directory[] = "app_library_store_test_tmp";

@@ -306,7 +306,7 @@ static const SerializeRecordMap nes_record_map =
 	.record_count = ArrayCount(nes_records),
 };
 
-b32 orb_transfer_save_state(ByteStream *stream, NES_State *state)
+b32 nes_serialize_state(ByteStream *stream, NES_State *state)
 {
 	Assert(stream && !stream->failed && !stream->ended);
 	Assert(state);

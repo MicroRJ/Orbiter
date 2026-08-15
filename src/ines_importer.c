@@ -22,7 +22,7 @@ static b32 nes2_header_is_ines_compatible(const u8 *header)
 		!(header[12] & ~0x03) && (timing == 0 || timing == 2) && !header[13] && !header[14] && header[15] <= 1;
 }
 
-static b32 orb_game_from_ines(ByteSpan source, NES_Game *game)
+static b32 ines_import(ByteSpan source, NES_Game *game)
 {
 	Assert(game);
 	*game = (NES_Game) {};
@@ -51,7 +51,7 @@ static b32 orb_game_from_ines(ByteSpan source, NES_Game *game)
 	return true;
 }
 
-static ByteSpan orb_read_entire_file(Arena *arena, const char *path)
+static ByteSpan ines_importer_read_entire_file(Arena *arena, const char *path)
 {
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
 	if (!platform_file_is_valid(file)) return (ByteSpan) {};
@@ -77,7 +77,7 @@ static ByteSpan orb_read_entire_file(Arena *arena, const char *path)
 	return byte_span(data, file_size);
 }
 
-static Str orb_title_from_path(Str path)
+static Str ines_importer_title_from_path(Str path)
 {
 	u32 begin = 0;
 	for (u32 index = 0; index < path.size; index ++) if (path.data[index] == '/' || path.data[index] == '\\') begin = index + 1;
@@ -98,12 +98,12 @@ NES_Game *ines_import_file(Arena *arena, Str path, Str *title)
 	u64 arena_start = arena->position;
 	Str stored_path = str_push_copy(arena, path);
 	NES_Game *game = arena_push_zero(arena, sizeof(*game));
-	ByteSpan source = orb_read_entire_file(arena, stored_path.data);
-	if (!source.size || !orb_game_from_ines(source, game))
+	ByteSpan source = ines_importer_read_entire_file(arena, stored_path.data);
+	if (!source.size || !ines_import(source, game))
 	{
 		arena->position = arena_start;
 		return 0;
 	}
-	if (title) *title = orb_title_from_path(stored_path);
+	if (title) *title = ines_importer_title_from_path(stored_path);
 	return game;
 }
