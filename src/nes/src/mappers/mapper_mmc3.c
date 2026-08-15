@@ -1,4 +1,5 @@
 // https://www.nesdev.org/wiki/MMC3
+// iNES Mapper 004.
 
 
 #include "mapper.h"
@@ -6,7 +7,7 @@
 
 enum {
 	R0, R1, R2, R3, R4, R5, R6, R7,
-	// hardware doesn't r8 and r9! we fix them to mean -2 and -1, that way the addressing logic is cleaner!
+	// hardware doesn't have r8 and r9! we fix them to mean -2 and -1, that way the addressing logic is cleaner!
 	R8, R9,
 	R_MODE,
 	R_VERT,

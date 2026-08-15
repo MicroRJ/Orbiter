@@ -524,7 +524,6 @@ static LibraryCardOutput library_card_component(UI_Context *ui, UI_Key key, cons
 	ui_overflow(ui, AXIS_X, UI_BOX_OVERFLOW_CLIP);
 	ui_overflow(ui, AXIS_Y, UI_BOX_OVERFLOW_CLIP);
 	ui_background(ui, palette->raised);
-	ui_border(ui, palette->divider, 1.f);
 	ui_roundness(ui, 8.f);
 	UI_Box *card = ui_begin_horz(ui, key);
 	UI_Response response = ui_signal_from_box(card);

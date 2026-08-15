@@ -1,7 +1,7 @@
 #ifndef ORBITER_APP_LIBRARY_H
 #define ORBITER_APP_LIBRARY_H
 
-#include "nes/emulator.h"
+#include "nes/game.h"
 
 typedef struct elf_State elf_State;
 
