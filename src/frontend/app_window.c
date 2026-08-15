@@ -764,7 +764,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 
 	f32 pulse = 0.5f + 0.5f * sinf((f32)seconds_now().seconds * 3.f * 4);
 
-	if (!nes_emulator_ready_to_run(&app->debugger->emulator))
+	if (!nes_emulator_ready_to_run(&app->process->emulator))
 	{
 		style.color = ui->theme.palette.amber;
 		ui_clean(ui);
@@ -778,12 +778,8 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 		ui_clean(ui);
 		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
 		ui_size(ui, AXIS_Y, ui_wrap());
-		u64 rewind_marker;
-		u64 replay_marker;
-		u64 rewind_cursor;
-		debugger_get_rewind_markers(window->app->debugger, &rewind_marker, &rewind_cursor, &replay_marker);
-
-		Str str = str_push_copy_f(&ui->frame_arena, "<< REWINDING [%llu, %llu, %llu]", rewind_marker, rewind_cursor, replay_marker);
+		NES_ProcessTimeline timeline = nes_process_timeline(window->app->process);
+		Str str = str_push_copy_f(&ui->frame_arena, "<< REWINDING [%llu, %llu, %llu]", timeline.rewind_marker, timeline.cursor, timeline.replay_marker);
 		app_status_text(ui, 3, str, style, ui->theme.palette.emission_high * pulse);
 	}
 	else if (app->transport.state == APP_TRANSPORT_SCRUBBING && app->transport.direction == +1)
@@ -1030,7 +1026,7 @@ void app_window_render(App_Window *window)
 	}
 	App *app = window->app;
 	Assert(app);
-	Assert(app->debugger);
+	Assert(app->process);
 	Assert(app->video_texture);
 	Assert(app->chr_texture);
 
@@ -1048,10 +1044,10 @@ void app_window_render(App_Window *window)
 	else {
 		ViewFrameData view_frame = {
 			.window = window,
-			.emulator = &app->debugger->emulator,
-			.debugger = app->debugger,
+			.emulator = &app->process->emulator,
+			.process = app->process,
 			.program = &app->program,
-			.execution_graph = debugger_execution_graph(app->debugger),
+			.execution_graph = nes_process_execution_graph(app->process),
 			.execution_activity = &app->execution_activity,
 			.publication = &app->published,
 			.video_texture = app->video_texture,

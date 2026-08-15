@@ -58,7 +58,7 @@ struct App
 	Arena arena;
 	Arena frame_arena;
 	Arena game_arena;
-	NES_Process *debugger;
+	NES_Process *process;
 	Program program;
 	ExecutionActivity execution_activity;
 	NES_TargetPublication published;

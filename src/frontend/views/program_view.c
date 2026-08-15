@@ -115,8 +115,8 @@ static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_
 
 static void program_view_content(ViewFrameData *frame)
 {
-	NES_Process *debugger = frame->debugger;
-	Assert(debugger);
+	NES_Process *process = frame->process;
+	Assert(process);
 
 	ViewState *state = &frame->view->program;
 	UI_Context *ui = frame->ui;
@@ -216,9 +216,9 @@ static void program_view_content(ViewFrameData *frame)
 
 		rect_f32 content_rect = row_rect;
 		rect_f32 address_rect = rect_f32_slice(&content_rect, AXIS_X, 12 * 7);
-		b32 has_breakpoint = nes_process_has_breakpoint(debugger, instruction.map_addr);
+		b32 has_breakpoint = nes_process_has_breakpoint(process, instruction.map_addr);
 		if (listing_current && content_hot && rect_f32_contains(address_rect, ui->mouse) && ui->input->keys[OS_Key_MouseLeft] & INPUT_KEY_PRESSED) {
-			nes_process_set_breakpoint(debugger, instruction.map_addr, !has_breakpoint);
+			nes_process_set_breakpoint(process, instruction.map_addr, !has_breakpoint);
 			has_breakpoint = !has_breakpoint;
 		}
 
@@ -286,7 +286,6 @@ static const UI_BoxHooks program_box_hooks = {
 
 void program_view_build_ui(ViewFrameData *frame)
 {
-	NES_Process *debugger = frame->debugger;
 	const Program *program = frame->program;
 	b32 listing_current = !program->listing_dirty;
 	u16 cpu_address = program->cpu_pc;

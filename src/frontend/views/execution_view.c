@@ -132,10 +132,10 @@ static b32 prg_activity_storage_offset(const Program *program, NES_MapAddr mappe
 	return false;
 }
 
-static b32 prg_activity_has_mapped_ram(const NES_Process *debugger)
+static b32 prg_activity_has_mapped_ram(const NES_Process *process)
 {
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk) {
-		if (nes_process_cpu_mapped_chunk(debugger, chunk).device == NES_DEVICE_PRG_RAM) {
+		if (nes_process_cpu_mapped_chunk(process, chunk).device == NES_DEVICE_PRG_RAM) {
 			return true;
 		}
 	}
@@ -236,11 +236,11 @@ static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGri
 	ui_pop_z(ui);
 }
 
-static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *grid, const NES_Process *debugger, const Program *program, b32 include_prg_ram)
+static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *grid, const NES_Process *process, const Program *program, b32 include_prg_ram)
 {
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk)
 	{
-		NES_MapAddr mapped = nes_process_cpu_mapped_chunk(debugger, chunk);
+		NES_MapAddr mapped = nes_process_cpu_mapped_chunk(process, chunk);
 		u32 page = MAX_VALUE_U32;
 		if (mapped.device == NES_DEVICE_PRG_ROM && mapped.offset < program->prg_rom_byte_count) {
 			page = mapped.offset / CPU_MAPPING_CHUNK_SIZE;
@@ -254,7 +254,7 @@ static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *
 
 static void prg_activity_view_content(ViewFrameData *frame)
 {
-	NES_Process *debugger = frame->debugger;
+	NES_Process *process = frame->process;
 	UI_Context *ui = frame->ui;
 	PRGActivityViewState *state = &frame->view->prg_activity;
 	Assert(frame->execution_graph);
@@ -266,7 +266,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	text_style.color = ui->theme.text_subtle;
 	rect_f32 layout = rect_f32_inset(frame->rect, 12.f);
 	const Program *program = frame->program;
-	b32 include_prg_ram = prg_activity_has_mapped_ram(debugger);
+	b32 include_prg_ram = prg_activity_has_mapped_ram(process);
 	u32 program_size = program->prg_rom_byte_count + (include_prg_ram ? program->prg_ram_byte_count : 0);
 	u16 pc = frame->publication->cpu.PC;
 	b32 hovered = ui_box_contains_hot(frame->content_box) && rect_f32_contains(frame->rect, ui->mouse);
@@ -300,7 +300,7 @@ static void prg_activity_view_content(ViewFrameData *frame)
 	u32 ram_size = include_prg_ram ? program->prg_ram_byte_count : 0;
 	PRGActivityGrid grid = prg_activity_grid(layout, program->prg_rom_byte_count, ram_size, cell_size);
 	b32 *mapped_pages = arena_push_zero(frame->scratch, sizeof(*mapped_pages) * grid.page_count);
-	prg_activity_mapped_pages(mapped_pages, &grid, debugger, program, include_prg_ram);
+	prg_activity_mapped_pages(mapped_pages, &grid, process, program, include_prg_ram);
 	Color_SRGBA mapped_color = color_srgba_mix(ui->theme.slider_track, ui->theme.text_subtle, 0.05f);
 	u32 hovered_cell = MAX_VALUE_U32;
 	rect_f32 hovered_cell_rect = {};

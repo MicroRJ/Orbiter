@@ -24,8 +24,8 @@ int main(int argc, char **argv)
 	Arena arena = arena_create(0, "NES benchmark");
 	ByteSpan source = push_file(&arena, str_from_cstr(argv[1]));
 	NES_Game game = {};
-	NES_Process *debugger = nes_process_create(&arena);
-	NES_Emulator *emulator = &debugger->emulator;
+	NES_Process *process = nes_process_create(&arena);
+	NES_Emulator *emulator = &process->emulator;
 	if (!source.data || !ines_import(source, &game) || !nes_setup_emulator(emulator, game))
 	{
 		fprintf(stderr, "failed to load game '%s'\n", argv[1]);
@@ -34,12 +34,12 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	nes_process_reset(debugger);
+	nes_process_reset(process);
 	u64 sample_capacity = nes_required_sample_capacity();
 	f32 *samples = arena_push(&arena, sizeof(*samples) * sample_capacity);
 	Seconds begin = seconds_now();
 	for (u32 frame = 0; frame < frame_count; ++frame) {
-		nes_process_run_frame(debugger, samples, sample_capacity);
+		nes_process_run_frame(process, samples, sample_capacity);
 	}
 	f64 elapsed_seconds = seconds_now().seconds - begin.seconds;
 

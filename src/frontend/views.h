@@ -81,7 +81,7 @@ struct ViewFrameData
 	DF_PanelViewData *view;
 	App_Window    *window;
 	NES_Emulator  *emulator;
-	NES_Process      *debugger;
+	NES_Process       *process;
 	const Program    *program;
 	UI_Context    *ui;
 	Arena         *scratch;

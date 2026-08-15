@@ -33,21 +33,21 @@ static ByteSpan capture_state(NES_Emulator *emulator, Arena *arena)
 	return orb_nes_state_encode(arena, emulator);
 }
 
-static b32 check_determinism(NES_Process *debugger, NES_Emulator *emulator, NES_TargetPublication *publication, Arena *arena, u32 frame)
+static b32 check_determinism(NES_Process *process, NES_Emulator *emulator, NES_TargetPublication *publication, Arena *arena, u32 frame)
 {
 	SCRATCH_SCOPE(arena)
 	{
 		u64 sample_capacity = nes_required_sample_capacity();
 		f32 *expected_samples = arena_push(arena, sizeof(*expected_samples) * sample_capacity);
 		f32 *replayed_samples = arena_push(arena, sizeof(*replayed_samples) * sample_capacity);
-		nes_process_capture_snapshot(debugger);
+		nes_process_capture_snapshot(process);
 		u64 snapshot_clock = nes_emulator_scheduler_clock(emulator);
-		NES_RunFrameResult expected_frame = nes_process_run_frame(debugger, expected_samples, sample_capacity);
+		NES_RunFrameResult expected_frame = nes_process_run_frame(process, expected_samples, sample_capacity);
 		u64 expected_clock = nes_emulator_scheduler_clock(emulator);
 		ByteSpan expected = capture_state(emulator, arena);
 		if (!expected.data) return false;
 
-		if (!nes_process_rewind(debugger) || nes_emulator_scheduler_clock(emulator) != snapshot_clock)
+		if (!nes_process_rewind(process) || nes_emulator_scheduler_clock(emulator) != snapshot_clock)
 		{
 			LOG_ERROR("snapshot undo mismatch at frame %u: expected clock %llu, got %llu",
 				frame, snapshot_clock, nes_emulator_scheduler_clock(emulator));
@@ -57,8 +57,8 @@ static b32 check_determinism(NES_Process *debugger, NES_Emulator *emulator, NES_
 		// Undo consumes the execution-origin snapshot. Capture the restored
 		// state again before replaying, just as the application does before
 		// every run.
-		nes_process_capture_snapshot(debugger);
-		NES_RunFrameResult replayed_frame = nes_process_run_frame(debugger, replayed_samples, sample_capacity);
+		nes_process_capture_snapshot(process);
+		NES_RunFrameResult replayed_frame = nes_process_run_frame(process, replayed_samples, sample_capacity);
 		u64 replayed_clock = nes_emulator_scheduler_clock(emulator);
 		ByteSpan replayed = capture_state(emulator, arena);
 		if (!replayed.data) return false;
@@ -81,13 +81,13 @@ static b32 check_determinism(NES_Process *debugger, NES_Emulator *emulator, NES_
 				"determinism_replayed.dump", replayed.data, replayed.size);
 			return false;
 		}
-		if (!nes_process_rewind(debugger) ||
+		if (!nes_process_rewind(process) ||
 			nes_emulator_scheduler_clock(emulator) != snapshot_clock)
 		{
 			LOG_ERROR("replayed snapshot undo mismatch at frame %u", frame);
 			return false;
 		}
-		nes_process_capture_snapshot(debugger);
+		nes_process_capture_snapshot(process);
 	}
 	return true;
 }
@@ -121,9 +121,9 @@ int main(int argc, char **argv)
 	}
 
 	int exit_code = 1;
-	Arena arena = arena_create(0, "headless debugger arena");
-	NES_Process *debugger = nes_process_create(&arena);
-	NES_Emulator *emulator = &debugger->emulator;
+	Arena arena = arena_create(0, "headless process arena");
+	NES_Process *process = nes_process_create(&arena);
+	NES_Emulator *emulator = &process->emulator;
 	Program *program = arena_push_zero(&arena, sizeof(*program));
 	NES_TargetPublication *publication = arena_push_zero(&arena, sizeof(*publication));
 	ByteSpan rom = push_file(&arena, str_from_cstr(argv[1]));
@@ -164,8 +164,8 @@ int main(int argc, char **argv)
 			goto done;
 		}
 	}
-	nes_process_reset(debugger);
-	program_reset(program, debugger->program_rom_size, debugger->program_ram_size);
+	nes_process_reset(process);
+	program_reset(program, process->program_rom_size, process->program_ram_size);
 	u64 sample_capacity = nes_required_sample_capacity();
 	f32 *samples = arena_push(&arena, sizeof(*samples) * sample_capacity);
 	if (check_replay)
@@ -174,34 +174,34 @@ int main(int argc, char **argv)
 		u16 breakpoint_pc = publication->cpu.PC;
 		u64 breakpoint_clock = nes_emulator_scheduler_clock(emulator);
 		NES_MapAddr breakpoint = nes_emulator_cpu_map(emulator, breakpoint_pc);
-		nes_process_set_breakpoint(debugger, breakpoint, true);
-		nes_process_capture_snapshot(debugger);
-		NES_RunFrameResult breakpoint_frame = nes_process_run_frame(debugger, samples, sample_capacity);
+		nes_process_set_breakpoint(process, breakpoint, true);
+		nes_process_capture_snapshot(process);
+		NES_RunFrameResult breakpoint_frame = nes_process_run_frame(process, samples, sample_capacity);
 		nes_target_publish(publication, emulator);
 		if (breakpoint_frame.samples ||
-			!nes_process_hit_breakpoint(debugger) || nes_emulator_scheduler_clock(emulator) != breakpoint_clock ||
+			!nes_process_hit_breakpoint(process) || nes_emulator_scheduler_clock(emulator) != breakpoint_clock ||
 			publication->cpu.PC != breakpoint_pc)
 		{
 			LOG_ERROR("snapshot breakpoint replay failed at CPU $%04X", breakpoint_pc);
 			goto done;
 		}
-		nes_process_set_breakpoint(debugger, breakpoint, false);
-		nes_process_capture_snapshot(debugger);
+		nes_process_set_breakpoint(process, breakpoint, false);
+		nes_process_capture_snapshot(process);
 	}
 
 	for (u32 frame = 0; frame < frame_count; ++frame)
 	{
 		if (check_replay)
 		{
-			if (!check_determinism(debugger, emulator, publication, &arena, frame)) goto done;
-			nes_process_capture_snapshot(debugger);
-			nes_process_run_frame(debugger, samples, sample_capacity);
+			if (!check_determinism(process, emulator, publication, &arena, frame)) goto done;
+			nes_process_capture_snapshot(process);
+			nes_process_run_frame(process, samples, sample_capacity);
 			continue;
 		}
-		nes_process_capture_snapshot(debugger);
-		nes_process_run_frame(debugger, samples, sample_capacity);
+		nes_process_capture_snapshot(process);
+		nes_process_run_frame(process, samples, sample_capacity);
 		program_invalidate(program);
-		program_rebuild(program, emulator, debugger->program_evidence);
+		program_rebuild(program, emulator, process->program_evidence);
 
 		nes_target_publish(publication, emulator);
 		u16 pc = publication->cpu.PC;

@@ -17,8 +17,8 @@
 #include "elf.h"
 
 global const char app_user_config_path[]  = "data/user.tab";
-global const char debugger_log_path[]     = "data/debugger.log";
-global const char debugger_program_path[] = "data/program.dump";
+global const char app_log_path[]          = "data/debugger.log";
+global const char program_dump_path[]     = "data/program.dump";
 global const char app_font_path[]         = "data/fonts/Saira/static/Saira-Medium.ttf";
 global const char app_library_path[]      = "data/library/library.elf";
 
@@ -27,7 +27,7 @@ global App app = {
 	.ppu_volume_target = 0.3f,
 	.ppu_volume_restore = 0.3f,
 };
-global FILE *debugger_log_file;
+global FILE *app_log_file;
 
 static Str app_title_from_path(Str path)
 {
@@ -273,7 +273,7 @@ static void app_update_emulator_input(const App_WindowOutput *window_output)
 	for (u32 player = 0; player < 2; player ++)
 	{
 		NES_Input input = app_translate_keyboard_input_for_emulator(window_output->keyboard_input[player]) | app_translate_controller_input_for_emulator(player);
-		nes_emulator_set_input(&app.debugger->emulator, player, input);
+		nes_emulator_set_input(&app.process->emulator, player, input);
 	}
 }
 
@@ -281,13 +281,13 @@ static void app_finish_emulator_state_change(void)
 {
 	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
 	audio_stream_discard(app.audio);
-	nes_process_reset(app.debugger);
-	program_reset(&app.program, app.debugger->program_rom_size, app.debugger->program_ram_size);
+	nes_process_reset(app.process);
+	program_reset(&app.program, app.process->program_rom_size, app.process->program_ram_size);
 }
 
 static void app_rebuild_program_listing(void)
 {
-	program_rebuild(&app.program, &app.debugger->emulator, app.debugger->program_evidence);
+	program_rebuild(&app.program, &app.process->emulator, app.process->program_evidence);
 }
 
 static b32 app_restore_state(void)
@@ -298,9 +298,9 @@ static b32 app_restore_state(void)
 		return false;
 	}
 
-	Assert(nes_emulator_ready_to_run(&app.debugger->emulator));
-	app.debugger->emulator.state = app.session.save.state;
-	Assert(nes_emulator_valid(&app.debugger->emulator));
+	Assert(nes_emulator_ready_to_run(&app.process->emulator));
+	app.process->emulator.state = app.session.save.state;
+	Assert(nes_emulator_valid(&app.process->emulator));
 	app_finish_emulator_state_change();
 	LOG_INFO("restored active save");
 	return true;
@@ -308,13 +308,13 @@ static b32 app_restore_state(void)
 
 static b32 app_reset_emulator(void)
 {
-	if (!nes_emulator_ready_to_run(&app.debugger->emulator))
+	if (!nes_emulator_ready_to_run(&app.process->emulator))
 	{
 		LOG_WARN("no active game to reset");
 		return false;
 	}
 
-	nes_reset_emulator(&app.debugger->emulator);
+	nes_reset_emulator(&app.process->emulator);
 	app_finish_emulator_state_change();
 	LOG_INFO("reset active game");
 	return true;
@@ -370,9 +370,9 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 	arena_destroy(&app.game_arena);
 	app.game_arena = next_game_arena;
 	app.session = next_session;
-	memory_copy(&app.debugger->emulator, next_emulator, sizeof(app.debugger->emulator));
+	memory_copy(&app.process->emulator, next_emulator, sizeof(app.process->emulator));
 	app.play_time_seconds = 0;
-	nes_process_clear_breakpoints(app.debugger);
+	nes_process_clear_breakpoints(app.process);
 	app_finish_emulator_state_change();
 	// TODO(RJ) we can't just do this, it has to be driven based off of intent!
 	app_window_set_library_visible(app.window, false);
@@ -465,19 +465,19 @@ static b32 app_handle_actions(App_WindowOutput input)
 			case APP_ACTION_DUMP_PROGRAM:
 			{
 				app_rebuild_program_listing();
-				if (program_dump(&app.program, debugger_program_path)) LOG_INFO("dumped program model to '%s'", debugger_program_path);
-				else LOG_ERROR("failed to dump program model to '%s'", debugger_program_path);
+				if (program_dump(&app.program, program_dump_path)) LOG_INFO("dumped program model to '%s'", program_dump_path);
+				else LOG_ERROR("failed to dump program model to '%s'", program_dump_path);
 			} break;
 			case APP_ACTION_TOGGLE_RUNNING:
 			{
-				if (nes_emulator_ready_to_run(&app.debugger->emulator))
+				if (nes_emulator_ready_to_run(&app.process->emulator))
 				{
 					App_TransportState *state = app.transport.state == APP_TRANSPORT_SCRUBBING ? &app.transport.return_state : &app.transport.state;
 					Assert(*state == APP_TRANSPORT_PAUSED || *state == APP_TRANSPORT_RUNNING);
 					if (*state == APP_TRANSPORT_RUNNING) *state = APP_TRANSPORT_PAUSED;
 					else
 					{
-						nes_process_clear_ram_evidence(app.debugger);
+						nes_process_clear_ram_evidence(app.process);
 						*state = APP_TRANSPORT_RUNNING;
 					}
 					LOG_INFO(*state == APP_TRANSPORT_RUNNING ? "running realtime" : "paused");
@@ -528,7 +528,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 
 	scrub_direction = CLAMP(scrub_direction, -1, 1);
 	b32 scrub_modifier_down = !!(input.modifiers & OS_MODIFIER_CONTROL);
-	if (nes_emulator_ready_to_run(&app.debugger->emulator) && scrub_input_active)
+	if (nes_emulator_ready_to_run(&app.process->emulator) && scrub_input_active)
 	{
 		if (app.transport.state != APP_TRANSPORT_SCRUBBING)
 		{
@@ -565,9 +565,9 @@ static void app_run_frame(void)
 	u64 sample_capacity = nes_required_sample_capacity();
 	if (!app.audio_backend_available)
 	{
-		NES_RunFrameResult frame = nes_process_run_frame(app.debugger, 0, 0);
+		NES_RunFrameResult frame = nes_process_run_frame(app.process, 0, 0);
 		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
-		if (nes_process_hit_breakpoint(app.debugger))
+		if (nes_process_hit_breakpoint(app.process))
 		{
 			app.transport.state = APP_TRANSPORT_PAUSED;
 			return;
@@ -585,8 +585,8 @@ static void app_run_frame(void)
 
 	while (audio_stream_queued_frames(app.audio) < target)
 	{
-		NES_RunFrameResult frame = nes_process_run_frame(app.debugger, samples, sample_capacity);
-		if (nes_process_hit_breakpoint(app.debugger))
+		NES_RunFrameResult frame = nes_process_run_frame(app.process, samples, sample_capacity);
+		if (nes_process_hit_breakpoint(app.process))
 		{
 			app.transport.state = APP_TRANSPORT_PAUSED;
 			return;
@@ -675,7 +675,7 @@ static void app_tick(App_WindowOutput input)
 {
 	b32 step_requested = app_handle_actions(input);
 
-	if (nes_emulator_ready_to_run(&app.debugger->emulator))
+	if (nes_emulator_ready_to_run(&app.process->emulator))
 	{
 		if (app.transport.state != APP_TRANSPORT_SCRUBBING)
 		{
@@ -684,7 +684,7 @@ static void app_tick(App_WindowOutput input)
 			if (step_requested) {
 				app.transport.state = APP_TRANSPORT_PAUSED;
 				program_invalidate(&app.program);
-				PROF_BLOCK("emulation step") nes_process_step(app.debugger);
+				PROF_BLOCK("emulation step") nes_process_step(app.process);
 			}
 			else if (app.transport.state == APP_TRANSPORT_RUNNING) {
 				program_invalidate(&app.program);
@@ -696,21 +696,21 @@ static void app_tick(App_WindowOutput input)
 			// TODO(RJ) this needs to be configurable, and also, we should just be able
 			// to skip backwards arbitrarily instead of doing one step at a time
 			for(u32 i=0;i<4;++i) {
-				if(!nes_process_rewind(app.debugger)) break;
+				if(!nes_process_rewind(app.process)) break;
 				program_invalidate(&app.program);
 			}
 		}
 		else if (app.transport.direction == +1)
 		{
 			for(u32 i=0;i<4;++i) {
-				if(!nes_process_replay(app.debugger)) break;
+				if(!nes_process_replay(app.process)) break;
 				program_invalidate(&app.program);
 			}
 		}
 
 		if (app.transport.state != APP_TRANSPORT_RUNNING) app_rebuild_program_listing();
-		PROF_BLOCK("execution activity")   execution_activity_update(&app.execution_activity, debugger_execution_graph(app.debugger), seconds_now().seconds);
-		PROF_BLOCK("publish NES target")   nes_target_publish(&app.published, &app.debugger->emulator);
+		PROF_BLOCK("execution activity")   execution_activity_update(&app.execution_activity, nes_process_execution_graph(app.process), seconds_now().seconds);
+		PROF_BLOCK("publish NES target")   nes_target_publish(&app.published, &app.process->emulator);
 		PROF_BLOCK("upload video texture") app_upload_video_texture();
 		PROF_BLOCK("upload CHR texture")   app_upload_chr_texture();
 
@@ -798,7 +798,7 @@ static b32 app_init(void)
 	app.renderer = gfx_create_renderer(&app.arena);
 	app.text = text_create(&app.arena);
 	app.text_gfx = text_gfx_create(&app.arena, app.renderer, app.text);
-	app.debugger = nes_process_create(&app.arena);
+	app.process = nes_process_create(&app.arena);
 	app.window = app_window_create(&app.arena, &app, (App_WindowDesc) {
 		.title = "Orbiter v0.1.0",
 		.theme = theme,
@@ -837,7 +837,7 @@ static b32 app_save_state(void)
 {
 	if (!app.session.library_save) return true;
 	Assert(app.session.library_game);
-	Assert(nes_emulator_ready_to_run(&app.debugger->emulator));
+	Assert(nes_emulator_ready_to_run(&app.process->emulator));
 
 	u64 now = Max(app_unix_time_ms(), Max(app.session.library_game->last_played_unix_ms, app.session.library_save->updated_unix_ms));
 	u64 elapsed = app_play_time_ms();
@@ -850,7 +850,7 @@ static b32 app_save_state(void)
 	app.session.library_game->play_time_ms += elapsed;
 	App_Save *next_save_data = arena_push(&app.frame_arena, sizeof(*next_save_data));
 	*next_save_data = app.session.save;
-	next_save_data->state = app.debugger->emulator.state;
+	next_save_data->state = app.process->emulator.state;
 	if (!app_library_store_write_save(app.library_store, &app.frame_arena, app.session.library_save, next_save_data))
 	{
 		*app.session.library_save = previous_save;
@@ -880,11 +880,11 @@ static void app_shutdown(void)
 	os_audio_shutdown();
 	os_graphical_shutdown();
 	os_shutdown();
-	if (debugger_log_file)
+	if (app_log_file)
 	{
-		logger_remove_sink(app_file_log_sink, debugger_log_file);
-		fclose(debugger_log_file);
-		debugger_log_file = 0;
+		logger_remove_sink(app_file_log_sink, app_log_file);
+		fclose(app_log_file);
+		app_log_file = 0;
 	}
 }
 
@@ -895,11 +895,11 @@ int main(void)
 		os_set_current_directory_to_executable();
 	}
 
-	debugger_log_file = fopen(debugger_log_path, "w");
-	if (debugger_log_file) {
-		Assert(logger_add_sink(app_file_log_sink, debugger_log_file));
+	app_log_file = fopen(app_log_path, "w");
+	if (app_log_file) {
+		Assert(logger_add_sink(app_file_log_sink, app_log_file));
 	} else {
-		LOG_WARN("failed to open session log '%s'", debugger_log_path);
+		LOG_WARN("failed to open session log '%s'", app_log_path);
 	}
 
 	if (!app_init()) {
