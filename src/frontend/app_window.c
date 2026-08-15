@@ -932,7 +932,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 	app_status_divider(ui, 1, true);
 	app_status_row_begin(ui, 2, LIT("bottom status row"));
 
-	Str bottom_left = app->session.game ? app->session.game->title : LIT("NO CARTRIDGE");
+	Str bottom_left = app->session.library_game ? app->session.library_game->title : LIT("NO CARTRIDGE");
 	ui_clean(ui);
 	ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));

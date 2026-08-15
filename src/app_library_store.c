@@ -198,45 +198,48 @@ static Hash256 app_library_store_game_hash(NES_Game game)
 	return sha256_final(&context);
 }
 
-b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App_LibraryGame *game, const App_LibrarySave *save, App_LibraryGameData *data)
+b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App_LibraryGame *library_game, const App_LibrarySave *library_save,
+	NES_Game *game, App_Save *save)
 {
-	Assert(store && arena && game && save && data);
+	Assert(store && arena && library_game && library_save && game && save);
 	u64 arena_position = arena->position;
-	App_LibraryGameData result = {};
-	const NES_GameMetadata *metadata = &game->cartridge.metadata;
-	Str prg_path = app_library_store_resolve(arena, store, game->cartridge.prg_path);
+	NES_Game result_game = {};
+	App_Save result_save = {};
+	const NES_GameMetadata *metadata = &library_game->cartridge.metadata;
+	Str prg_path = app_library_store_resolve(arena, store, library_game->cartridge.prg_path);
 	ByteSpan prg = prg_path.data ? app_library_store_read_file(arena, prg_path.data) : (ByteSpan) {};
 	if (!prg.data || prg.size != metadata->prg_rom_size) goto failed;
 	ByteSpan chr = {};
 	if (metadata->chr_rom_size)
 	{
-		Str chr_path = app_library_store_resolve(arena, store, game->cartridge.chr_path);
+		Str chr_path = app_library_store_resolve(arena, store, library_game->cartridge.chr_path);
 		chr = chr_path.data ? app_library_store_read_file(arena, chr_path.data) : (ByteSpan) {};
 		if (!chr.data || chr.size != metadata->chr_rom_size) goto failed;
 	}
 	ByteSpan trainer = {};
-	if (game->cartridge.trainer_path.size)
+	if (library_game->cartridge.trainer_path.size)
 	{
-		Str trainer_path = app_library_store_resolve(arena, store, game->cartridge.trainer_path);
+		Str trainer_path = app_library_store_resolve(arena, store, library_game->cartridge.trainer_path);
 		trainer = trainer_path.data ? app_library_store_read_file(arena, trainer_path.data) : (ByteSpan) {};
 		if (!trainer.data || trainer.size != metadata->trainer_size) goto failed;
 	}
-	if (!app_library_store_read_save(store, arena, save, &result.save)) goto failed;
-	result.game = (NES_Game) {
+	if (!app_library_store_read_save(store, arena, library_save, &result_save)) goto failed;
+	result_game = (NES_Game) {
 		.metadata = *metadata,
 		.trainer = trainer.data,
 		.prg_rom = prg.data,
 		.chr_rom = chr.data,
 	};
-	Hash256 hash = app_library_store_game_hash(result.game);
+	Hash256 hash = app_library_store_game_hash(result_game);
 	static const char hex[] = "0123456789abcdef";
-	if (game->id.size != sizeof(hash.bytes) * 2) goto failed;
+	if (library_game->id.size != sizeof(hash.bytes) * 2) goto failed;
 	for (u32 index = 0; index < sizeof(hash.bytes); index ++)
 	{
-		if (game->id.data[index * 2 + 0] != hex[hash.bytes[index] >> 4]) goto failed;
-		if (game->id.data[index * 2 + 1] != hex[hash.bytes[index] & 15]) goto failed;
+		if (library_game->id.data[index * 2 + 0] != hex[hash.bytes[index] >> 4]) goto failed;
+		if (library_game->id.data[index * 2 + 1] != hex[hash.bytes[index] & 15]) goto failed;
 	}
-	*data = result;
+	*game = result_game;
+	*save = result_save;
 	return true;
 
 failed:

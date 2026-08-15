@@ -298,15 +298,14 @@ static void app_rebuild_program_listing(void)
 
 static b32 app_restore_state(void)
 {
-	if (!app.session.save)
+	if (!app.session.library_save)
 	{
 		LOG_WARN("no active save to restore");
 		return false;
 	}
 
-	Assert(app.session.data);
 	Assert(nes_emulator_ready_to_run(&app.debugger->emulator));
-	app.debugger->emulator.state = app.session.data->save.state;
+	app.debugger->emulator.state = app.session.save.state;
 	Assert(nes_emulator_valid(&app.debugger->emulator));
 	app_finish_emulator_state_change();
 	LOG_INFO("restored active save");
@@ -349,28 +348,26 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 	}
 
 	Arena next_game_arena = arena_create(0, "next game arena");
-	App_LibraryGameData *data = arena_push_zero(&next_game_arena, sizeof(*data));
-	if (!app_library_store_read_game(app.library_store, &next_game_arena, game, save, data))
+	App_GameSession next_session = {
+		.epoch = app.session.epoch + 1,
+		.library_game = game,
+		.library_save = save,
+	};
+	if (!app_library_store_read_game(app.library_store, &next_game_arena, game, save, &next_session.game, &next_session.save))
 	{
 		LOG_ERROR("could not load game '%.*s'", game->title.size, game->title.data);
 		arena_destroy(&next_game_arena);
 		return false;
 	}
-	App_GameSession next_session = {
-		.epoch = app.session.epoch + 1,
-		.game = game,
-		.save = save,
-		.data = data,
-	};
 	Assert(next_session.epoch);
 	NES_Emulator *next_emulator = arena_push(&app.frame_arena, sizeof(*next_emulator));
-	if (!nes_setup_emulator(next_emulator, data->game))
+	if (!nes_setup_emulator(next_emulator, next_session.game))
 	{
 		LOG_ERROR("unsupported cartridge in '%.*s'", game->title.size, game->title.data);
 		arena_destroy(&next_game_arena);
 		return false;
 	}
-	next_emulator->state = data->save.state;
+	next_emulator->state = next_session.save.state;
 	if (!nes_emulator_valid(next_emulator))
 	{
 		LOG_ERROR("invalid save state in '%.*s'", game->title.size, game->title.data);
@@ -843,39 +840,38 @@ static void app_pace_frame(void)
 
 static b32 app_save_state(void)
 {
-	if (!app.session.save) return true;
-	Assert(app.session.game);
-	Assert(app.session.data);
+	if (!app.session.library_save) return true;
+	Assert(app.session.library_game);
 	Assert(nes_emulator_ready_to_run(&app.debugger->emulator));
 
-	u64 now = Max(app_unix_time_ms(), Max(app.session.game->last_played_unix_ms, app.session.save->updated_unix_ms));
+	u64 now = Max(app_unix_time_ms(), Max(app.session.library_game->last_played_unix_ms, app.session.library_save->updated_unix_ms));
 	u64 elapsed = app_play_time_ms();
-	App_LibrarySave previous_save = *app.session.save;
-	u64 previous_game_updated = app.session.game->last_played_unix_ms;
-	u64 previous_game_play_time = app.session.game->play_time_ms;
-	app.session.save->updated_unix_ms = now;
-	app.session.save->play_time_ms += elapsed;
-	app.session.game->last_played_unix_ms = now;
-	app.session.game->play_time_ms += elapsed;
+	App_LibrarySave previous_save = *app.session.library_save;
+	u64 previous_game_updated = app.session.library_game->last_played_unix_ms;
+	u64 previous_game_play_time = app.session.library_game->play_time_ms;
+	app.session.library_save->updated_unix_ms = now;
+	app.session.library_save->play_time_ms += elapsed;
+	app.session.library_game->last_played_unix_ms = now;
+	app.session.library_game->play_time_ms += elapsed;
 	App_Save *next_save_data = arena_push(&app.frame_arena, sizeof(*next_save_data));
-	*next_save_data = app.session.data->save;
+	*next_save_data = app.session.save;
 	next_save_data->state = app.debugger->emulator.state;
-	if (!app_library_store_write_save(app.library_store, &app.frame_arena, app.session.save, next_save_data))
+	if (!app_library_store_write_save(app.library_store, &app.frame_arena, app.session.library_save, next_save_data))
 	{
-		*app.session.save = previous_save;
-		app.session.game->last_played_unix_ms = previous_game_updated;
-		app.session.game->play_time_ms = previous_game_play_time;
-		LOG_ERROR("failed to write active save '%.*s'", app.session.save->id.size, app.session.save->id.data);
+		*app.session.library_save = previous_save;
+		app.session.library_game->last_played_unix_ms = previous_game_updated;
+		app.session.library_game->play_time_ms = previous_game_play_time;
+		LOG_ERROR("failed to write active save '%.*s'", app.session.library_save->id.size, app.session.library_save->id.data);
 		return false;
 	}
-	app.session.data->save = *next_save_data;
+	app.session.save = *next_save_data;
 	app.play_time_seconds = 0;
 	if (!app_library_store_write_manifest(app.library_store, &app.frame_arena))
 	{
 		LOG_ERROR("saved state but failed to update library metadata; it will be retried on the next save");
 		return false;
 	}
-	LOG_INFO("saved '%.*s'", app.session.game->title.size, app.session.game->title.data);
+	LOG_INFO("saved '%.*s'", app.session.library_game->title.size, app.session.library_game->title.data);
 	return true;
 }
 

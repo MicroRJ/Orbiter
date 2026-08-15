@@ -53,22 +53,22 @@ static void app_library_store_test_cleanup(void)
 	Assert(platform_remove_tree(absolute_target));
 }
 
-static void app_library_store_test_compare_game(const App_LibraryGameData *data, ByteSpan prg, ByteSpan chr, const App_Save *save)
+static void app_library_store_test_compare_game(const NES_Game *game, const App_Save *actual_save, ByteSpan prg, ByteSpan chr, const App_Save *expected_save)
 {
-	Assert(data->game.metadata.mapper == 0);
-	Assert(data->game.metadata.mirroring == NES_MIRROR_VERTICAL);
-	Assert(!data->game.metadata.trainer_size);
-	Assert(data->game.metadata.prg_rom_size == prg.size);
-	Assert(data->game.metadata.chr_rom_size == chr.size);
-	Assert(memory_match(data->game.prg_rom, prg.data, prg.size));
-	Assert(memory_match(data->game.chr_rom, chr.data, chr.size));
-	Assert(memory_match(&data->save.state, &save->state, sizeof(save->state)));
-	Assert(data->save.thumbnail.width == save->thumbnail.width);
-	Assert(data->save.thumbnail.height == save->thumbnail.height);
-	Assert(data->save.thumbnail.stride == save->thumbnail.stride);
-	Assert(data->save.thumbnail.format == save->thumbnail.format);
-	Assert(data->save.thumbnail.pixels.size == save->thumbnail.pixels.size);
-	Assert(memory_match(data->save.thumbnail.pixels.data, save->thumbnail.pixels.data, save->thumbnail.pixels.size));
+	Assert(game->metadata.mapper == 0);
+	Assert(game->metadata.mirroring == NES_MIRROR_VERTICAL);
+	Assert(!game->metadata.trainer_size);
+	Assert(game->metadata.prg_rom_size == prg.size);
+	Assert(game->metadata.chr_rom_size == chr.size);
+	Assert(memory_match(game->prg_rom, prg.data, prg.size));
+	Assert(memory_match(game->chr_rom, chr.data, chr.size));
+	Assert(memory_match(&actual_save->state, &expected_save->state, sizeof(expected_save->state)));
+	Assert(actual_save->thumbnail.width == expected_save->thumbnail.width);
+	Assert(actual_save->thumbnail.height == expected_save->thumbnail.height);
+	Assert(actual_save->thumbnail.stride == expected_save->thumbnail.stride);
+	Assert(actual_save->thumbnail.format == expected_save->thumbnail.format);
+	Assert(actual_save->thumbnail.pixels.size == expected_save->thumbnail.pixels.size);
+	Assert(memory_match(actual_save->thumbnail.pixels.data, expected_save->thumbnail.pixels.data, expected_save->thumbnail.pixels.size));
 }
 
 static b32 app_library_store_test_verify_manifest(const char *path)
@@ -85,16 +85,17 @@ static b32 app_library_store_test_verify_manifest(const char *path)
 		{
 			if (game->saves[save_index].kind == APP_LIBRARY_SAVE_RESUME) save = &game->saves[save_index];
 		}
-		App_LibraryGameData *data = arena_push_zero(&arena, sizeof(*data));
-		valid = save && app_library_store_read_game(store, &arena, game, save, data);
+		NES_Game *loaded_game = arena_push_zero(&arena, sizeof(*loaded_game));
+		App_Save *loaded_save = arena_push_zero(&arena, sizeof(*loaded_save));
+		valid = save && app_library_store_read_game(store, &arena, game, save, loaded_game, loaded_save);
 		NES_Emulator *emulator = arena_push_zero(&arena, sizeof(*emulator));
 		if (valid)
 		{
-			valid = nes_setup_emulator(emulator, data->game);
+			valid = nes_setup_emulator(emulator, *loaded_game);
 		}
 		if (valid)
 		{
-			emulator->state = data->save.state;
+			emulator->state = loaded_save->state;
 			valid = nes_emulator_valid(emulator);
 		}
 		if (!valid) fprintf(stderr, "failed to verify '%.*s'\n", game->title.size, game->title.data);
@@ -227,14 +228,15 @@ static void app_library_store_test_fresh_import_resume(void)
 	Assert(save->updated_unix_ms == 9000);
 	Assert(save->play_time_ms == 8000);
 
-	App_LibraryGameData *loaded = arena_push_zero(&game_arena, sizeof(*loaded));
-	Assert(app_library_store_read_game(store, &game_arena, game, save, loaded));
-	app_library_store_test_compare_game(loaded, byte_span(source_prg, prg_size), byte_span(source_chr, chr_size), expected_save);
-	Assert(!loaded->game.trainer);
+	NES_Game *loaded_game = arena_push_zero(&game_arena, sizeof(*loaded_game));
+	App_Save *loaded_save = arena_push_zero(&game_arena, sizeof(*loaded_save));
+	Assert(app_library_store_read_game(store, &game_arena, game, save, loaded_game, loaded_save));
+	app_library_store_test_compare_game(loaded_game, loaded_save, byte_span(source_prg, prg_size), byte_span(source_chr, chr_size), expected_save);
+	Assert(!loaded_game->trainer);
 
 	NES_Emulator *restored = arena_push_zero(&emulator_arena, sizeof(*restored));
-	Assert(nes_setup_emulator(restored, loaded->game));
-	restored->state = loaded->save.state;
+	Assert(nes_setup_emulator(restored, *loaded_game));
+	restored->state = loaded_save->state;
 	Assert(nes_emulator_valid(restored));
 	NES_State *recaptured = arena_push_zero(&source_arena, sizeof(*recaptured));
 	*recaptured = restored->state;
@@ -328,21 +330,22 @@ int main(int argc, char **argv)
 	Assert(str_match(game->id, str_from_cstr(test_game_id)));
 	Assert(game->save_count == 1);
 	App_LibrarySave *save = &game->saves[0];
-	App_LibraryGameData *loaded = arena_push_zero(&game_arena, sizeof(*loaded));
-	Assert(app_library_store_read_game(store, &game_arena, game, save, loaded));
-	app_library_store_test_compare_game(loaded, prg_bytes, chr_bytes, expected_save);
+	NES_Game *loaded_game = arena_push_zero(&game_arena, sizeof(*loaded_game));
+	App_Save *loaded_save = arena_push_zero(&game_arena, sizeof(*loaded_save));
+	Assert(app_library_store_read_game(store, &game_arena, game, save, loaded_game, loaded_save));
+	app_library_store_test_compare_game(loaded_game, loaded_save, prg_bytes, chr_bytes, expected_save);
 
-	loaded->save.state.scheduler_clock = 777777777;
-	loaded->save.state.cpu.PC = 0x9234;
-	loaded->save.state.prg_ram[0x321] = 0x5A;
-	loaded->save.thumbnail.pixels.data[0] = 17;
-	expected_save->state = loaded->save.state;
+	loaded_save->state.scheduler_clock = 777777777;
+	loaded_save->state.cpu.PC = 0x9234;
+	loaded_save->state.prg_ram[0x321] = 0x5A;
+	loaded_save->thumbnail.pixels.data[0] = 17;
+	expected_save->state = loaded_save->state;
 	thumbnail_pixels[0] = 17;
 	game->last_played_unix_ms = 9000;
 	game->play_time_ms = 8000;
 	save->updated_unix_ms = 9000;
 	save->play_time_ms = 8000;
-	Assert(app_library_store_write_save(store, &scratch, save, &loaded->save));
+	Assert(app_library_store_write_save(store, &scratch, save, loaded_save));
 	Assert(app_library_store_write_manifest(store, &scratch));
 	app_library_store_close(store);
 
@@ -356,19 +359,20 @@ int main(int argc, char **argv)
 	save = &game->saves[0];
 	Assert(save->updated_unix_ms == 9000);
 	Assert(save->play_time_ms == 8000);
-	loaded = arena_push_zero(&game_arena, sizeof(*loaded));
-	Assert(app_library_store_read_game(store, &game_arena, game, save, loaded));
-	app_library_store_test_compare_game(loaded, prg_bytes, chr_bytes, expected_save);
+	loaded_game = arena_push_zero(&game_arena, sizeof(*loaded_game));
+	loaded_save = arena_push_zero(&game_arena, sizeof(*loaded_save));
+	Assert(app_library_store_read_game(store, &game_arena, game, save, loaded_game, loaded_save));
+	app_library_store_test_compare_game(loaded_game, loaded_save, prg_bytes, chr_bytes, expected_save);
 
 	App_LibraryGame *original_game = game;
 	u8 *imported_prg = arena_push_aligned(&source_arena, prg_bytes.size, 1);
 	memory_copy(imported_prg, prg_bytes.data, prg_bytes.size);
 	imported_prg[0] ^= 0xFF;
-	NES_Game imported_source = loaded->game;
+	NES_Game imported_source = *loaded_game;
 	imported_source.prg_rom = imported_prg;
 	App_LibraryGame *imported_game = 0;
 	App_LibrarySave *imported_save = 0;
-	Assert(app_library_store_import_game(store, &scratch, imported_source, LIT("Imported NROM"), &loaded->save, &imported_game, &imported_save));
+	Assert(app_library_store_import_game(store, &scratch, imported_source, LIT("Imported NROM"), loaded_save, &imported_game, &imported_save));
 	Assert(store->library.game_count == 2);
 	Assert(original_game == &store->library.games[0]);
 	Assert(imported_game == &store->library.games[1]);
@@ -380,9 +384,10 @@ int main(int argc, char **argv)
 	Assert(store && store->library.game_count == 2);
 	imported_game = &store->library.games[1];
 	imported_save = &imported_game->saves[0];
-	loaded = arena_push_zero(&game_arena, sizeof(*loaded));
-	Assert(app_library_store_read_game(store, &game_arena, imported_game, imported_save, loaded));
-	app_library_store_test_compare_game(loaded, byte_span(imported_prg, prg_bytes.size), chr_bytes, expected_save);
+	loaded_game = arena_push_zero(&game_arena, sizeof(*loaded_game));
+	loaded_save = arena_push_zero(&game_arena, sizeof(*loaded_save));
+	Assert(app_library_store_read_game(store, &game_arena, imported_game, imported_save, loaded_game, loaded_save));
+	app_library_store_test_compare_game(loaded_game, loaded_save, byte_span(imported_prg, prg_bytes.size), chr_bytes, expected_save);
 	app_library_store_close(store);
 
 	arena_destroy(&scratch);

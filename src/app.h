@@ -16,14 +16,14 @@
 typedef struct App_Window App_Window;
 
 typedef struct App_LibraryStore App_LibraryStore;
-typedef struct App_LibraryGameData App_LibraryGameData;
 
 typedef struct
 {
 	u64 epoch;
-	App_LibraryGame *game;
-	App_LibrarySave *save;
-	App_LibraryGameData *data;
+	App_LibraryGame *library_game;
+	App_LibrarySave *library_save;
+	NES_Game game;
+	App_Save save;
 }
 App_GameSession;
 
