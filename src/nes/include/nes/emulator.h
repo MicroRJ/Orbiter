@@ -144,7 +144,9 @@ struct NES_State
 	NES_STATE_FIELDS;
 };
 
-// TODO(RJ) not sure whether keeping all the memory in one block will pay off
+// TODO(RJ): the idea behind having everything in one contiguous memory block was to
+// have a single absolute address to handle the entire state for read/write/execs, but
+// not sure whether this is worth it now ...
 typedef struct NES_Emulator NES_Emulator;
 struct NES_Emulator
 {

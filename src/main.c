@@ -306,7 +306,7 @@ static b32 app_restore_state(void)
 
 	Assert(app.session.data);
 	Assert(nes_emulator_ready_to_run(&app.debugger->emulator));
-	orb_restore_save_state(&app.debugger->emulator, &app.session.data->save.state);
+	app.debugger->emulator.state = app.session.data->save.state;
 	Assert(nes_emulator_valid(&app.debugger->emulator));
 	app_finish_emulator_state_change();
 	LOG_INFO("restored active save");
@@ -379,7 +379,7 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 		arena_destroy(&next_game_arena);
 		return false;
 	}
-	orb_restore_save_state(next_emulator, &data->save.state);
+	next_emulator->state = data->save.state;
 	if (!nes_emulator_valid(next_emulator))
 	{
 		LOG_ERROR("invalid save state in '%.*s'", game->title.size, game->title.data);
@@ -430,8 +430,7 @@ static b32 app_import_game(Str path)
 		LOG_ERROR("unsupported cartridge in '%.*s'", path.size, path.data);
 		return false;
 	}
-	App_SaveData save_data = {};
-	orb_capture_save_state(&save_data.state, emulator);
+	App_Save save_data = { .state = emulator->state };
 	App_LibraryGame *game = 0;
 	App_LibrarySave *save = 0;
 	b32 imported = app_library_store_import_game(app.library_store, &app.frame_arena, *source, title, &save_data, &game, &save);
@@ -875,9 +874,9 @@ static b32 app_save_state(void)
 	app.session.save->play_time_ms += elapsed;
 	app.session.game->last_played_unix_ms = now;
 	app.session.game->play_time_ms += elapsed;
-	App_SaveData *next_save_data = arena_push(&app.frame_arena, sizeof(*next_save_data));
+	App_Save *next_save_data = arena_push(&app.frame_arena, sizeof(*next_save_data));
 	*next_save_data = app.session.data->save;
-	orb_capture_save_state(&next_save_data->state, &app.debugger->emulator);
+	next_save_data->state = app.debugger->emulator.state;
 	if (!app_library_store_write_save(app.library_store, &app.frame_arena, app.session.save, next_save_data))
 	{
 		*app.session.save = previous_save;

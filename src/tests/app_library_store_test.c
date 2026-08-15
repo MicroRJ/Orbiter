@@ -52,7 +52,7 @@ static void app_library_store_test_cleanup(void)
 	Assert(platform_remove_tree(absolute_target));
 }
 
-static void app_library_store_test_compare_game(const App_LibraryGameData *data, ByteSpan prg, ByteSpan chr, const App_SaveData *save)
+static void app_library_store_test_compare_game(const App_LibraryGameData *data, ByteSpan prg, ByteSpan chr, const App_Save *save)
 {
 	Assert(data->game.metadata.mapper == 0);
 	Assert(data->game.metadata.vmirror);
@@ -101,7 +101,7 @@ static b32 app_library_store_test_verify_manifest(const char *path)
 		}
 		if (valid)
 		{
-			orb_restore_save_state(emulator, &data->save.state);
+			emulator->state = data->save.state;
 			valid = nes_emulator_valid(emulator);
 		}
 		if (!valid) fprintf(stderr, "failed to verify '%.*s'\n", game->title.size, game->title.data);
@@ -180,15 +180,15 @@ static void app_library_store_test_fresh_import_resume(void)
 		255, 0, 0, 255, 0, 255, 0, 255,
 		0, 0, 255, 255, 255, 255, 255, 255,
 	};
-	App_SaveData *expected_save = arena_push_zero(&source_arena, sizeof(*expected_save));
-	expected_save->thumbnail = (Orb_Thumbnail) {
+	App_Save *expected_save = arena_push_zero(&source_arena, sizeof(*expected_save));
+	expected_save->thumbnail = (App_Thumbnail) {
 		.width = 2,
 		.height = 2,
 		.stride = 8,
-		.format = ORB_PIXEL_FORMAT_RGBA8,
+		.format = APP_PIXEL_FORMAT_RGBA8,
 		.pixels = byte_span(thumbnail_pixels, sizeof(thumbnail_pixels)),
 	};
-	orb_capture_save_state(&expected_save->state, emulator);
+	expected_save->state = emulator->state;
 
 	App_LibraryGame *game = 0;
 	App_LibrarySave *save = 0;
@@ -205,7 +205,7 @@ static void app_library_store_test_fresh_import_resume(void)
 	Assert(emulator->_wram[3] != 0);
 	emulator->prg_ram[0x321] = 0x5A;
 	thumbnail_pixels[0] = 17;
-	orb_capture_save_state(&expected_save->state, emulator);
+	expected_save->state = emulator->state;
 
 	game->first_played_unix_ms = 1000;
 	game->last_played_unix_ms = 9000;
@@ -257,10 +257,10 @@ static void app_library_store_test_fresh_import_resume(void)
 		.prg_rom = byte_span(loaded->game.prg_rom_data, loaded->game.metadata.prg_rom_size),
 		.chr_rom = byte_span(loaded->game.chr_rom_data, loaded->game.metadata.chr_rom_size),
 	}));
-	orb_restore_save_state(restored, &loaded->save.state);
+	restored->state = loaded->save.state;
 	Assert(nes_emulator_valid(restored));
-	Orb_SaveState *recaptured = arena_push_zero(&source_arena, sizeof(*recaptured));
-	orb_capture_save_state(recaptured, restored);
+	NES_State *recaptured = arena_push_zero(&source_arena, sizeof(*recaptured));
+	*recaptured = restored->state;
 	Assert(memory_match(recaptured, &expected_save->state, sizeof(*recaptured)));
 
 	app_library_store_close(store);
@@ -295,18 +295,18 @@ int main(int argc, char **argv)
 		255, 0, 0, 255, 0, 255, 0, 255,
 		0, 0, 255, 255, 255, 255, 255, 255,
 	};
-	App_SaveData *expected_save = arena_push_zero(&source_arena, sizeof(*expected_save));
+	App_Save *expected_save = arena_push_zero(&source_arena, sizeof(*expected_save));
 	expected_save->state.scheduler_clock = 123456789;
 	expected_save->state.sample_phase = 987654;
 	expected_save->state.cpu.PC = 0x8123;
 	expected_save->state.ppu.xtick = 123;
-	expected_save->state.wram[0x123] = 0xA5;
+	expected_save->state._wram[0x123] = 0xA5;
 	expected_save->state.video[17][29] = 0x2A;
-	expected_save->thumbnail = (Orb_Thumbnail) {
+	expected_save->thumbnail = (App_Thumbnail) {
 		.width = 2,
 		.height = 2,
 		.stride = 8,
-		.format = ORB_PIXEL_FORMAT_RGBA8,
+		.format = APP_PIXEL_FORMAT_RGBA8,
 		.pixels = byte_span(thumbnail_pixels, sizeof(thumbnail_pixels)),
 	};
 	ByteSpan encoded_save = app_save_encode(&source_arena, expected_save);

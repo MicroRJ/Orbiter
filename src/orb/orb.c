@@ -42,44 +42,6 @@ Hash256 orb_game_hash(Orb_Game game)
 	return sha256_final(&context);
 }
 
-void orb_capture_save_state(Orb_SaveState *save, const NES_Emulator *emulator)
-{
-	Assert(save && emulator);
-	save->scheduler_clock = emulator->scheduler_clock;
-	save->sample_phase = emulator->sample_phase;
-	save->input_state = emulator->input_state;
-	save->cpu_stall_cycles = emulator->cpu_stall_cycles;
-	save->cpu = emulator->cpu;
-	save->ppu = emulator->ppu;
-	save->apu = emulator->apu;
-	memory_copy(save->values, emulator->values, sizeof(save->values));
-	memory_copy(save->controllers, emulator->controllers, sizeof(save->controllers));
-	memory_copy(save->wram, emulator->_wram, sizeof(save->wram));
-	memory_copy(save->vram, emulator->_vram, sizeof(save->vram));
-	memory_copy(save->chr_ram, emulator->chr_ram, sizeof(save->chr_ram));
-	memory_copy(save->prg_ram, emulator->prg_ram, sizeof(save->prg_ram));
-	memory_copy(save->video, emulator->video, sizeof(save->video));
-}
-
-void orb_restore_save_state(NES_Emulator *emulator, const Orb_SaveState *save)
-{
-	Assert(emulator && save);
-	emulator->scheduler_clock = save->scheduler_clock;
-	emulator->sample_phase = save->sample_phase;
-	emulator->input_state = save->input_state;
-	emulator->cpu_stall_cycles = save->cpu_stall_cycles;
-	emulator->cpu = save->cpu;
-	emulator->ppu = save->ppu;
-	emulator->apu = save->apu;
-	memory_copy(emulator->values, save->values, sizeof(save->values));
-	memory_copy(emulator->controllers, save->controllers, sizeof(save->controllers));
-	memory_copy(emulator->_wram, save->wram, sizeof(save->wram));
-	memory_copy(emulator->_vram, save->vram, sizeof(save->vram));
-	memory_copy(emulator->chr_ram, save->chr_ram, sizeof(save->chr_ram));
-	memory_copy(emulator->prg_ram, save->prg_ram, sizeof(save->prg_ram));
-	memory_copy(emulator->video, save->video, sizeof(save->video));
-}
-
 static b32 nes2_ram_layout_is_ines_compatible(u8 layout)
 {
 	return layout == 0 || layout == 0x07 || layout == 0x70;

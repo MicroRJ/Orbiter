@@ -154,7 +154,7 @@ void app_library_store_close(App_LibraryStore *store)
 	free(store);
 }
 
-b32 app_library_store_read_save(App_LibraryStore *store, Arena *arena, const App_LibrarySave *save, App_SaveData *data)
+b32 app_library_store_read_save(App_LibraryStore *store, Arena *arena, const App_LibrarySave *save, App_Save *data)
 {
 	Assert(store && arena && save && data);
 	u64 arena_position = arena->position;
@@ -217,7 +217,7 @@ failed:
 	return false;
 }
 
-b32 app_library_store_write_save(App_LibraryStore *store, Arena *scratch, const App_LibrarySave *save, const App_SaveData *data)
+b32 app_library_store_write_save(App_LibraryStore *store, Arena *scratch, const App_LibrarySave *save, const App_Save *data)
 {
 	Assert(store && scratch && save && data);
 	u64 arena_position = scratch->position;
@@ -257,7 +257,7 @@ static Str app_library_store_hash_string(Arena *arena, Hash256 hash)
 	return str_from_data(text, sizeof(hash.bytes) * 2);
 }
 
-b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, Orb_Game source_game, Str title, const App_SaveData *save_data,
+b32 app_library_store_import_game(App_LibraryStore *store, Arena *scratch, Orb_Game source_game, Str title, const App_Save *save_data,
 	App_LibraryGame **game, App_LibrarySave **save)
 {
 	Assert(store && scratch && save_data && game && save);

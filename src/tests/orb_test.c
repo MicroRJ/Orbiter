@@ -68,11 +68,11 @@ static void orb_test_save_state_transfer(Arena *arena)
 	Assert(nes_setup_emulator(restored, setup));
 	memory_fill(&source->state, 0x5A, sizeof(source->state));
 
-	Orb_SaveState *expected = arena_push_zero(arena, sizeof(*expected));
-	Orb_SaveState *actual = arena_push_zero(arena, sizeof(*actual));
-	orb_capture_save_state(expected, source);
-	orb_restore_save_state(restored, expected);
-	orb_capture_save_state(actual, restored);
+	NES_State *expected = arena_push_zero(arena, sizeof(*expected));
+	NES_State *actual = arena_push_zero(arena, sizeof(*actual));
+	*expected = source->state;
+	restored->state = *expected;
+	*actual = restored->state;
 	Assert(memory_match(actual, expected, sizeof(*actual)));
 	Assert(restored->mapper_number == setup.mapper);
 	Assert(restored->prg_rom_size == setup.prg_rom.size);
@@ -87,12 +87,12 @@ static void orb_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
 		255, 0, 0, 255, 0, 255, 0, 255,
 		0, 0, 255, 255, 255, 255, 255, 255,
 	};
-	App_SaveData source = {
+	App_Save source = {
 		.thumbnail = {
 			.width = 2,
 			.height = 2,
 			.stride = 8,
-			.format = ORB_PIXEL_FORMAT_RGBA8,
+			.format = APP_PIXEL_FORMAT_RGBA8,
 			.pixels = byte_span(thumbnail_pixels, sizeof(thumbnail_pixels)),
 		},
 	};
@@ -103,7 +103,7 @@ static void orb_test_app_save(Arena *encoded_arena, Arena *decoded_arena)
 
 	ByteSpan encoded = app_save_encode(encoded_arena, &source);
 	Assert(encoded.data && encoded.size);
-	App_SaveData decoded = {};
+	App_Save decoded = {};
 	Assert(app_save_decode(decoded_arena, encoded, &decoded));
 	Assert(memory_match(&decoded.state, &source.state, sizeof(source.state)));
 	Assert(decoded.thumbnail.width == source.thumbnail.width);

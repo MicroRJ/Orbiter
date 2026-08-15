@@ -78,7 +78,7 @@ GFX_Texture *app_thumbnail_texture(App *app, const App_LibrarySave *save)
 	};
 
 	u64 arena_position = app->frame_arena.position;
-	App_SaveData *data = arena_push_zero(&app->frame_arena, sizeof(*data));
+	App_Save *data = arena_push_zero(&app->frame_arena, sizeof(*data));
 	if (app_library_store_read_save(app->library_store, &app->frame_arena, save, data))
 	{
 		Color_RGBA8 *pixels = arena_push(&app->frame_arena, sizeof(*pixels) * NES_VIDEO_WIDTH * NES_VIDEO_HEIGHT);
