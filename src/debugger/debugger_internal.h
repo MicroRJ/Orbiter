@@ -44,7 +44,7 @@ typedef struct
 }
 DBG_LiveSnapshot;
 
-struct Debugger
+struct NES_Process
 {
 	NES_Emulator *emulator;
 	NES_TraceEntry *trace;

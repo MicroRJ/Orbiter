@@ -27,14 +27,14 @@ static b32 program_is_relative_branch(u16 type)
 	return false;
 }
 
-static b32 program_mapped_instruction(Debugger *debugger, u32 cpu_offset, NES_MapAddr *mapped, u32 *storage_offset)
+static b32 program_mapped_instruction(NES_Process *debugger, u32 cpu_offset, NES_MapAddr *mapped, u32 *storage_offset)
 {
 	if (cpu_offset >= NES_CPU_ADDRESS_SPACE) return false;
 	*mapped = nes_emulator_cpu_map(debugger->emulator, (u16)cpu_offset);
 	return program_storage_offset(&debugger->program, *mapped, storage_offset);
 }
 
-static b32 program_crosses_known_start(Debugger *debugger, u32 cpu_offset, u32 size)
+static b32 program_crosses_known_start(NES_Process *debugger, u32 cpu_offset, u32 size)
 {
 	Program *program = &debugger->program;
 	for (u32 byte_index = 1; byte_index < size; ++byte_index)
@@ -109,7 +109,7 @@ void program_invalidate(Program *program)
 	program->listing_dirty = true;
 }
 
-void program_update(Debugger *debugger)
+void program_update(NES_Process *debugger)
 {
 	Program *program = &debugger->program;
 	if (!program->listing_dirty) return;
@@ -184,7 +184,7 @@ b32 program_index_from_cpu_address(const Program *program, u16 cpu_address, u32 
 	return program_find_exact_cpu_address(program, cpu_address, instruction_index);
 }
 
-void program_observe_execution(Debugger *debugger, NES_TraceEntry trace)
+void program_observe_execution(NES_Process *debugger, NES_TraceEntry trace)
 {
 	Program *program = &debugger->program;
 	u32 storage_offset = 0;
@@ -202,7 +202,7 @@ void program_observe_execution(Debugger *debugger, NES_TraceEntry trace)
 	}
 }
 
-static void program_seed_vector(Debugger *debugger, u16 vector_address)
+static void program_seed_vector(NES_Process *debugger, u16 vector_address)
 {
 	Program *program = &debugger->program;
 	u16 cpu_address = nes_emulator_cpu_peek_word(debugger->emulator, vector_address);
@@ -217,7 +217,7 @@ static void program_seed_vector(Debugger *debugger, u16 vector_address)
 	}
 }
 
-void program_reset(Debugger *debugger)
+void program_reset(NES_Process *debugger)
 {
 	Program *program = &debugger->program;
 	memory_zero(program, sizeof(*program));
@@ -234,7 +234,7 @@ void program_reset(Debugger *debugger)
 	program_invalidate(program);
 }
 
-b32 program_dump(Debugger *debugger, const char *path)
+b32 program_dump(NES_Process *debugger, const char *path)
 {
 	program_update(debugger);
 	const Program *program = &debugger->program;

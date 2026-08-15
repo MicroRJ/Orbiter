@@ -132,7 +132,7 @@ static b32 prg_activity_storage_offset(const Program *program, NES_MapAddr mappe
 	return false;
 }
 
-static b32 prg_activity_has_mapped_ram(const Debugger *debugger)
+static b32 prg_activity_has_mapped_ram(const NES_Process *debugger)
 {
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk) {
 		if (debugger_cpu_mapping_chunk(debugger, chunk).device == NES_DEVICE_PRG_RAM) {
@@ -236,7 +236,7 @@ static void prg_activity_draw_tooltip(ViewFrameData *frame, const PRGActivityGri
 	ui_pop_z(ui);
 }
 
-static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *grid, const Debugger *debugger, const Program *program, b32 include_prg_ram)
+static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *grid, const NES_Process *debugger, const Program *program, b32 include_prg_ram)
 {
 	for (u32 chunk = 0; chunk < CPU_MAPPING_CHUNK_COUNT; ++chunk)
 	{
@@ -254,7 +254,7 @@ static void prg_activity_mapped_pages(b32 *mapped_pages, const PRGActivityGrid *
 
 static void prg_activity_view_content(ViewFrameData *frame)
 {
-	Debugger *debugger = frame->debugger;
+	NES_Process *debugger = frame->debugger;
 	UI_Context *ui = frame->ui;
 	PRGActivityViewState *state = &frame->view->prg_activity;
 	Assert(frame->execution_graph);

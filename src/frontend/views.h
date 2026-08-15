@@ -81,7 +81,7 @@ struct ViewFrameData
 	DF_PanelViewData *view;
 	App_Window    *window;
 	NES_Emulator  *emulator;
-	Debugger      *debugger;
+	NES_Process      *debugger;
 	UI_Context    *ui;
 	Arena         *scratch;
 	rect_f32       rect;

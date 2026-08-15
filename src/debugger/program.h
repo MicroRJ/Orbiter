@@ -4,7 +4,7 @@
 #include "base.h"
 #include "nes/emulator.h"
 
-typedef struct Debugger Debugger;
+typedef struct NES_Process NES_Process;
 
 enum
 {
@@ -57,10 +57,10 @@ Program;
 
 b32 program_index_from_cpu_address(const Program *program, u16 cpu_address, u32 *instruction_index);
 
-b32 program_dump(Debugger *debugger, const char *path);
+b32 program_dump(NES_Process *debugger, const char *path);
 void program_invalidate(Program *program);
-void program_reset(Debugger *debugger);
-void program_update(Debugger *debugger);
-void program_observe_execution(Debugger *debugger, NES_TraceEntry trace);
+void program_reset(NES_Process *debugger);
+void program_update(NES_Process *debugger);
+void program_observe_execution(NES_Process *debugger, NES_TraceEntry trace);
 
 #endif

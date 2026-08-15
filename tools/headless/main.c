@@ -53,7 +53,7 @@ static ByteSpan capture_state(NES_Emulator *emulator, Arena *arena)
 	return orb_nes_state_encode(arena, emulator);
 }
 
-static b32 check_determinism(Debugger *debugger, NES_Emulator *emulator, NES_TargetPublication *publication, Arena *arena, u32 frame)
+static b32 check_determinism(NES_Process *debugger, NES_Emulator *emulator, NES_TargetPublication *publication, Arena *arena, u32 frame)
 {
 	SCRATCH_SCOPE(arena)
 	{
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
 	int exit_code = 1;
 	Arena arena = arena_create(0, "headless debugger arena");
 	NES_Emulator *emulator = arena_push_zero(&arena, sizeof(*emulator));
-	Debugger *debugger = debugger_create(&arena, emulator);
+	NES_Process *debugger = debugger_create(&arena, emulator);
 	NES_TargetPublication *publication = arena_push_zero(&arena, sizeof(*publication));
 	Str rom = headless_read_file(&arena, argv[1]);
 	if (!rom.text || !rom.size)

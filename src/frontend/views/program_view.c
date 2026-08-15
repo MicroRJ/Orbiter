@@ -115,7 +115,7 @@ static void program_draw_instruction_tooltip(ViewFrameData *frame, rect_f32 hit_
 
 static void program_view_content(ViewFrameData *frame)
 {
-	Debugger *debugger = frame->debugger;
+	NES_Process *debugger = frame->debugger;
 	Assert(debugger);
 
 	ViewState *state = &frame->view->program;
@@ -286,7 +286,7 @@ static const UI_BoxHooks program_box_hooks = {
 
 void program_view_build_ui(ViewFrameData *frame)
 {
-	Debugger *debugger = frame->debugger;
+	NES_Process *debugger = frame->debugger;
 	const Program *program = debugger_program(debugger);
 	b32 listing_current = !program->listing_dirty;
 	u16 cpu_address = program->cpu_pc;

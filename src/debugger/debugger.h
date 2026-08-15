@@ -6,7 +6,7 @@
 #include "program.h"
 #include "execution_graph.h"
 
-typedef struct Debugger Debugger;
+typedef struct NES_Process NES_Process;
 
 enum
 {
@@ -14,27 +14,27 @@ enum
 	CPU_MAPPING_CHUNK_COUNT = NES_CPU_ADDRESS_SPACE / CPU_MAPPING_CHUNK_SIZE,
 };
 
-Debugger *debugger_create(Arena *arena, NES_Emulator *emulator);
-void debugger_reset(Debugger *debugger);
-void debugger_clear_program_breakpoints(Debugger *debugger);
-u32 debugger_step(Debugger *debugger);
+NES_Process *debugger_create(Arena *arena, NES_Emulator *emulator);
+void debugger_reset(NES_Process *debugger);
+void debugger_clear_program_breakpoints(NES_Process *debugger);
+u32 debugger_step(NES_Process *debugger);
 
 
-NES_RunFrameResult debugger_run_frame(Debugger *debugger, f32 *samples, u64 sample_capacity);
+NES_RunFrameResult debugger_run_frame(NES_Process *debugger, f32 *samples, u64 sample_capacity);
 
-void debugger_set_program_breakpoint(Debugger *debugger, NES_MapAddr address, b32 enabled);
-b32 debugger_has_program_breakpoint(const Debugger *debugger, NES_MapAddr address);
-b32 debugger_breakpoint_hit(const Debugger *debugger);
-void debugger_update_cpu_mapping(Debugger *debugger);
+void debugger_set_program_breakpoint(NES_Process *debugger, NES_MapAddr address, b32 enabled);
+b32 debugger_has_program_breakpoint(const NES_Process *debugger, NES_MapAddr address);
+b32 debugger_breakpoint_hit(const NES_Process *debugger);
+void debugger_update_cpu_mapping(NES_Process *debugger);
 
-void debugger_get_rewind_markers(Debugger *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker);
-void debugger_capture_snapshot(Debugger *debugger);
-b32 debugger_undo_snapshot(Debugger *debugger);
-b32 debugger_redo_snapshot(Debugger *debugger);
+void debugger_get_rewind_markers(NES_Process *debugger, u64 *rewind_marker, u64 *rewind_cursor, u64 *replay_marker);
+void debugger_capture_snapshot(NES_Process *debugger);
+b32 debugger_undo_snapshot(NES_Process *debugger);
+b32 debugger_redo_snapshot(NES_Process *debugger);
 
-const Program *debugger_program(const Debugger *debugger);
-const ExecutionGraph *debugger_execution_graph(const Debugger *debugger);
+const Program *debugger_program(const NES_Process *debugger);
+const ExecutionGraph *debugger_execution_graph(const NES_Process *debugger);
 
-NES_MapAddr debugger_cpu_mapping_chunk(const Debugger *debugger, u32 chunk);
+NES_MapAddr debugger_cpu_mapping_chunk(const NES_Process *debugger, u32 chunk);
 
 #endif

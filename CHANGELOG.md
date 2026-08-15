@@ -1,7 +1,9 @@
 [TODO]
-	- Update to latest Bob!
-	- Better UI ergonomics, dedicated DSL that translates UI code to C directly.
-	- Proper graphics module
+	- Better UI ergonomics, dedicated UI library for proper authoring.
+	- Better view ecosystem and inter-communication
+	- Fix program view to actually track the CPU on F10
+	- Discovered executed instructions should propagate forward to speedup
+	discovery, like we had before.
 
 [DONE]
 	- Live disassembler is now incredibly simple, as explained in the program notes.
@@ -147,7 +149,7 @@ The emulation thread handles:
 
 
 
-- Debugger no longer tracks per cartridge data in snapshots, only live runtime state.
+- NES_Process no longer tracks per cartridge data in snapshots, only live runtime state.
 - Audio is no longer cleared to zero when running muted, instead we run at regular CPU cycles per frame,
 though we should have a dedicated mode that runs one entire PPU frame every frame.
 
