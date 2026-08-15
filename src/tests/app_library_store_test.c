@@ -4,7 +4,6 @@
 
 global const char test_directory[] = "app_library_store_test_tmp";
 global const char test_manifest_path[] = "app_library_store_test_tmp\\library.elf";
-global const char test_ines_path[] = "app_library_store_test_tmp\\lifecycle_game.nes";
 global const char test_game_id[] = "28730633cffbfe02bd32cbf89002cb562603ffc46177f5cc2219fba3fd6834bb";
 global const char test_game_directory[] = "app_library_store_test_tmp\\games\\28730633cffbfe02bd32cbf89002cb562603ffc46177f5cc2219fba3fd6834bb\\saves";
 global const char test_prg_path[] = "app_library_store_test_tmp\\games\\28730633cffbfe02bd32cbf89002cb562603ffc46177f5cc2219fba3fd6834bb\\prg.bin";
@@ -145,21 +144,19 @@ static void app_library_store_test_fresh_import_resume(void)
 		source_prg[vector + 1] = 0x80;
 	}
 	ByteSpan ines_bytes = byte_span(ines, ines_header_size + prg_size + chr_size);
-	Assert(app_library_store_test_write_file(test_ines_path, ines_bytes));
-
-	Str title = {};
-	NES_Game *source_game = ines_import_file(&game_arena, str_from_cstr(test_ines_path), &title);
-	Assert(source_game && str_match(title, LIT("lifecycle_game")));
-	Assert(source_game->metadata.mapper == 0);
-	Assert(source_game->metadata.mirroring == NES_MIRROR_VERTICAL);
-	Assert(!source_game->metadata.trainer_size);
-	Assert(source_game->metadata.prg_rom_size == prg_size);
-	Assert(source_game->metadata.chr_rom_size == chr_size);
-	Assert(memory_match(source_game->prg_rom, source_prg, prg_size));
-	Assert(memory_match(source_game->chr_rom, source_chr, chr_size));
+	NES_Game source_game = {};
+	Assert(ines_import(ines_bytes, &source_game));
+	Str title = LIT("lifecycle_game");
+	Assert(source_game.metadata.mapper == 0);
+	Assert(source_game.metadata.mirroring == NES_MIRROR_VERTICAL);
+	Assert(!source_game.metadata.trainer_size);
+	Assert(source_game.metadata.prg_rom_size == prg_size);
+	Assert(source_game.metadata.chr_rom_size == chr_size);
+	Assert(memory_match(source_game.prg_rom, source_prg, prg_size));
+	Assert(memory_match(source_game.chr_rom, source_chr, chr_size));
 
 	NES_Emulator *emulator = arena_push_zero(&emulator_arena, sizeof(*emulator));
-	Assert(nes_setup_emulator(emulator, *source_game));
+	Assert(nes_setup_emulator(emulator, source_game));
 
 	u8 thumbnail_pixels[] = {
 		255, 0, 0, 255, 0, 255, 0, 255,
@@ -177,7 +174,7 @@ static void app_library_store_test_fresh_import_resume(void)
 
 	App_LibraryGame *game = 0;
 	App_LibrarySave *save = 0;
-	Assert(app_library_store_import_game(store, &scratch, *source_game, title, expected_save, &game, &save));
+	Assert(app_library_store_import_game(store, &scratch, source_game, title, expected_save, &game, &save));
 	Assert(store->library.game_count == 1);
 	Assert(game == &store->library.games[0]);
 	Assert(save == &game->saves[0] && save->kind == APP_LIBRARY_SAVE_RESUME);

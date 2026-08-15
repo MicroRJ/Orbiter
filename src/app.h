@@ -19,7 +19,6 @@ typedef struct App_LibraryStore App_LibraryStore;
 
 typedef struct
 {
-	u64 epoch;
 	App_LibraryGame *library_game;
 	App_LibrarySave *library_save;
 	NES_Game game;

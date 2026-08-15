@@ -1,16 +1,6 @@
 #include "ines_importer.h"
 #include "app_save.h"
 
-static b32 ines_importer_test_write_file(const char *path, ByteSpan data)
-{
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
-	if (!platform_file_is_valid(file)) return false;
-	u64 written = 0;
-	b32 success = platform_write_file(file, data.data, data.size, &written) && written == data.size;
-	platform_close_file(file);
-	return success;
-}
-
 static NES_Game ines_importer_test_game(Arena *arena)
 {
 	u8 *prg_rom = arena_push_zero(arena, KiB(16));
@@ -92,9 +82,8 @@ static void ines_importer_test_app_save(Arena *encoded_arena, Arena *decoded_are
 	Assert(!app_save_decode(decoded_arena, byte_span(invalid_magic, encoded.size), &decoded));
 }
 
-static void ines_importer_test_import(Arena *source_arena, Arena *game_arena)
+static void ines_importer_test_import(Arena *source_arena)
 {
-	const char path[] = "ines_importer_test.nes";
 	u32 source_size = 16 + 512 + KiB(16) + KiB(8);
 	u8 *source = arena_push_zero(source_arena, source_size);
 	source[0] = 'N'; source[1] = 'E'; source[2] = 'S'; source[3] = 0x1A;
@@ -104,32 +93,22 @@ static void ines_importer_test_import(Arena *source_arena, Arena *game_arena)
 	source[16] = 0xA5;
 	source[16 + 512] = 0xEA;
 	source[16 + 512 + KiB(16)] = 0x80;
-	Assert(ines_importer_test_write_file(path, byte_span(source, source_size)));
+	NES_Game game = {};
+	Assert(ines_import(byte_span(source, source_size), &game));
+	Assert(game.metadata.mapper == 0);
+	Assert(game.metadata.mirroring == NES_MIRROR_VERTICAL);
+	Assert(game.metadata.trainer_size == 512);
+	Assert(game.metadata.prg_rom_size == KiB(16));
+	Assert(game.metadata.chr_rom_size == KiB(8));
+	Assert(game.trainer[0] == 0xA5);
+	Assert(game.prg_rom[0] == 0xEA);
+	Assert(game.chr_rom[0] == 0x80);
 
-	Str title = {};
-	NES_Game *game = ines_import_file(game_arena, str_from_cstr(path), &title);
-	Assert(game);
-	Assert(str_match(title, LIT("ines_importer_test")));
-	Assert(game->metadata.mapper == 0);
-	Assert(game->metadata.mirroring == NES_MIRROR_VERTICAL);
-	Assert(game->metadata.trainer_size == 512);
-	Assert(game->metadata.prg_rom_size == KiB(16));
-	Assert(game->metadata.chr_rom_size == KiB(8));
-	Assert(game->trainer[0] == 0xA5);
-	Assert(game->prg_rom[0] == 0xEA);
-	Assert(game->chr_rom[0] == 0x80);
-
-	u64 arena_position = game_arena->position;
 	source[0] = 0;
-	Assert(ines_importer_test_write_file(path, byte_span(source, source_size)));
-	title = LIT("unchanged");
-	Assert(!ines_import_file(game_arena, str_from_cstr(path), &title));
-	Assert(!title.data && !title.size);
-	Assert(game_arena->position == arena_position);
-	Assert(ines_importer_test_write_file(path, byte_span(source + 1, 7)));
-	Assert(!ines_import_file(game_arena, str_from_cstr(path), 0));
-	Assert(game_arena->position == arena_position);
-	Assert(platform_remove_file(path));
+	Assert(!ines_import(byte_span(source, source_size), &game));
+	Assert(!game.prg_rom);
+	Assert(!ines_import(byte_span(source + 1, 7), &game));
+	Assert(!game.prg_rom);
 }
 
 int main(void)
@@ -137,11 +116,9 @@ int main(void)
 	Arena source_arena = arena_create(0, "iNES importer source test");
 	Arena encoded_arena = arena_create(0, "iNES importer encoded test");
 	Arena decoded_arena = arena_create(0, "iNES importer decoded test");
-	Arena game_arena = arena_create(0, "iNES importer game test");
 	ines_importer_test_save_state_transfer(&source_arena);
 	ines_importer_test_app_save(&encoded_arena, &decoded_arena);
-	ines_importer_test_import(&source_arena, &game_arena);
-	arena_destroy(&game_arena);
+	ines_importer_test_import(&source_arena);
 	arena_destroy(&decoded_arena);
 	arena_destroy(&encoded_arena);
 	arena_destroy(&source_arena);

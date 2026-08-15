@@ -50,6 +50,20 @@ static Str app_read_file(Arena *arena, const char *path)
 	return result;
 }
 
+static Str app_title_from_path(Str path)
+{
+	u32 begin = 0;
+	for (u32 index = 0; index < path.size; index ++) if (path.data[index] == '/' || path.data[index] == '\\') begin = index + 1;
+	u32 end = path.size;
+	for (u32 index = end; index > begin; index --)
+	{
+		if (path.data[index - 1] != '.') continue;
+		if (index - 1 > begin) end = index - 1;
+		break;
+	}
+	return str_slice(path, begin, end - begin);
+}
+
 static b32 app_write_file(const char *path, const void *data, u32 size)
 {
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
@@ -349,7 +363,6 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 
 	Arena next_game_arena = arena_create(0, "next game arena");
 	App_GameSession next_session = {
-		.epoch = app.session.epoch + 1,
 		.library_game = game,
 		.library_save = save,
 	};
@@ -359,7 +372,6 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 		arena_destroy(&next_game_arena);
 		return false;
 	}
-	Assert(next_session.epoch);
 	NES_Emulator *next_emulator = arena_push(&app.frame_arena, sizeof(*next_emulator));
 	if (!nes_setup_emulator(next_emulator, next_session.game))
 	{
@@ -397,15 +409,17 @@ static b32 app_import_game(Str path)
 		return false;
 	}
 
-	Str title = {};
-	NES_Game *source = ines_import_file(&app.frame_arena, path, &title);
-	if (!source)
+	Str stored_path = str_push_copy(&app.frame_arena, path);
+	Str source_bytes = app_read_file(&app.frame_arena, stored_path.data);
+	NES_Game source = {};
+	if (!source_bytes.data || !ines_import(byte_span(source_bytes.data, source_bytes.size), &source))
 	{
 		LOG_ERROR("could not read iNES game '%.*s'", path.size, path.data);
 		return false;
 	}
+	Str title = app_title_from_path(stored_path);
 	NES_Emulator *emulator = arena_push(&app.frame_arena, sizeof(*emulator));
-	if (!nes_setup_emulator(emulator, *source))
+	if (!nes_setup_emulator(emulator, source))
 	{
 		LOG_ERROR("unsupported cartridge in '%.*s'", path.size, path.data);
 		return false;
@@ -413,7 +427,7 @@ static b32 app_import_game(Str path)
 	App_Save save_data = { .state = emulator->state };
 	App_LibraryGame *game = 0;
 	App_LibrarySave *save = 0;
-	b32 imported = app_library_store_import_game(app.library_store, &app.frame_arena, *source, title, &save_data, &game, &save);
+	b32 imported = app_library_store_import_game(app.library_store, &app.frame_arena, source, title, &save_data, &game, &save);
 	if (!imported)
 	{
 		LOG_ERROR("could not add '%.*s' to the library", path.size, path.data);

@@ -22,7 +22,7 @@ static b32 nes2_header_is_ines_compatible(const u8 *header)
 		!(header[12] & ~0x03) && (timing == 0 || timing == 2) && !header[13] && !header[14] && header[15] <= 1;
 }
 
-static b32 ines_import(ByteSpan source, NES_Game *game)
+b32 ines_import(ByteSpan source, NES_Game *game)
 {
 	Assert(game);
 	*game = (NES_Game) {};
@@ -49,61 +49,4 @@ static b32 ines_import(ByteSpan source, NES_Game *game)
 	if (stream.failed) return false;
 	*game = result;
 	return true;
-}
-
-static ByteSpan ines_importer_read_entire_file(Arena *arena, const char *path)
-{
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
-	if (!platform_file_is_valid(file)) return (ByteSpan) {};
-	u64 file_size = 0;
-	u64 available = arena->reserved_size - arena->position;
-	b32 valid_size = platform_get_file_size(file, &file_size) && file_size && file_size <= available;
-	if (!valid_size)
-	{
-		platform_close_file(file);
-		return (ByteSpan) {};
-	}
-
-	u64 arena_start = arena->position;
-	u8 *data = arena_push_aligned(arena, file_size, 1);
-	u64 bytes_read = 0;
-	b32 success = platform_read_file(file, data, file_size, &bytes_read) && bytes_read == file_size;
-	platform_close_file(file);
-	if (!success)
-	{
-		arena->position = arena_start;
-		return (ByteSpan) {};
-	}
-	return byte_span(data, file_size);
-}
-
-static Str ines_importer_title_from_path(Str path)
-{
-	u32 begin = 0;
-	for (u32 index = 0; index < path.size; index ++) if (path.data[index] == '/' || path.data[index] == '\\') begin = index + 1;
-	u32 end = path.size;
-	for (u32 index = end; index > begin; index --)
-	{
-		if (path.data[index - 1] != '.') continue;
-		if (index - 1 > begin) end = index - 1;
-		break;
-	}
-	return str_slice(path, begin, end - begin);
-}
-
-NES_Game *ines_import_file(Arena *arena, Str path, Str *title)
-{
-	if (title) *title = (Str) {};
-	if (!arena || !arena->memory || !path.data || !path.size) return 0;
-	u64 arena_start = arena->position;
-	Str stored_path = str_push_copy(arena, path);
-	NES_Game *game = arena_push_zero(arena, sizeof(*game));
-	ByteSpan source = ines_importer_read_entire_file(arena, stored_path.data);
-	if (!source.size || !ines_import(source, game))
-	{
-		arena->position = arena_start;
-		return 0;
-	}
-	if (title) *title = ines_importer_title_from_path(stored_path);
-	return game;
 }
