@@ -47,19 +47,6 @@ typedef struct
 }
 Conformance_Summary;
 
-static ByteSpan conformance_read_file(Arena *arena, const char *path)
-{
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
-	if (!platform_file_is_valid(file)) return (ByteSpan) {};
-	u64 size = 0;
-	b32 success = platform_get_file_size(file, &size) && size && size <= arena->reserved_size - arena->position;
-	u8 *data = success ? arena_push_aligned(arena, size, 1) : 0;
-	u64 bytes_read = 0;
-	if (success) success = platform_read_file(file, data, size, &bytes_read) && bytes_read == size;
-	platform_close_file(file);
-	return success ? byte_span(data, size) : (ByteSpan) {};
-}
-
 static b32 conformance_has_blargg_signature(NES_Emulator *emulator)
 {
 	static const u8 signature[] = { 0xDE, 0xB0, 0x61 };
@@ -156,7 +143,7 @@ static const char *conformance_result_name(Conformance_ResultKind kind)
 static Conformance_Result conformance_run_path(Arena *game_arena, NES_Emulator *emulator, const char *path, u64 timeout_cycles)
 {
 	arena_reset(game_arena);
-	ByteSpan source = conformance_read_file(game_arena, path);
+	ByteSpan source = push_file(game_arena, str_from_cstr(path));
 	NES_Game game = {};
 	if (!source.data || !ines_import(source, &game) || !nes_setup_emulator(emulator, game)) return (Conformance_Result) { .kind = CONFORMANCE_RESULT_LOAD_ERROR };
 	return conformance_run_blargg(emulator, timeout_cycles);

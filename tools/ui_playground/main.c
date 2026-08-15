@@ -49,28 +49,6 @@ static f32 playground_smooth_scroll(f32 offset, f32 target, f32 elapsed)
 	return target + (offset - target) * exp2f(-Max(elapsed, 0.f) / half_life);
 }
 
-static Str playground_read_file(Arena *arena, const char *path)
-{
-	Str result = {};
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
-	if (!platform_file_is_valid(file)) {
-		return result;
-	}
-	u64 size = 0;
-	if (platform_get_file_size(file, &size) && size <= MAX_VALUE_U32)
-	{
-		u8 *data = arena_push(arena, size + 1);
-		u64 bytes_read = 0;
-		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
-		{
-			data[size] = 0;
-			result = str_from_data(data, (u32)size);
-		}
-	}
-	platform_close_file(file);
-	return result;
-}
-
 static PlaygroundVisual *playground_visual(Arena *arena, Color_SRGBA color, b32 show_size)
 {
 	PlaygroundVisual *visual = arena_push_zero(arena, sizeof(*visual));
@@ -1474,7 +1452,9 @@ static int playground_run_window(void)
 	Arena arena = arena_create(0, "UI playground");
 	Arena frame_arena = arena_create(0, "UI playground frame");
 	ttf_init_api();
-	Font_Handle font = ttf_load(playground_read_file(&arena, "data/fonts/Saira/static/Saira-Medium.ttf"));
+	ByteSpan font_bytes = push_file(&arena, LIT("data/fonts/Saira/static/Saira-Medium.ttf"));
+	Assert(font_bytes.size <= MAX_VALUE_U32);
+	Font_Handle font = ttf_load(str_from_data((char *)font_bytes.data, (u32)font_bytes.size));
 	if (!font)
 	{
 		fprintf(stderr, "failed to load the playground font\n");

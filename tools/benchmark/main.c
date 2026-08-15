@@ -4,19 +4,6 @@
 #include "ines_importer.h"
 #include "os.h"
 
-static ByteSpan benchmark_read_file(Arena *arena, const char *path)
-{
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
-	if (!platform_file_is_valid(file)) return (ByteSpan) {};
-	u64 size = 0;
-	b32 success = platform_get_file_size(file, &size) && size && size <= arena->reserved_size - arena->position;
-	u8 *data = success ? arena_push_aligned(arena, size, 1) : 0;
-	u64 bytes_read = 0;
-	if (success) success = platform_read_file(file, data, size, &bytes_read) && bytes_read == size;
-	platform_close_file(file);
-	return success ? byte_span(data, size) : (ByteSpan) {};
-}
-
 int main(int argc, char **argv)
 {
 	if (argc != 3)
@@ -35,7 +22,7 @@ int main(int argc, char **argv)
 	if (!os_init()) return 1;
 
 	Arena arena = arena_create(0, "NES benchmark");
-	ByteSpan source = benchmark_read_file(&arena, argv[1]);
+	ByteSpan source = push_file(&arena, str_from_cstr(argv[1]));
 	NES_Game game = {};
 	NES_Process *debugger = nes_process_create(&arena);
 	NES_Emulator *emulator = &debugger->emulator;

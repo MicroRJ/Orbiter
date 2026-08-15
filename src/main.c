@@ -29,27 +29,6 @@ global App app = {
 };
 global FILE *debugger_log_file;
 
-// TODO(RJ) why doesn't this return a bytespan instead!
-static Str app_read_file(Arena *arena, const char *path)
-{
-	Str result = {};
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ | PLATFORM_FILE_SHARE_WRITE | PLATFORM_FILE_SHARE_DELETE);
-	if (!platform_file_is_valid(file)) return result;
-	u64 size = 0;
-	if (platform_get_file_size(file, &size) && size <= MAX_VALUE_U32)
-	{
-		u8 *data = arena_push(arena, size + 1);
-		u64 bytes_read = 0;
-		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
-		{
-			data[size] = 0;
-			result = str_from_data((char *)data, (u32)size);
-		}
-	}
-	platform_close_file(file);
-	return result;
-}
-
 static Str app_title_from_path(Str path)
 {
 	u32 begin = 0;
@@ -102,13 +81,14 @@ static void app_load_user_config(void)
 	Platform_File_Info info;
 	if (!platform_get_file_info(app_user_config_path, &info)) return;
 
-	Str source = app_read_file(&app.frame_arena, app_user_config_path);
-	if (!source.data)
+	ByteSpan source_bytes = push_file(&app.frame_arena, str_from_cstr(app_user_config_path));
+	if (!source_bytes.data || source_bytes.size > MAX_VALUE_U32)
 	{
 		LOG_ERROR("failed to read user config '%s'", app_user_config_path);
 		app.user_config_save_suppressed = true;
 		return;
 	}
+	Str source = str_from_data((char *)source_bytes.data, (u32)source_bytes.size);
 
 	elf_State *state = elf_create_state();
 	Assert(state);
@@ -409,15 +389,14 @@ static b32 app_import_game(Str path)
 		return false;
 	}
 
-	Str stored_path = str_push_copy(&app.frame_arena, path);
-	Str source_bytes = app_read_file(&app.frame_arena, stored_path.data);
+	ByteSpan source_bytes = push_file(&app.frame_arena, path);
 	NES_Game source = {};
-	if (!source_bytes.data || !ines_import(byte_span(source_bytes.data, source_bytes.size), &source))
+	if (!source_bytes.data || !ines_import(source_bytes, &source))
 	{
 		LOG_ERROR("could not read iNES game '%.*s'", path.size, path.data);
 		return false;
 	}
-	Str title = app_title_from_path(stored_path);
+	Str title = app_title_from_path(path);
 	NES_Emulator *emulator = arena_push(&app.frame_arena, sizeof(*emulator));
 	if (!nes_setup_emulator(emulator, source))
 	{
@@ -811,7 +790,9 @@ static b32 app_init(void)
 	});
 
 	ttf_init_api();
-	Font_Handle code_font = ttf_load(app_read_file(&app.arena, app_font_path));
+	ByteSpan code_font_bytes = push_file(&app.arena, str_from_cstr(app_font_path));
+	Assert(code_font_bytes.size <= MAX_VALUE_U32);
+	Font_Handle code_font = ttf_load(str_from_data((char *)code_font_bytes.data, (u32)code_font_bytes.size));
 	UI_Theme theme = ui_default_theme(code_font);
 
 	app.renderer = gfx_create_renderer(&app.arena);

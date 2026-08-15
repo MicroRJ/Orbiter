@@ -5,26 +5,6 @@
 
 #include <string.h>
 
-static Str headless_read_file(Arena *arena, const char *path)
-{
-	Str result = {};
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
-	if (!platform_file_is_valid(file)) return result;
-	u64 size = 0;
-	if (platform_get_file_size(file, &size) && size <= MAX_VALUE_U32)
-	{
-		u8 *data = arena_push(arena, size + 1);
-		u64 bytes_read = 0;
-		if (platform_read_file(file, data, size, &bytes_read) && bytes_read == size)
-		{
-			data[size] = 0;
-			result = str_from_data((char *)data, (u32)size);
-		}
-	}
-	platform_close_file(file);
-	return result;
-}
-
 static b32 headless_write_file(const char *path, const void *data, u32 size)
 {
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
@@ -146,14 +126,14 @@ int main(int argc, char **argv)
 	NES_Emulator *emulator = &debugger->emulator;
 	Program *program = arena_push_zero(&arena, sizeof(*program));
 	NES_TargetPublication *publication = arena_push_zero(&arena, sizeof(*publication));
-	Str rom = headless_read_file(&arena, argv[1]);
-	if (!rom.text || !rom.size)
+	ByteSpan rom = push_file(&arena, str_from_cstr(argv[1]));
+	if (!rom.data || !rom.size)
 	{
 		LOG_ERROR("could not read ROM '%s'", argv[1]);
 		goto done;
 	}
 	NES_CartridgeDesc cartridge = {};
-	if (!nes_cartridge_parse_ines(byte_span((void *)rom.text, rom.size), &cartridge))
+	if (!nes_cartridge_parse_ines(rom, &cartridge))
 	{
 		LOG_ERROR("could not parse ROM '%s'", argv[1]);
 		goto done;
@@ -177,8 +157,8 @@ int main(int argc, char **argv)
 	}
 	if (positional_argc >= 4)
 	{
-		Str state = headless_read_file(&arena, argv[3]);
-		if (!state.text || !state.size || !orb_transfer_save_state_no_chunk(emulator, byte_span((void *)state.text, state.size)))
+		ByteSpan state = push_file(&arena, str_from_cstr(argv[3]));
+		if (!state.data || !state.size || !orb_transfer_save_state_no_chunk(emulator, state))
 		{
 			LOG_ERROR("could not restore state '%s'", argv[3]);
 			goto done;

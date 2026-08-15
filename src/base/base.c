@@ -4,6 +4,7 @@
 #include "base_temp.c"
 #include "base_arena.c"
 #include "base_string.c"
+#include "base_file.c"
 #include "base_logger.c"
 #include "base_profiler.c"
 #include "base_image.c"

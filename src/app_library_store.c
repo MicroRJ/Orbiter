@@ -3,30 +3,6 @@
 
 enum { APP_LIBRARY_STORE_GAME_CAPACITY = 1024 };
 
-static ByteSpan app_library_store_read_file(Arena *arena, const char *path)
-{
-	u64 arena_position = arena->position;
-	Platform_File file = platform_access_file(path, PLATFORM_FILE_OPEN_EXISTING, PLATFORM_FILE_READ | PLATFORM_FILE_SHARE_READ);
-	if (!platform_file_is_valid(file)) return (ByteSpan) {};
-	u64 size = 0;
-	b32 success = platform_get_file_size(file, &size) && size < arena->reserved_size - arena->position;
-	u8 *data = 0;
-	if (success)
-	{
-		data = arena_push_aligned(arena, size + 1, 1);
-		u64 bytes_read = 0;
-		success = (!size || platform_read_file(file, data, size, &bytes_read)) && bytes_read == size;
-		if (success) data[size] = 0;
-	}
-	platform_close_file(file);
-	if (!success)
-	{
-		arena->position = arena_position;
-		return (ByteSpan) {};
-	}
-	return byte_span(data, size);
-}
-
 static b32 app_library_store_write_file(const char *path, ByteSpan data)
 {
 	Platform_File file = platform_access_file(path, PLATFORM_FILE_CREATE_ALWAYS, PLATFORM_FILE_WRITE);
@@ -132,7 +108,7 @@ App_LibraryStore *app_library_store_open(const char *manifest_path)
 		app_library_store_close(store);
 		return 0;
 	}
-	ByteSpan source = app_library_store_read_file(&store->arena, store->manifest_path.data);
+	ByteSpan source = push_file(&store->arena, store->manifest_path);
 	elf_State *state = elf_create_state();
 	b32 success = source.data && state && elf_push_constant_expr(state, store->manifest_path.data, (elf_StrSlice) { (char *)source.data, source.size });
 	if (success) success = app_library_read_elf(state, -1, &store->arena, &store->library);
@@ -159,7 +135,7 @@ b32 app_library_store_read_save(App_LibraryStore *store, Arena *arena, const App
 	Assert(store && arena && save && data);
 	u64 arena_position = arena->position;
 	Str save_path = app_library_store_resolve(arena, store, save->path);
-	ByteSpan encoded = save_path.data ? app_library_store_read_file(arena, save_path.data) : (ByteSpan) {};
+	ByteSpan encoded = save_path.data ? push_file(arena, save_path) : (ByteSpan) {};
 	if (encoded.data && app_save_decode(arena, encoded, data)) return true;
 	arena->position = arena_position;
 	return false;
@@ -207,20 +183,20 @@ b32 app_library_store_read_game(App_LibraryStore *store, Arena *arena, const App
 	App_Save result_save = {};
 	const NES_GameMetadata *metadata = &library_game->cartridge.metadata;
 	Str prg_path = app_library_store_resolve(arena, store, library_game->cartridge.prg_path);
-	ByteSpan prg = prg_path.data ? app_library_store_read_file(arena, prg_path.data) : (ByteSpan) {};
+	ByteSpan prg = prg_path.data ? push_file(arena, prg_path) : (ByteSpan) {};
 	if (!prg.data || prg.size != metadata->prg_rom_size) goto failed;
 	ByteSpan chr = {};
 	if (metadata->chr_rom_size)
 	{
 		Str chr_path = app_library_store_resolve(arena, store, library_game->cartridge.chr_path);
-		chr = chr_path.data ? app_library_store_read_file(arena, chr_path.data) : (ByteSpan) {};
+		chr = chr_path.data ? push_file(arena, chr_path) : (ByteSpan) {};
 		if (!chr.data || chr.size != metadata->chr_rom_size) goto failed;
 	}
 	ByteSpan trainer = {};
 	if (library_game->cartridge.trainer_path.size)
 	{
 		Str trainer_path = app_library_store_resolve(arena, store, library_game->cartridge.trainer_path);
-		trainer = trainer_path.data ? app_library_store_read_file(arena, trainer_path.data) : (ByteSpan) {};
+		trainer = trainer_path.data ? push_file(arena, trainer_path) : (ByteSpan) {};
 		if (!trainer.data || trainer.size != metadata->trainer_size) goto failed;
 	}
 	if (!app_library_store_read_save(store, arena, library_save, &result_save)) goto failed;

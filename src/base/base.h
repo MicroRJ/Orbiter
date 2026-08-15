@@ -109,6 +109,7 @@ typedef enum {
 #include "base_arena.h"
 #include "base_stream.h"
 #include "base_string.h"
+#include "base_file.h"
 #include "base_temp.h"
 #include "base_logger.h"
 #include "base_profiler.h"
