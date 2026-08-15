@@ -96,7 +96,7 @@ NES_BusAccess mmc1_cpu(NES_Emulator *nes, NES_BusAccess access) {
 	else {
 
 		i32 b = nes->values[MMC1_PRG_BANK0_R] & 15;
-		i32 j = nes->num_prg_banks - 1;
+		i32 j = (nes->prg_rom_size >> 14) - 1;
 
 		switch (c >> 2 & 3) {
 			case 0: case 1: {

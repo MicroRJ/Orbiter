@@ -32,10 +32,8 @@ NES_BusAccess uxrom_cpu(NES_Emulator *nes, NES_BusAccess access) {
 			nes_mapper_set_value(nes, 0, access.value);
 		}
 		else {
-			// TODO(RJ) k could be stored in nes->values[1] on setup which would
-			// get rid of this branch
 			i32 b = nes->values[0];
-			i32 k = nes->num_prg_banks - 1;
+			i32 k = (nes->prg_rom_size >> 14) - 1;
 			if (access.address < 0xC000)
 			{
 				access.address = (access.address & 0x3FFF) + (b << 14);

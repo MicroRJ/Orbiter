@@ -18,6 +18,7 @@ enum
 	DEBUGGER_SNAPSHOT_MASK                = DEBUGGER_SNAPSHOT_CAPACITY - 1,
 };
 
+// TODO(RJ): we don't really need this ...
 typedef struct
 {
 	NES_MapAddr chunks[CPU_MAPPING_CHUNK_COUNT];
@@ -31,7 +32,7 @@ typedef struct
 {
 	NES_State state;
 }
-NES_ProcessSnapshot;
+NES_ProcessState;
 
 // TODO(RJ): the timeline size will become configurable and compress-able!
 struct NES_Process
@@ -55,7 +56,7 @@ struct NES_Process
 	u64               snapshots_replay_marker;
 	u64               snapshots_cursor;
 
-	NES_ProcessSnapshot  snapshots[DEBUGGER_SNAPSHOT_CAPACITY];
+	NES_ProcessState  snapshots[DEBUGGER_SNAPSHOT_CAPACITY];
 };
 
 NES_Process *nes_process_create(Arena *arena);

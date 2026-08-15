@@ -16,6 +16,13 @@
 
 		The application can still derive / update additional time based models.
 
+		The NES_Process handles "local" execution.
+		The NES_ProcessThread handles off-thread execution, and delta communications.
+
+		We'll keep a "client" side mirror of the state so that we can still access the emulator
+		transparently, and communicate using delta updates.
+
+
 
 	- Better UI ergonomics, dedicated UI library for proper authoring.
 	- Better view ecosystem and inter-communication

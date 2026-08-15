@@ -17,6 +17,17 @@
 typedef struct App_Window App_Window;
 
 typedef struct App_LibraryStore App_LibraryStore;
+typedef struct App_LibraryGameData App_LibraryGameData;
+
+typedef struct
+{
+	u64 epoch;
+	App_LibraryGame *game;
+	App_LibrarySave *save;
+	App_LibraryGameData *data;
+	NES_SetupParams program;
+}
+App_GameSession;
 
 enum { APP_THUMBNAIL_CACHE_CAPACITY = 32 };
 
@@ -40,9 +51,7 @@ struct App
 {
 	App_Transport transport;
 	App_LibraryStore *library_store;
-	App_LibraryGame *active_game;
-	App_LibrarySave *active_save;
-	App_SaveData active_save_data;
+	App_GameSession session;
 	App_ThumbnailCache thumbnail_cache;
 	u64 frame_index;
 

@@ -4,12 +4,12 @@
 #include "app_library.h"
 #include "app_save.h"
 
-typedef struct
+typedef struct App_LibraryGameData App_LibraryGameData;
+struct App_LibraryGameData
 {
 	Orb_Game game;
 	App_SaveData save;
-}
-App_LibraryGameData;
+};
 
 typedef struct App_LibraryStore App_LibraryStore;
 struct App_LibraryStore

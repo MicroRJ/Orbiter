@@ -43,8 +43,6 @@ b32 nes_emulator_valid(const NES_Emulator *emulator)
 	if (emulator->prg_rom_size % KiB(16))                                 return false;
 	if (emulator->chr_rom_size > NES_MAX_CHR_ROM_SIZE)                    return false;
 	if (emulator->chr_rom_size % KiB(8))                                  return false;
-	if (emulator->num_prg_banks != emulator->prg_rom_size / KiB(16))      return false;
-	if (emulator->num_chr_banks != emulator->chr_rom_size / KiB(8))       return false;
 	if (emulator->vmirror != 0 && emulator->vmirror != 1)                 return false;
 	if (emulator->ppu.xtick >= 341)                                       return false;
 	if (emulator->ppu.ytick >= 262)                                       return false;
@@ -93,9 +91,6 @@ b32 nes_setup_emulator(NES_Emulator *emulator, NES_SetupParams params)
 	emulator->prg_rom_size = params.prg_rom.size;
 	emulator->chr_rom_size = params.chr_rom.size;
 	emulator->vmirror = params.vmirror;
-	// TODO(RJ) remove these two
-	emulator->num_prg_banks = params.prg_rom.size / KiB(16);
-	emulator->num_chr_banks = params.chr_rom.size / KiB(8);
 	emulator->mapper = nes_mapper_classes[params.mapper];
 	Assert(emulator->mapper.reset(emulator));
 	nes_ppu_power_on(&emulator->ppu);

@@ -11,12 +11,12 @@ void debugger_get_rewind_markers(NES_Process *debugger, u64 *rewind_marker, u64 
 void nes_process_capture_snapshot(NES_Process *debugger)
 {
 	if (debugger->snapshots_cursor > 0) {
-		NES_ProcessSnapshot *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
+		NES_ProcessState *previous_snapshot = & debugger->snapshots[debugger->snapshots_cursor - 1 & DEBUGGER_SNAPSHOT_MASK];
 		if (previous_snapshot->state.scheduler_clock == nes_emulator_scheduler_clock(&debugger->emulator)) {
 			return;
 		}
 	}
-	NES_ProcessSnapshot *snapshot = (NES_ProcessSnapshot *) & debugger->snapshots[debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK];
+	NES_ProcessState *snapshot = (NES_ProcessState *) & debugger->snapshots[debugger->snapshots_cursor & DEBUGGER_SNAPSHOT_MASK];
 	debugger->snapshots_replay_marker = ++ debugger->snapshots_cursor;
 	debugger->snapshots_rewind_marker = debugger->snapshots_cursor - Min(debugger->snapshots_cursor, DEBUGGER_SNAPSHOT_CAPACITY);
 	Assert(debugger->snapshots_replay_marker >= debugger->snapshots_rewind_marker);
@@ -26,7 +26,7 @@ void nes_process_capture_snapshot(NES_Process *debugger)
 	snapshot->state = debugger->emulator.state;
 }
 
-static void restore_process(NES_Process *debugger, const NES_ProcessSnapshot *snapshot)
+static void restore_process(NES_Process *debugger, const NES_ProcessState *snapshot)
 {
 	debugger->emulator.state = snapshot->state;
 }
@@ -120,13 +120,13 @@ static void seed_program_vector(NES_Process *debugger, u16 vector_address)
 	debugger->program_evidence[storage_offset] |= PROGRAM_INSTRUCTION_STATIC;
 }
 
-// TODO(RJ) we have to test whether the execution trace is faster than doing the checks read/write/exec
+// TODO(RJ) We have to test whether the execution trace is faster than doing the checks read/write/exec
 // checks on the emulator using a flat map.
 // Even if we do the trace style, we'd still have a flat map to remove the double loop which scales
 // bad for multiple breakpoints ...
 // We have to do read/write breakpoints eventually regardless, unless we want to go back to generating
 // hundreds of thousands of records and scanning each of them, so this may be partly temporary.
-static void debugger_process_trace_(NES_Process *debugger, const NES_TraceEntry *trace, u64 trace_count)
+static void process_execution_trace_(NES_Process *debugger, const NES_TraceEntry *trace, u64 trace_count)
 {
 	debugger->breakpoint_hit = false;
 
@@ -168,9 +168,9 @@ static void debugger_process_trace_(NES_Process *debugger, const NES_TraceEntry 
 	}
 }
 
-static void debugger_process_trace(NES_Process *debugger, const NES_TraceEntry *trace, u64 trace_count)
+static void process_execution_trace(NES_Process *debugger, const NES_TraceEntry *trace, u64 trace_count)
 {
-	PROF_BLOCK("process trace") debugger_process_trace_(debugger, trace, trace_count);
+	PROF_BLOCK("process trace") process_execution_trace_(debugger, trace, trace_count);
 }
 
 NES_MapAddr nes_process_cpu_mapped_chunk(const NES_Process *debugger, u32 chunk)
@@ -222,7 +222,7 @@ u32 nes_process_step(NES_Process *debugger)
 	Assert(nes_emulator_ready_to_run(&debugger->emulator));
 	PROF_BLOCK("snapshot") nes_process_capture_snapshot(debugger);
 	u32 cycles = nes_emulator_step(&debugger->emulator, debugger->trace);
-	debugger_process_trace(debugger, debugger->trace, 1);
+	process_execution_trace(debugger, debugger->trace, 1);
 	update_cpu_mapping(debugger);
 	return cycles;
 }
@@ -237,7 +237,7 @@ NES_RunFrameResult nes_process_run_frame(NES_Process *debugger, f32 *sample_buff
 		.trace = debugger->trace,
 		.trace_capacity = DEBUGGER_TRACE_CAPACITY,
 	});
-	debugger_process_trace(debugger, debugger->trace, result.steps);
+	process_execution_trace(debugger, debugger->trace, result.steps);
 	update_cpu_mapping(debugger);
 	if (debugger->breakpoint_hit) return (NES_RunFrameResult) {};
 	return result;

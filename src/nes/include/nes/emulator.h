@@ -89,14 +89,6 @@ typedef struct
 }
 NES_BusAccess;
 
-typedef struct
-{
-	u64 reads;
-	u64 writes;
-}
-NES_BusMetrics;
-
-
 typedef NES_BusAccess (*NES_BusFunc)(NES_Emulator *nes, NES_BusAccess access);
 #define NES_MAPPER_VALID_FUNC(NAME) b32 (NAME)(const NES_Emulator *nes)
 #define NES_MAPPER_RSET_FUNC(NAME) b32 (NAME)(NES_Emulator *nes)
@@ -130,10 +122,7 @@ typedef struct
 }
 NES_SetupParams;
 
-// TODO(RJ): metrics have the same state lifecycle but are not real machine state
 #define NES_STATE_FIELDS                                                       \
-	NES_BusMetrics        cpu_bus_metrics;                                      \
-	NES_BusMetrics        ppu_bus_metrics;                                      \
 	u64                   scheduler_clock;                                      \
 	u64                   sample_phase;                                         \
 	u32                   cpu_stall_cycles;                                     \
@@ -161,8 +150,6 @@ struct NES_Emulator
 {
 	u32                     mapper_number;
 	u32                     prg_rom_size,  chr_rom_size;
-	// TODO(RJ) remove these two, they are duplicates
-	u32                     num_chr_banks, num_prg_banks;
 	b32                     vmirror;
 	NES_MapperClass         mapper;
 

@@ -109,7 +109,6 @@ static NES_BusAccess nes_cpu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 
 NES_MappedRead nes_cpu_bus_read_mapped(NES_Emulator *core, u16 address)
 {
-	core->cpu_bus_metrics.reads += 1;
 	NES_BusAccess access = nes_cpu_bus_access(core, (NES_BusAccess) { .kind = NES_BUS_ACCESS_READ, .address = address });
 	return (NES_MappedRead) { access.mapped, access.value };
 }
@@ -117,7 +116,6 @@ NES_MappedRead nes_cpu_bus_read_mapped(NES_Emulator *core, u16 address)
 
 void nes_cpu_bus_write(NES_Emulator *core, u16 address, u8 value)
 {
-	core->cpu_bus_metrics.writes += 1;
 	nes_cpu_bus_access(core, (NES_BusAccess) {
 		.kind = NES_BUS_ACCESS_WRITE,
 		.address = address,
@@ -168,7 +166,6 @@ static NES_BusAccess nes_ppu_bus_access(NES_Emulator *nes, NES_BusAccess access)
 
 u8 nes_ppu_bus_read(NES_Emulator *core, u16 address)
 {
-	core->ppu_bus_metrics.reads += 1;
 	NES_BusAccess access = nes_ppu_bus_access(core, (NES_BusAccess) {
 		.kind = NES_BUS_ACCESS_READ,
 		.address = address,
@@ -178,7 +175,6 @@ u8 nes_ppu_bus_read(NES_Emulator *core, u16 address)
 
 void nes_ppu_bus_write(NES_Emulator *core, u16 address, u8 value)
 {
-	core->ppu_bus_metrics.writes += 1;
 	nes_ppu_bus_access(core, (NES_BusAccess) {
 		.kind = NES_BUS_ACCESS_WRITE,
 		.address = address,

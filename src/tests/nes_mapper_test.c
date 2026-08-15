@@ -45,8 +45,6 @@ static void mapper_test_prepare(Mapper_TestFixture *fixture,
 	memory_zero(fixture->core, offsetof(NES_Emulator, mapper));
 	fixture->core->prg_rom_size = prg_rom_size;
 	fixture->core->chr_rom_size = chr_rom_size;
-	fixture->core->num_prg_banks = prg_rom_size / KiB(16);
-	fixture->core->num_chr_banks = chr_rom_size / KiB(8);
 }
 
 static NES_BusAccess mapper_access(NES_Emulator *core, NES_BusFunc bus,
