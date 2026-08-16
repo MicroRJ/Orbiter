@@ -326,7 +326,7 @@ static inline void ppu_render_pixel(NES_Emulator *core, i32 screen_x, i32 screen
 
 static always_inline b32 ppu_sprite_y_in_range(u8 ypos, u32 scanline, u32 sprite_height)
 {
-	return (u8)(scanline - ypos) < sprite_height;
+	return ypos <= scanline && ypos + sprite_height > scanline;
 }
 
 static void ppu_step_sprite_evaluation(NES_PPUState *ppu, u32 dot, u32 scanline)
