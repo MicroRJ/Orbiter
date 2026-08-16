@@ -13,8 +13,6 @@ it is the point. Orbiter combines game playback with live disassembly, CPU and
 PPU inspection, execution-flow visualization, profiling, rewind, screenshots,
 video capture, and a persistent game library.
 
-Read [the Orbiter vision](VISION.md) for where this is going.
-
 This is an early prerelease. Emulator compatibility is still a work in progress,
 and you should keep a copy of any library data you care about.
 
@@ -79,10 +77,9 @@ permitted to use.
 | Take game screenshot | `F8` |
 | Start / stop game GIF capture | `Shift+F8` |
 | Take application screenshot | `F9` |
-| Start / stop application GIF capture | `Shift+F9` |
 | Toggle UI debug bounds | `F6` |
 
-Screenshots and captures are written to the `data` directory. The active game
+Screenshots and game captures are written to the `data` directory. The active game
 is also saved when switching games and when Orbiter exits normally.
 
 ## Compatibility

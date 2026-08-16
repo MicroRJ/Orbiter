@@ -2,7 +2,6 @@
 #include "app.h"
 #include "app_library_store.h"
 #include "nes_process.h"
-#include "gif_recorder.h"
 #include "panels.h"
 #include "text_gfx.h"
 #include "ui_box.h"
@@ -37,7 +36,6 @@ struct App_Window
 	f32 volume_animation;
 	f32 frames_per_second;
 	Seconds previous_draw_time;
-	GifRecorder capture;
 	b32 screenshot_requested;
 };
 
@@ -125,6 +123,7 @@ App_Window *app_window_create(Arena *owner, App *app, App_WindowDesc desc)
 	window->panels = panels_create(owner);
 	window->action_arena = arena_create(0, "app window action arena");
 	window->library_overlay_on = true;
+	app_window_emit_action(window, (App_Action) { .kind = APP_ACTION_SET_RUN_BLOCKER, .run_blocker = { APP_RUN_BLOCKER_LIBRARY, true } });
 	window->crt_enabled = true;
 	return window;
 }
@@ -132,7 +131,6 @@ App_Window *app_window_create(Arena *owner, App *app, App_WindowDesc desc)
 void app_window_destroy(App_Window *window)
 {
 	Assert(window);
-	if (window->capture.recording) gif_recorder_end(&window->capture);
 	for (u32 index = 0; index < ArrayCount(window->app->thumbnail_cache.entries); index ++) gfx_destroy_texture(window->app->thumbnail_cache.entries[index].texture);
 	arena_destroy(&window->action_arena);
 	os_window_destroy(window->os);
@@ -142,12 +140,6 @@ b32 app_window_is_open(const App_Window *window)
 {
 	Assert(window);
 	return os_window_is_open(window->os);
-}
-
-void app_window_set_library_visible(App_Window *window, b32 visible)
-{
-	Assert(window);
-	window->library_overlay_on = visible;
 }
 
 void app_window_state_push(elf_State *state, const App_Window *window)
@@ -209,9 +201,20 @@ static b32 app_window_handle_local_action(App_Window *window, App_Action action)
 {
 	switch (action.kind)
 	{
+		case APP_ACTION_SHOW_LIBRARY_OVERLAY:
+		{
+			window->library_overlay_on = true;
+			app_window_route_action(window, (App_Action) { .kind = APP_ACTION_SET_RUN_BLOCKER, .run_blocker = { APP_RUN_BLOCKER_LIBRARY, true } });
+		} break;
+		case APP_ACTION_HIDE_LIBRARY_OVERLAY:
+		{
+			window->library_overlay_on = false;
+			app_window_route_action(window, (App_Action) { .kind = APP_ACTION_SET_RUN_BLOCKER, .run_blocker = { APP_RUN_BLOCKER_LIBRARY, false } });
+		} break;
 		case APP_ACTION_TOGGLE_LIBRARY_OVERLAY:
 		{
 			window->library_overlay_on = !window->library_overlay_on;
+			app_window_route_action(window, (App_Action) { .kind = APP_ACTION_SET_RUN_BLOCKER, .run_blocker = { APP_RUN_BLOCKER_LIBRARY, window->library_overlay_on } });
 		} break;
 		case APP_ACTION_SPLIT_PANEL:
 		{
@@ -247,11 +250,6 @@ static b32 app_window_handle_local_action(App_Window *window, App_Action action)
 		case APP_ACTION_TAKE_APP_SCREENSHOT:
 		{
 			window->screenshot_requested = true;
-		} break;
-		case APP_ACTION_TOGGLE_APP_CAPTURE:
-		{
-			if (window->capture.recording) gif_recorder_end(&window->capture);
-			else if (!gif_recorder_begin(&window->capture, window->os->size, "orbiter_capture")) LOG_ERROR("failed to begin application GIF capture");
 		} break;
 		case APP_ACTION_TOGGLE_CRT:
 		{
@@ -783,7 +781,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 		ui_size(ui, AXIS_Y, ui_wrap());
 		app_status_text(ui, 3, LIT("* INSERT CARTRIDGE *"), style, ui->theme.palette.emission_high * pulse);
 	}
-	else if (app->transport.state == APP_TRANSPORT_SCRUBBING && app->transport.direction == -1)
+	else if (app->transport.effective_state == APP_TRANSPORT_SCRUBBING && app->transport.direction == -1)
 	{
 		style.color = ui->theme.palette.error;
 		ui_clean(ui);
@@ -793,7 +791,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 		Str str = str_push_copy_f(&ui->frame_arena, "<< REWINDING [%llu, %llu, %llu]", timeline.rewind_marker, timeline.cursor, timeline.replay_marker);
 		app_status_text(ui, 3, str, style, ui->theme.palette.emission_high * pulse);
 	}
-	else if (app->transport.state == APP_TRANSPORT_SCRUBBING && app->transport.direction == +1)
+	else if (app->transport.effective_state == APP_TRANSPORT_SCRUBBING && app->transport.direction == +1)
 	{
 		style.color = ui->theme.palette.amber;
 		ui_clean(ui);
@@ -801,7 +799,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 		ui_size(ui, AXIS_Y, ui_wrap());
 		app_status_text(ui, 3, LIT("REPLAYING >>"), style, ui->theme.palette.emission_high * pulse);
 	}
-	else if (app->transport.state == APP_TRANSPORT_SCRUBBING)
+	else if (app->transport.effective_state == APP_TRANSPORT_SCRUBBING)
 	{
 		style.color = ui->theme.palette.error;
 		ui_clean(ui);
@@ -811,7 +809,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 	}
 	else
 	{
-		if (app->transport.state == APP_TRANSPORT_RUNNING)
+		if (app->transport.effective_state == APP_TRANSPORT_RUNNING)
 		{
 			style.color = ui->theme.palette.amber;
 			ui_clean(ui);
@@ -830,13 +828,6 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 	}
 
 	style.color = ui->theme.text_subtle;
-	if (window->capture.recording)
-	{
-		ui_clean(ui);
-		ui_size(ui, AXIS_X, ui_flex(0.f, 1.f));
-		ui_size(ui, AXIS_Y, ui_wrap());
-		app_status_text(ui, 4, LIT("   REC APP"), style, 0.f);
-	}
 	if (app->ppu_gif.recording)
 	{
 		ui_clean(ui);
@@ -952,7 +943,7 @@ static UI_Box *build_main_ui(App_Window *window, rect_f32 window_rect, ViewFrame
 	ui_size(ui, AXIS_X, ui_flex(0.f, 3.f));
 	ui_size(ui, AXIS_Y, ui_grow(1.f));
 	style.align.x = 1.f;
-	app_status_text(ui, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU PNG / SHIFT GIF   F9 APP PNG / SHIFT GIF   F10 STEP   F11 FULLSCREEN"), style, 0.f);
+	app_status_text(ui, 3, LIT("F PPU   F5 RUN   F7 CRT   F8 PPU PNG / SHIFT GIF   F9 APP PNG   F10 STEP   F11 FULLSCREEN"), style, 0.f);
 	ui_box_end(ui);
 	ui_box_end(ui);
 
@@ -985,27 +976,18 @@ static u8 app_window_linear_to_srgb_u8(f32 value)
 	return (u8)(srgb * 255.f + 0.5f);
 }
 
-static void app_window_capture_frame(App_Window *window, GFX_Texture *texture)
+static void app_window_take_screenshot(App_Window *window, GFX_Texture *texture)
 {
-	enum { GIF_CAPTURE_MAX_FRAMES = 60 * 30 };
-	b32 screenshot_requested = window->screenshot_requested;
+	if (!window->screenshot_requested) return;
 	window->screenshot_requested = false;
-	if (!screenshot_requested && !window->capture.recording) return;
 
 	vec2i size = gfx_texture_size(texture);
-	if (window->capture.recording && (size.x != window->capture.size.x || size.y != window->capture.size.y))
-	{
-		LOG_WARN("ending application GIF because the window size changed");
-		gif_recorder_end(&window->capture);
-	}
-	if (!screenshot_requested && !window->capture.recording) return;
 	u32 pixel_count = size.x * size.y;
 	vec4 *linear = arena_push(&window->ui->frame_arena, pixel_count * sizeof(*linear));
 	Color_RGBA8 *pixels = arena_push(&window->ui->frame_arena, pixel_count * sizeof(*pixels));
 	if (!gfx_read_texture(texture, linear, size.x * sizeof(*linear)))
 	{
-		LOG_ERROR("application capture texture readback failed");
-		if (window->capture.recording) gif_recorder_end(&window->capture);
+		LOG_ERROR("application screenshot texture readback failed");
 		return;
 	}
 	for (u32 index = 0; index < pixel_count; index++)
@@ -1017,14 +999,7 @@ static void app_window_capture_frame(App_Window *window, GFX_Texture *texture)
 			(u8)(CLAMP(linear[index].w, 0.f, 1.f) * 255.f + 0.5f),
 		};
 	}
-	if (screenshot_requested && !screenshot_write_png(pixels, size, size.x * sizeof(*pixels), "orbiter_screenshot")) LOG_ERROR("failed to save application screenshot");
-	if (window->capture.recording && !gif_recorder_frame(&window->capture, pixels, size.x * sizeof(*pixels)))
-	{
-		LOG_ERROR("application GIF capture failed");
-		gif_recorder_end(&window->capture);
-		return;
-	}
-	if (window->capture.frame_count >= GIF_CAPTURE_MAX_FRAMES) gif_recorder_end(&window->capture);
+	if (!screenshot_write_png(pixels, size, size.x * sizeof(*pixels), "orbiter_screenshot")) LOG_ERROR("failed to save application screenshot");
 }
 
 void app_window_render(App_Window *window)
@@ -1084,7 +1059,7 @@ void app_window_render(App_Window *window)
 
 
 	GFX_Texture *present_texture = frame_texture;
-	if (app->transport.state == APP_TRANSPORT_SCRUBBING) present_texture = app_rewind_pass(window, present_texture);
+	if (app->transport.effective_state == APP_TRANSPORT_SCRUBBING) present_texture = app_rewind_pass(window, present_texture);
 	if (window->crt_enabled) present_texture = app_crt_barrel_pass(window, present_texture);
 
 	draw_begin_pass(window->draw, (GFX_PassDesc) {
@@ -1096,7 +1071,7 @@ void app_window_render(App_Window *window)
 	text_gfx_sync(window->text_gfx);
 
 	draw_end_frame(window->draw);
-	PROF_BLOCK("app capture") app_window_capture_frame(window, present_texture);
+	PROF_BLOCK("app screenshot") app_window_take_screenshot(window, present_texture);
 
 	PROF_BLOCK("present wait") gfx_present_window(window->gfx);
 

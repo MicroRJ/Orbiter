@@ -1,5 +1,9 @@
+[CHANGED]
+
 
 [TODO]
+	- Proper benchmarking with warmup rounds and records
+
 	- Bug when opening roms ctrl remains sticky!
 
 	- Processes:

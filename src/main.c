@@ -225,7 +225,6 @@ static const App_KeyBinding app_key_bindings[] =
 	APP_BIND(APP_ACTION_TAKE_PPU_SCREENSHOT, APP_KEY_CHORD_ON_RELEASE, OS_Key_F8, 0),
 	APP_BIND(APP_ACTION_TOGGLE_PPU_CAPTURE, APP_KEY_CHORD_ON_RELEASE, OS_Key_F8, OS_MODIFIER_SHIFT),
 	APP_BIND(APP_ACTION_TAKE_APP_SCREENSHOT, APP_KEY_CHORD_ON_RELEASE, OS_Key_F9, 0),
-	APP_BIND(APP_ACTION_TOGGLE_APP_CAPTURE, APP_KEY_CHORD_ON_RELEASE, OS_Key_F9, OS_MODIFIER_SHIFT),
 	APP_BIND_REPEAT(APP_ACTION_STEP, OS_Key_F10, 0),
 };
 
@@ -277,9 +276,23 @@ static void app_update_emulator_input(const App_WindowOutput *window_output)
 	}
 }
 
+static void app_transport_request_pause(void)
+{
+	app.transport.requested_state = APP_TRANSPORT_PAUSED;
+	app.transport.effective_state = APP_TRANSPORT_PAUSED;
+	app.transport.direction = 0;
+}
+
+static void app_transport_resolve(void)
+{
+	Assert(app.transport.requested_state == APP_TRANSPORT_PAUSED || app.transport.requested_state == APP_TRANSPORT_RUNNING);
+	app.transport.effective_state = app.transport.requested_state == APP_TRANSPORT_RUNNING && !app.transport.run_blockers ? APP_TRANSPORT_RUNNING : APP_TRANSPORT_PAUSED;
+	app.transport.direction = 0;
+}
+
 static void app_finish_emulator_state_change(void)
 {
-	app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
+	app_transport_request_pause();
 	audio_stream_discard(app.audio);
 	nes_process_reset(app.process);
 	program_reset(&app.program, app.process->program_rom_size, app.process->program_ram_size);
@@ -374,8 +387,6 @@ static b32 app_open_library_game(App_LibraryGame *game, b32 save_current)
 	app.play_time_seconds = 0;
 	nes_process_clear_breakpoints(app.process);
 	app_finish_emulator_state_change();
-	// TODO(RJ) we can't just do this, it has to be driven based off of intent!
-	app_window_set_library_visible(app.window, false);
 	LOG_INFO("opened '%.*s'", game->title.size, game->title.data);
 	return true;
 }
@@ -430,6 +441,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 			{
 				if (app_import_game(action.import_game.path))
 				{
+					app_window_emit_action(app.window, (App_Action) { .kind = APP_ACTION_HIDE_LIBRARY_OVERLAY });
 					emulator_state_changed = true;
 					step_requested = false;
 				}
@@ -442,6 +454,7 @@ static b32 app_handle_actions(App_WindowOutput input)
 				{
 					if (app_open_library_game(&library->games[index], true))
 					{
+						app_window_emit_action(app.window, (App_Action) { .kind = APP_ACTION_HIDE_LIBRARY_OVERLAY });
 						emulator_state_changed = true;
 						step_requested = false;
 					}
@@ -471,19 +484,24 @@ static b32 app_handle_actions(App_WindowOutput input)
 				if (program_dump(&app.program, program_dump_path)) LOG_INFO("dumped program model to '%s'", program_dump_path);
 				else LOG_ERROR("failed to dump program model to '%s'", program_dump_path);
 			} break;
+			case APP_ACTION_SET_RUN_BLOCKER:
+			{
+				Assert(action.run_blocker.blocker);
+				if (action.run_blocker.enabled) app.transport.run_blockers |= action.run_blocker.blocker;
+				else app.transport.run_blockers &= ~action.run_blocker.blocker;
+			} break;
 			case APP_ACTION_TOGGLE_RUNNING:
 			{
 				if (nes_emulator_ready_to_run(&app.process->emulator))
 				{
-					App_TransportState *state = app.transport.state == APP_TRANSPORT_SCRUBBING ? &app.transport.return_state : &app.transport.state;
-					Assert(*state == APP_TRANSPORT_PAUSED || *state == APP_TRANSPORT_RUNNING);
-					if (*state == APP_TRANSPORT_RUNNING) *state = APP_TRANSPORT_PAUSED;
+					Assert(app.transport.requested_state == APP_TRANSPORT_PAUSED || app.transport.requested_state == APP_TRANSPORT_RUNNING);
+					if (app.transport.requested_state == APP_TRANSPORT_RUNNING) app.transport.requested_state = APP_TRANSPORT_PAUSED;
 					else
 					{
 						nes_process_clear_ram_evidence(app.process);
-						*state = APP_TRANSPORT_RUNNING;
+						app.transport.requested_state = APP_TRANSPORT_RUNNING;
 					}
-					LOG_INFO(*state == APP_TRANSPORT_RUNNING ? "running realtime" : "paused");
+					LOG_INFO(app.transport.requested_state == APP_TRANSPORT_RUNNING ? "running requested" : "paused");
 				}
 			} break;
 			case APP_ACTION_STEP:
@@ -526,33 +544,26 @@ static b32 app_handle_actions(App_WindowOutput input)
 	{
 		step_requested = false;
 		scrub_input_active = false;
-		app.transport = (App_Transport) { .state = APP_TRANSPORT_PAUSED };
+		app_transport_request_pause();
+	}
+	if (app.transport.run_blockers)
+	{
+		step_requested = false;
+		scrub_input_active = false;
 	}
 
 	scrub_direction = CLAMP(scrub_direction, -1, 1);
 	b32 scrub_modifier_down = !!(input.modifiers & OS_MODIFIER_CONTROL);
-	if (nes_emulator_ready_to_run(&app.process->emulator) && scrub_input_active)
+	if (nes_emulator_ready_to_run(&app.process->emulator) && scrub_input_active && !app.transport.run_blockers)
 	{
-		if (app.transport.state != APP_TRANSPORT_SCRUBBING)
-		{
-			Assert(app.transport.state == APP_TRANSPORT_PAUSED || app.transport.state == APP_TRANSPORT_RUNNING);
-			app.transport.return_state = app.transport.state;
-			app.transport.state = APP_TRANSPORT_SCRUBBING;
-		}
+		app.transport.effective_state = APP_TRANSPORT_SCRUBBING;
 		app.transport.direction = scrub_direction;
 	}
-	else if (app.transport.state == APP_TRANSPORT_SCRUBBING)
+	else if (app.transport.effective_state == APP_TRANSPORT_SCRUBBING && scrub_modifier_down && !app.transport.run_blockers)
 	{
-		if (scrub_modifier_down) {
-			app.transport.direction = 0;
-		}
-		else
-		{
-			Assert(app.transport.return_state == APP_TRANSPORT_PAUSED || app.transport.return_state == APP_TRANSPORT_RUNNING);
-			app.transport.state = app.transport.return_state;
-			app.transport.direction = 0;
-		}
+		app.transport.direction = 0;
 	}
+	else app_transport_resolve();
 
 	return step_requested;
 }
@@ -566,7 +577,7 @@ static void app_run_frame(void)
 		prof_add_metric(PROF_METRIC_AUDIO_SAMPLES_GENERATED, frame.samples);
 		if (nes_process_hit_breakpoint(app.process))
 		{
-			app.transport.state = APP_TRANSPORT_PAUSED;
+			app_transport_request_pause();
 			return;
 		}
 		app.play_time_seconds += frame.samples / (f64)nes_sample_rate(0);
@@ -585,7 +596,7 @@ static void app_run_frame(void)
 		NES_RunFrameResult frame = nes_process_run_frame(app.process, samples, sample_capacity);
 		if (nes_process_hit_breakpoint(app.process))
 		{
-			app.transport.state = APP_TRANSPORT_PAUSED;
+			app_transport_request_pause();
 			return;
 		}
 
@@ -674,16 +685,16 @@ static void app_tick(App_WindowOutput input)
 
 	if (nes_emulator_ready_to_run(&app.process->emulator))
 	{
-		if (app.transport.state != APP_TRANSPORT_SCRUBBING)
+		if (app.transport.effective_state != APP_TRANSPORT_SCRUBBING)
 		{
 			app_update_emulator_input(&input);
 
 			if (step_requested) {
-				app.transport.state = APP_TRANSPORT_PAUSED;
+				app_transport_request_pause();
 				program_invalidate(&app.program);
 				PROF_BLOCK("emulation step") nes_process_step(app.process);
 			}
-			else if (app.transport.state == APP_TRANSPORT_RUNNING) {
+			else if (app.transport.effective_state == APP_TRANSPORT_RUNNING) {
 				program_invalidate(&app.program);
 				PROF_BLOCK("emulation") app_run_frame();
 			}
@@ -705,7 +716,7 @@ static void app_tick(App_WindowOutput input)
 			}
 		}
 
-		if (app.transport.state != APP_TRANSPORT_RUNNING) app_rebuild_program_listing();
+		if (app.transport.effective_state != APP_TRANSPORT_RUNNING) app_rebuild_program_listing();
 		PROF_BLOCK("execution activity")   execution_activity_update(&app.execution_activity, nes_process_execution_graph(app.process), seconds_now().seconds);
 		PROF_BLOCK("publish NES target")   nes_target_publish(&app.published, &app.process->emulator);
 		PROF_BLOCK("upload video texture") app_upload_video_texture();
@@ -713,7 +724,7 @@ static void app_tick(App_WindowOutput input)
 
 	}
 	app_capture_ppu();
-	if (app.transport.state != APP_TRANSPORT_RUNNING) audio_stream_discard(app.audio);
+	if (app.transport.effective_state != APP_TRANSPORT_RUNNING) audio_stream_discard(app.audio);
 	app.ppu_volume += (app.ppu_volume_target - app.ppu_volume) * 0.35f;
 
 	PROF_BLOCK("mix and output audio") app_mix_and_output_audio();

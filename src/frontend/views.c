@@ -127,7 +127,7 @@ static void view_build_active_game_required(ViewFrameData *frame)
 	ui_box_end(ui);
 	ui_box_end(ui);
 	view_end_frame(&content);
-	if (open.pressed) app_window_set_library_visible(frame->window, true);
+	if (open.pressed) app_window_emit_action(frame->window, (App_Action) { .kind = APP_ACTION_SHOW_LIBRARY_OVERLAY });
 }
 
 void view_build_ui(ViewFrameData *frame)

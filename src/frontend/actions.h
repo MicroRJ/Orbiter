@@ -9,6 +9,8 @@ typedef enum
 	APP_ACTION_NONE,
 
 	// Window actions
+	APP_ACTION_SHOW_LIBRARY_OVERLAY,
+	APP_ACTION_HIDE_LIBRARY_OVERLAY,
 	APP_ACTION_TOGGLE_LIBRARY_OVERLAY,
 	APP_ACTION_SPLIT_PANEL,
 	APP_ACTION_CLOSE_PANEL,
@@ -17,7 +19,6 @@ typedef enum
 	APP_ACTION_TOGGLE_PPU_FULLSCREEN,
 	APP_ACTION_EXIT_PPU_FULLSCREEN,
 	APP_ACTION_TAKE_APP_SCREENSHOT,
-	APP_ACTION_TOGGLE_APP_CAPTURE,
 	APP_ACTION_TOGGLE_CRT,
 	APP_ACTION_TOGGLE_UI_DEBUG_BOUNDS,
 	APP_ACTION_ADJUST_UI_FONT_SIZE,
@@ -31,6 +32,7 @@ typedef enum
 	APP_ACTION_SAVE_STATE,
 	APP_ACTION_RESTORE_STATE,
 	APP_ACTION_DUMP_PROGRAM,
+	APP_ACTION_SET_RUN_BLOCKER,
 	APP_ACTION_TOGGLE_RUNNING,
 	APP_ACTION_STEP,
 	APP_ACTION_SCRUB,
@@ -41,6 +43,12 @@ typedef enum
 }
 App_ActionKind;
 
+typedef u32 App_RunBlockers;
+enum
+{
+	APP_RUN_BLOCKER_LIBRARY = 1 << 0,
+};
+
 typedef struct
 {
 	App_ActionKind kind;
@@ -50,6 +58,7 @@ typedef struct
 		struct { u32 index; } open_view;
 		struct { Str path; } import_game;
 		struct { u32 index; } open_library_game;
+		struct { App_RunBlockers blocker; b32 enabled; } run_blocker;
 		struct { i32 direction; } scrub;
 		struct { i32 pixels; } ui_font;
 		struct { f32 delta; } volume;
@@ -111,8 +120,9 @@ App_TransportState;
 
 typedef struct
 {
-	App_TransportState state;
-	App_TransportState return_state;
+	App_TransportState effective_state;
+	App_TransportState requested_state;
+	App_RunBlockers run_blockers;
 	i32 direction;
 }
 App_Transport;
